@@ -1,0 +1,1258 @@
+/* Importing Google Fonts - Poppins */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+
+:root {
+    --primary-green: #28a745;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: "Poppins", sans-serif;
+}
+
+/* Oculta el caret (flechita) automático que Bootstrap pone en los dropdowns */
+.nav-link.dropdown-toggle::after {
+    display: none !important;
+    content: none !important;
+}
+
+/* --- ANIMACIONES DE ENTRADA (ESTILO PHARMASYSTEM) --- */
+
+/* 1. Animación para el cuerpo de la página */
+body {
+    animation: fadeInPage 0.8s ease-out forwards;
+}
+
+/* 2. Animación para el Sidebar (entra desde la izquierda) */
+.sidebar {
+    animation: slideInSidebar 0.5s ease-out forwards;
+}
+
+/* 3. Animación para el Contenido Principal (cae suavemente) */
+.main-content {
+    animation: slideInContent 0.8s ease-out forwards;
+}
+
+/* --- DEFINICIÓN DE KEYFRAMES --- */
+
+/* Aparecer general */
+@keyframes fadeInPage {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Deslizar Sidebar desde la izquierda */
+@keyframes slideInSidebar {
+    0% {
+        transform: translateX(-100%);
+        opacity: 0;
+    }
+    100% {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* Deslizar Contenido desde arriba (Igual que tu Login) */
+@keyframes slideInContent {
+    0% {
+        transform: translateY(-30px);
+        opacity: 0;
+    }
+    100% {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+body {
+    background: #ececec;
+}
+
+/* ===== SIDEBAR GENERAL ===== */
+.layout {
+    display: flex;
+    width: 100%;
+    min-height: 100vh;
+}
+
+.sidebar {
+    width: 280px;
+    height: calc(100vh - 70px);
+    position: fixed;
+    top: 70px;
+    left: 0;
+    background: linear-gradient(180deg, #2ecc71, #27ae60);
+    color: #fff;
+    padding-top: 15px;
+    padding: 10px 0;
+    transition: all 0.4s ease;
+    z-index: 1030; 
+    box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+    overflow-y: auto; 
+    display: flex; 
+    flex-direction: column;
+    transition: width 0.4s ease, transform 0.4s ease, left 0.4s ease;
+}
+
+/* HEADER DEL SIDEBAR 
+.sidebar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    margin-bottom: 20px;
+} */
+
+.header-logo {
+    display: flex;
+    align-items: center;
+    text-decoration: none;
+    color: #fff;
+    font-size: 1.2em;
+    font-weight: 600;
+}
+
+.header-logo img {
+    width: 45px;
+    height: 45px;
+    object-fit: contain;
+    margin-left: 5px;
+    margin-right: 15px; /* SEPARA EL TEXTO */
+}
+
+
+/* NAVEGACIÓN */
+.sidebar-nav {
+   padding: 0 15px;
+    flex-grow: 1; 
+    display: flex;
+    flex-direction: column; /* Organiza la lista principal y el logout en columna */
+    justify-content: space-between; /* Empuja el botón de logout al final */
+
+}
+
+.nav-list {
+    padding-left: 0;
+}
+
+.nav-item {
+    margin-bottom: 5px;
+}
+
+/* Estilo base del enlace */
+.nav-link {
+    display: flex;
+    align-items: center;
+    text-decoration: none;
+    color: #fff !important; /* Forzamos color blanco siempre */
+    padding: 10px 15px;
+    border-radius: 20px;
+    transition: background-color 0.3s, color 0.3s;
+}
+
+/* Estilos para: Hover, Activo y Menú Abierto (aria-expanded="true") */
+.sidebar .nav-link:hover,
+.sidebar .nav-link.active,
+.sidebar .nav-link[aria-expanded="true"] { 
+    background-color: rgba(255, 255, 255, 0.15) !important; 
+    color: #fff !important; /* Asegura texto blanco */
+}
+
+/* Iconos del menú */
+.nav-link .material-symbols-rounded {
+    margin-right: 15px;
+    font-size: 20px;
+}
+
+/* Asegura que el icono también sea blanco cuando está activo/abierto */
+.sidebar .nav-link.active .material-symbols-rounded,
+.sidebar .nav-link[aria-expanded="true"] .material-symbols-rounded {
+    color: #fff !important;
+}
+
+/* --- ANIMACIÓN DE SUBMENÚS (ACORDEÓN CORREGIDO) --- */
+
+.sidebar:not(.collapsed) .dropdown-menu {
+    position: static;
+    display: none;
+    float: none;
+    width: 100%;
+    border: none;
+    background: transparent;
+    margin: 0;
+    padding: 2px 0 !important;
+    box-shadow: none;
+    list-style: none;
+}
+
+/* 2. Clase que Bootstrap aplica mientras se abre/cierra */
+.sidebar .collapse.collapsing {
+    transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 3. Cuando el menú está abierto */
+.sidebar .dropdown-menu.show {
+    display: block;
+    animation: fadeInSubmenu 0.3s ease-out;
+}
+
+/* --- BOTÓN DE HAMBURGUESA --- */
+.btn-toggle-sidebar {
+    background: none;
+    border: none;
+    color: #27ae60;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    padding: 5px;
+    border-radius: 50%;
+    transition: background 0.2s;
+}
+
+.btn-toggle-sidebar:hover {
+    background: rgba(39, 174, 96, 0.1);
+}
+
+/* --- ESTADO COLAPSADO (TIPO GEMINI) --- */
+
+/* Cuando el sidebar tiene la clase .collapsed */
+.sidebar.collapsed {
+    width: 80px; /* Solo se ven los iconos */
+}
+
+/* Ocultar texto y flechas cuando está colapsado */
+.sidebar.collapsed .nav-label,
+.sidebar.collapsed .logo-text-nav, /* Si quieres ocultar el texto del logo también */
+.sidebar.collapsed .dropdown-arrow {
+    display: none !important;
+}
+
+/* Ajustar el margen del contenido principal cuando colapsa */
+.sidebar.collapsed + .main-content,
+.main-content.sidebar-collapsed {
+    margin-left: 80px;
+    width: calc(100% - 80px);
+}
+
+/* Centrar iconos en modo colapsado */
+.sidebar.collapsed .nav-link {
+    justify-content: center;
+    padding: 10px 0;
+}
+
+.sidebar.collapsed .nav-link .material-symbols-rounded {
+    margin-right: 0;
+    font-size: 24px;
+}
+
+/* 4. Estilo de los items internos */
+.dropdown-link {
+    padding: 8px 15px 8px 35px !important; /* Más sangría para jerarquía */
+    font-size: 0.85em;
+    color: rgba(255, 255, 255, 0.9) !important;
+    display: flex;
+    align-items: center;
+    text-decoration: none;
+    border-radius: 20px;
+    transition: all 0.2s ease;
+    margin: 2px 10px; /* Margen lateral para que no toquen los bordes del sidebar */
+}
+
+.dropdown-link:hover {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+    color: #fff !important;
+}
+
+/* 5. Animación de la flecha */
+.dropdown-arrow {
+    transition: transform 0.3s ease !important;
+    margin-left: auto; /* Empuja la flecha al final */
+}
+
+.nav-link[aria-expanded="true"] .dropdown-arrow {
+    transform: rotate(180deg);
+}
+
+.nav-item {
+    margin-bottom: 2px; /* Espacio mínimo entre bloques de menú */
+}
+
+/* 1. Forzamos el colapso a no tener NINGÚN espacio interno */
+.sidebar:not(.collapsed) .collapse {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/* 2. El menú con el espacio mínimo real */
+.sidebar:not(.collapsed) .collapse .dropdown-menu {
+    margin-top: 5px !important; /* Prueba con 2px, es el punto dulce */
+    padding: 0 !important;
+    background-color: rgba(255, 255, 255, 0.1); 
+    border-radius: 15px !important;
+    border: none !important;
+    display: block !important; /* Asegura que respete el flujo del documento */
+    position: relative !important; /* Evita que flote como un dropdown normal */
+}
+
+/* 3. Quitamos el margen del botón superior para que no empuje */
+.nav-item.has-submenu {
+    margin-bottom: 2px !important;
+}
+
+/* 4. El primer link del submenú sin margen superior */
+.sidebar:not(.collapsed) .dropdown-menu li:first-child .dropdown-link {
+    margin-top: 2px !important;
+    padding-top: 10px !important; /* Espacio interno para que no pegue el texto */
+}
+
+/* Pequeño efecto de aparición para los textos */
+@keyframes fadeInSubmenu {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* CONTENEDOR DE CERRAR SESIÓN */
+.logout-container {
+    margin-top: auto;   /* LO EMPUJA AL FONDO */
+    padding: 10px 0;
+}
+
+.logout-link {
+    /* Eliminamos cualquier restricción de ancho para que herede el comportamiento de .nav-link */
+    width: 100%; 
+}
+
+.logout-container .nav-link {
+    margin-bottom: 0;
+}
+
+.logout-link:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+    color: #fff !important; 
+}
+
+/* ===== TOP NAVBAR Y CONTENIDO PRINCIPAL ===== */
+.main-content {
+    margin-left: 280px; 
+    padding-top: 70px; 
+    background: #ececec;
+    width: calc(100% - 280px);
+    min-height: 100vh;
+    transition: all 0.4s ease;
+}
+
+.top-navbar {
+    position: fixed;
+    top: 0;
+    left: 0; 
+    width: 100%; 
+    height: 70px;
+    background: #fff;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 25px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    transition: all 0.4s ease;
+    z-index: 1050; 
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.navbar-left {
+    display: flex;
+    align-items: center;
+    gap: 8px; /* Reduce el espacio entre el botón, la imagen y el texto */
+    width: 280px; /* Forzamos a que mida lo mismo que el sidebar */
+    padding-left: 1px; /* Un poco de espacio a la izquierda para que no toque el borde */
+}
+
+.header-logo-nav {
+    display: flex;
+    align-items: center;
+    text-decoration: none;
+    gap: 8px; /* Espacio corto entre imagen y texto */
+    overflow: hidden; /* Seguridad para que nada salga del ancho */
+}
+
+.header-logo-nav img {
+    height: 32px; /* Imagen más pequeña para que no sature el espacio */
+    width: auto;
+    flex-shrink: 0;
+}
+
+.logo-text-nav {
+    color: #27ae60;
+    font-weight: 700;
+    font-size: 1.2rem; /* Texto más pequeño para que quepa en los 280px */
+    letter-spacing: -0.5px;
+    white-space: nowrap;
+}
+
+/* Contenedor principal de la derecha */
+.top-navbar {
+    display: flex;
+    justify-content: space-between; /* Separa logo de acciones */
+    align-items: center;
+    padding: 0 20px;
+}
+
+.navbar-right-actions {
+    display: flex;
+    align-items: center;
+    margin-left: auto; /* Empuja todo a la derecha */
+}
+
+/* Clase base para botones circulares iguales */
+.btn-nav-round {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    border: none;
+    background: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--primary-green); /* Usando tu variable verde */
+    box-shadow: 0 0 10px rgba(40, 167, 69, 0.15); /* Sombreado verde suave */
+    transition: all 0.3s ease;
+    cursor: pointer;
+    padding: 0;
+}
+
+/* HOVER (igual que buscar) */
+.btn-nav-round:hover {
+    background: var(--primary-green);
+    color: #fff;
+    box-shadow: 0 0 10px rgba(40, 167, 69, 0.5);
+}
+
+/* CLICK (EFECTO QUE QUIERES 🔥) */
+.btn-nav-round:active {
+    transform: scale(0.95);
+    background: #218838; /* verde más oscuro */
+}
+
+.btn-nav-round:focus {
+    outline: none;
+    box-shadow: none;
+}
+
+/* Ajustes específicos para el buscador expandible */
+.search-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.search-input-dynamic {
+    width: 0;
+    height: 45px;
+    border: none;
+    outline: none;
+    padding: 0;
+    border-radius: 25px;
+    background: #f1f3f4;
+    transition: all 0.4s ease;
+    opacity: 0;
+    position: absolute;
+    right: 0;
+    z-index: 1;
+}
+
+/* Cuando el buscador está activo */
+.search-wrapper.active .search-input-dynamic {
+    width: 450px;
+    padding-left: 20px;
+    padding-right: 50px;
+    opacity: 1;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+
+.search-wrapper.active .search-toggle-btn {
+    background: var(--primary-green);
+    color: white;
+    z-index: 2;
+}
+
+.search-results {
+    position: absolute;
+    top: 50px;
+    right: 0;
+    width: 320px;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+    display: none;
+    max-height: 350px;
+    overflow-y: auto;
+    z-index: 9999;
+    animation: fadeIn 0.2s ease;
+}
+
+.delete-history {
+    margin-left: auto;
+    cursor: pointer;
+    color: #999;
+    font-size: 16px;
+    padding: 5px;
+}
+
+.delete-history:hover {
+    color: red;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.search-results .title {
+    font-size: 11px;
+    font-weight: bold;
+    padding: 8px 12px;
+    color: #888;
+    background: #f8f9fa;
+    text-transform: uppercase;
+}
+
+.search-results .item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.search-results .item:hover {
+    background: #f1f3f5;
+}
+
+.search-results .icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: #fff;
+}
+
+.icon-med { background: #0d6efd; }
+.icon-cli { background: #198754; }
+
+.search-results .text {
+    display: flex;
+    flex-direction: column;
+}
+
+.search-results .text small {
+    font-size: 11px;
+    color: #888;
+}
+
+.item.active {
+    background: #e9ecef !important;
+}
+
+/* Estilo del logo dentro del Navbar */
+.navbar-left .header-logo {
+    display: flex;
+    align-items: center;
+    text-decoration: none;
+    gap: 10px;
+}
+
+.navbar-left .logo-text {
+    color: #27ae60; /* Color verde para que resalte en el fondo blanco */
+    font-weight: 700;
+    font-size: 1.3rem;
+}
+
+.navbar-left img {
+    width: 40px;
+    height: 40px;
+}
+
+.section-title h3 {
+    margin: 0;
+    color: #1e293b;
+    font-weight: 600;
+    font-size: 1.2em;
+}
+
+/* DROPDOWN GENERAL */
+.notif-dropdown {
+    width: 320px;
+    border-radius: 15px;
+    overflow: hidden;
+    padding: 0;
+}
+
+/* HEADER */
+.notif-dropdown .dropdown-header {
+    padding: 15px 15px 5px 15px; /* Ajuste de espacio */
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #000000 !important; /* Texto Negro */
+    border: none !important; /* Quitar línea de abajo */
+}
+
+/* ITEM */
+.notif-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 15px;
+    transition: all 0.25s ease;
+    border-radius: 0;
+}
+
+.notif-item:hover {
+    background: #f1f3f4;
+    transform: translateX(3px);
+}
+
+/* ICONO */
+.notif-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+/* CONTENIDO */
+.notif-content {
+    display: flex;
+    flex-direction: column;
+}
+
+.notif-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin: 0;
+    color: #212529;
+}
+
+.notif-sub {
+    font-size: 0.75rem;
+    color: #6c757d;
+}
+
+/* EMPTY STATE */
+.notif-empty {
+    padding: 25px;
+    color: #6c757d;
+}
+
+.notif-empty i {
+    font-size: 2rem;
+    margin-bottom: 10px;
+    color: #28a745;
+}
+
+.badge-noti {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+
+    background: #dc3545;
+    color: #fff;
+
+    font-size: 0.65rem;
+    font-weight: 600;
+
+    min-width: 18px;
+    height: 18px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 0 5px;
+
+    border-radius: 50px;
+
+    box-shadow: 0 0 6px rgba(220, 53, 69, 0.6);
+
+    animation: notifPulse 1.5s infinite;
+}
+
+@keyframes notifPulse {
+    0% {
+        transform: scale(1);
+        box-shadow: 0 0 6px rgba(220, 53, 69, 0.6);
+    }
+    50% {
+        transform: scale(1.15);
+        box-shadow: 0 0 12px rgba(220, 53, 69, 1);
+    }
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 6px rgba(220, 53, 69, 0.6);
+    }
+}
+
+.btn-ver-todas.line {
+    display: block;
+    text-align: center;
+    padding: 10px;
+    margin: 8px;
+    font-weight: 600;
+    text-decoration: none;
+    color: #333;
+    position: relative;
+}
+
+.btn-ver-todas.line::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 5px;
+    width: 0%;
+    height: 2px;
+    background: #03b026;
+    transition: all 0.3s ease;
+    transform: translateX(-50%);
+}
+
+.btn-ver-todas.line:hover {
+    color: #03b026;
+}
+
+.btn-ver-todas.line:hover::after {
+    width: 60%;
+}
+
+.dropdown-footer {
+    border-top: 1px solid #eee;
+    padding-top: 5px;
+}
+
+.badge-noti {
+    animation: none;
+}
+
+/* --- BOTÓN DE USUARIO: SOLO ELEVACIÓN Y BRILLO (SIN BORDES) --- */
+.user-info-desktop {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    /* Quitamos cualquier fondo por defecto */
+    background-color: transparent !important; 
+    transition: all 0.3s ease;
+    padding: 0 !important;
+    margin: 0;
+}
+
+
+/* EFECTO HOVER EN LA IMAGEN: RESALTA (BRILLA) */
+.user-info-desktop:hover img {
+    filter: brightness(1.05); /* 🔥 Hace que la foto se vea más viva al pasar el mouse */
+}
+
+/* EFECTO CLICK: SE HUNDE (mismo efecto que el botón de búsqueda) */
+.user-info-desktop:active {
+    transform: scale(0.95);
+    background: transparent;
+}
+
+/* Contenedor de la foto y flecha */
+.fb-avatar-wrapper {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Círculo de la flecha: VERDE PHARMA */
+.fb-caret-circle {
+    position: absolute;
+    bottom: -1px;
+    right: -1px;
+    background-color: #2ecc71;
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid #fff; /* El borde blanco para que la flecha resalte sobre la foto */
+    z-index: 2;
+}
+
+/* Icono de la flecha: BLANCO */
+.fb-caret-circle span {
+    font-size: 13px !important;
+    color: #ffffff !important;
+    font-weight: bold;
+}
+
+/* Quitar flecha automática de Bootstrap */
+.user-info-desktop::after {
+    display: none !important;
+}
+
+/* 1. BAJAR EL DROPDOWN DEL NAV-BAR */
+.dropdown-menu {
+    margin-top: 8px !important;
+    padding: 0 !important;
+    border-radius: 15px;
+    border: none;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+    opacity: 0;
+    transform: translateY(10px) scale(0.95);
+    transform-origin: top right;
+    transition: all 0.25s ease;
+    display: block; /* importante */
+    pointer-events: none;
+}
+
+/* Ajuste específico para el dropdown de usuario si es necesario */
+.top-navbar .dropdown:last-child .dropdown-menu {
+    margin-top: 6px !important;
+}
+
+/* Ajuste específico para el dropdown de notificaciones */
+.notifications-dropdown .dropdown-menu {
+    margin-top: 8px !important;
+}
+
+/* SOLO cuando Bootstrap lo abre */
+.dropdown-menu.show {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+}
+
+/* 2. CORREGIR EL CENTRADO DE LA SELECCIÓN (HOVER) */
+.dropdown-item {
+    font-size: 0.9rem;
+    color: #555;
+    /* Ajustamos el padding para que sea igual a ambos lados */
+    padding: 10px 15px; 
+    /* El margen lateral es CLAVE para que la píldora de selección se vea centrada */
+    margin: 4px 8px; 
+    transition: all 0.2s ease;
+    border-radius: 15px; 
+    display: flex;
+    align-items: center;
+    width: auto; /* Permite que el margen funcione para centrar el item */
+}
+
+/* Soporte multilinea para notificaciones */
+.dropdown-menu .dropdown-item {
+    white-space: normal !important;    /* Permite que el texto salte de línea */
+    word-break: break-word;            /* Corta palabras si son demasiado largas */
+}
+
+/* Hover estándar (Verde) */
+.dropdown-item:hover {
+    background-color: rgba(40, 167, 69, 0.1) !important;
+    color: #28a745 !important;
+    /* Eliminamos el translateX para que la selección se quede centrada y no se mueva a la derecha */
+    transform: scale(1.02); /* Cambiamos el desplazamiento por un ligero aumento de tamaño */
+}
+
+/* Hover específico para Cerrar Sesión (Rojo) */
+.dropdown-item.text-danger:hover {
+    background-color: rgba(220, 53, 69, 0.1) !important;
+    color: #dc3545 !important;
+}
+
+/* Alineación de iconos dentro del dropdown */
+.dropdown-item .material-symbols-rounded {
+    margin-right: 10px;
+    font-size: 1.3rem;
+}
+
+/* Ajuste de la animación para que nazca un poco más abajo */
+@keyframes fadeInDropdown {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ÁREA DE CONTENIDO */
+.content-area {
+    padding-bottom: 20px;
+    background: #ececec;
+}
+
+/* Mantener módulo padre activo cuando un submenú está activo */
+.dropdown-container .dropdown-menu .nav-link.active {
+    background-color: rgba(255, 255, 255, 0.15) !important;
+    color: #fff !important;
+}
+
+.dropdown-container:has(.dropdown-menu .active) > .nav-link {
+    background-color: rgba(255, 255, 255, 0.15) !important;
+    color: #fff !important;
+}
+
+/* SCROLLBAR PERSONALIZADO (Barra Blanca)    */
+/* Ancho de la barra de scroll */
+.sidebar::-webkit-scrollbar {
+    width: 6px;
+}
+
+/* El riel (track) */
+.sidebar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* El pulgar (thumb) que se mueve */
+.sidebar::-webkit-scrollbar-thumb {
+    background: #fff;
+    border-radius: 10px;
+}
+
+/* 4. Cambiar el color del thumb al pasar el mouse (opcional) */
+.sidebar::-webkit-scrollbar-thumb:hover {
+    background: #e0e0e0;
+}
+
+/* --- EFECTO DE ONDA (RIPPLE) --- */
+
+/* Contenedor necesario para que la onda no se salga del botón */
+.nav-link {
+    position: relative;
+    overflow: hidden;
+}
+
+.ripple {
+    position: absolute;
+    border-radius: 50%;
+    width: 10px;
+    height: 10px;
+    background-color: rgba(255, 255, 255, 0.4);
+    transform: scale(0);
+    animation: ripple-animation 0.6s ease-out;
+    pointer-events: none;
+}
+
+@keyframes ripple-animation {
+    to {
+        transform: scale(22); /* crecimiento similar al de Gemini */
+        opacity: 0;
+    }
+}
+
+/* ============================================================ */
+/* SUBMENÚ FLOTANTE PHARMASYSTEM */
+/* ============================================================ */
+
+/* 1. ¡CLAVE!: Cada ítem debe ser relativo para que el menú flote a su lado */
+.sidebar-nav .nav-item {
+    position: relative !important;
+}
+
+/* 2. Resetear el comportamiento de Bootstrap en modo colapsado */
+/* ============================================================ */
+/* SUBMENÚ FLOTANTE PHARMASYSTEM (ESTILO LIMPIO - SIN BORDES)   */
+/* ============================================================ */
+
+/* 1. Contenedor del Menú Flotante */
+.sidebar.collapsed .has-submenu .dropdown-menu {
+    display: block !important;
+    position: absolute !important;
+    left: calc(100% + 15px) !important; /* Separa el menú del sidebar */
+    top: 0 !important;        
+    width: 260px !important;  
+    max-height: 250px !important; /* Altura controlada */
+    
+    /* Fondo degradado verde sin bordes */
+    background: linear-gradient(180deg, #2ecc71, #27ae60) !important;
+    border: none !important; /* ELIMINA LOS BORDES BLANCOS */
+    border-radius: 0 15px 15px 0 !important;
+    padding: 10px 0 !important;
+    margin: 0 !important;
+    box-shadow: 10px 0 20px rgba(0,0,0,0.2) !important;
+    
+    /* Control de Scrollbar */
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    
+    /* Animación y Visibilidad */
+    opacity: 0;
+    pointer-events: none;
+    visibility: hidden;
+    transform: translateX(10px);
+    transition: all 0.3s ease;
+    z-index: 10000 !important;
+}
+
+/* Mostrar al pasar el mouse sobre el item del sidebar */
+.sidebar.collapsed .has-submenu:hover > .dropdown-menu {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateX(0);
+}
+
+/* 2. Estilo de los Enlaces (Links) dentro del Menú Flotante */
+.sidebar.collapsed .dropdown-menu .nav-link {
+    display: flex !important;
+    align-items: center !important;
+    gap: 15px !important; /* Espacio ideal entre icono y texto */
+    padding: 12px 20px !important;
+    margin: 2px 8px !important;
+    color: #ffffff !important;
+    background: transparent !important; /* Sin fondo gris */
+    border: none !important; /* Sin bordes en los links */
+    border-radius: 10px !important;
+    text-decoration: none;
+    white-space: normal !important; /* Permite texto largo en 2 líneas */
+    transition: background 0.2s ease;
+}
+
+/* Hover dentro de las opciones del menú flotante */
+.sidebar.collapsed .dropdown-menu .nav-link:hover {
+    background: rgba(255, 255, 255, 0.15) !important; /* Fondo sutil al pasar mouse */
+    transform: translateX(4px);
+}
+
+/* 3. Ajuste de Textos e Iconos internos */
+.sidebar.collapsed .dropdown-menu .nav-label {
+    display: block !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    font-size: 0.9rem;
+    font-weight: 400;
+    margin: 0 !important;
+}
+
+.sidebar.collapsed .dropdown-menu .material-symbols-rounded {
+    font-size: 22px !important;
+    color: #ffffff !important;
+}
+
+/* ============================================================ */
+/* SCROLLBAR ESTILO MINIMALISTA (FLOATING EFFECT)               */
+/* ============================================================ */
+
+/* 1. Contenedor del menú: Forzamos a que el scroll no desplace el contenido */
+.sidebar.collapsed .has-submenu .dropdown-menu {
+    overflow-y: auto;
+    overflow-x: hidden;
+    /* Esto intenta que la barra flote sobre el contenido en lugar de ocupar espacio extra */
+    scrollbar-gutter: stable both-edges; 
+    padding-right: 5px !important; /* Espacio de seguridad interno */
+}
+
+/* 2. Definir el ancho de la barra */
+.sidebar.collapsed .has-submenu .dropdown-menu::-webkit-scrollbar {
+    width: 8px; /* Un poco más delgada para que quepa mejor dentro */
+}
+
+/* 3. El Riel (Track) */
+.sidebar.collapsed .has-submenu .dropdown-menu::-webkit-scrollbar-track {
+    background: transparent !important;
+    margin: 10px 0; /* Separa la barra de los bordes superior e inferior para que no toque las curvas */
+}
+
+/* 4. El Pulgar (Thumb) - EL TRUCO PARA QUE NO SOBRESALGA */
+.sidebar.collapsed .has-submenu .dropdown-menu::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.3) !important;
+    border-radius: 20px !important;
+    
+    /* Aumentamos el borde transparente para 'empujar' la barra hacia la izquierda */
+    border: 2px solid transparent !important; 
+    background-clip: content-box !important;
+    
+    /* Asegura que la barra no se pegue al borde derecho */
+    margin-right: 5px !important; 
+}
+
+/* Hover para que se vea más claro */
+.sidebar.collapsed .has-submenu .dropdown-menu::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(255, 255, 255, 0.5) !important;
+}
+
+/* 3. MOSTRAR dinámicamente al hacer Hover */
+.sidebar.collapsed .has-submenu:hover > .dropdown-menu {
+    display: block !important;
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(0);
+}
+
+/* 4. Enlaces con soporte para texto largo */
+.sidebar.collapsed .dropdown-menu .nav-link {
+    justify-content: flex-start !important;
+    padding: 12px 20px !important;
+    margin: 4px 8px !important;
+    border-radius: 12px !important; /* Un poco menos redondeado para que el texto luzca mejor */
+    width: calc(100% - 16px);
+    color: #ffffff !important; 
+    display: flex !important;
+    align-items: center !important; /* Alinea icono con la primera línea de texto */
+    text-decoration: none;
+    
+    /* CAMBIO CLAVE: Soporte para múltiples líneas */
+    white-space: normal !important; 
+    line-height: 1.2;
+    transition: all 0.2s ease;
+
+    /* SOLUCIÓN: Añadimos un gap para separar el icono del texto */
+    gap: 15px;
+}
+
+.sidebar.collapsed .dropdown-menu .nav-link::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(255,255,255,0.15);
+    border-radius: 50px;
+
+    transform: scaleX(0.85);
+    opacity: 0;
+
+    transition: transform 0.25s ease, opacity 0.25s ease;
+    z-index: -1;
+}
+
+.sidebar.collapsed .dropdown-menu .nav-link:hover::before {
+    transform: scaleX(1);
+    opacity: 1;
+}
+
+/* Eliminar fondo gris en el menú flotante */
+.sidebar.collapsed .dropdown-menu .nav-link:hover,
+.sidebar.collapsed .dropdown-menu .nav-link.active {
+    background-color: transparent !important; /* Quitamos el gris */
+    color: #fff !important;
+}
+
+.sidebar.collapsed .dropdown-menu .nav-link:hover {
+    transform: translateX(2px);
+}
+
+.sidebar.collapsed .dropdown-menu .nav-link:hover .material-symbols-rounded {
+    transform: scale(1.1);
+    transition: transform 0.2s ease;
+}
+
+/* 5. Reaparición del Label (Texto) */
+.sidebar.collapsed .dropdown-menu .nav-label {
+    display: block !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    color: #ffffff !important;
+    font-size: 0.88rem;
+    font-weight: 500;
+    margin-left: 12px !important;
+    text-align: left;
+}
+
+/* 6. Iconos fijos a la izquierda */
+.sidebar.collapsed .dropdown-menu .material-symbols-rounded {
+    flex-shrink: 0; /* Evita que el icono se encoja si el texto es largo */
+    font-size: 22px !important;
+    margin-right: 0 !important; /* Limpiamos márgenes heredados */
+}
+
+/* 8. Este es el puente que une el sidebar con el menú flotante */
+.sidebar.collapsed .has-submenu::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 100%;    /* Empieza donde termina el sidebar */
+    width: 30px;   /* Grosor del puente invisible */
+    height: 100%;
+    background: transparent;
+    z-index: 10;
+}
+
+/* 7. Limpieza */
+.sidebar.collapsed .dropdown-arrow {
+    display: none !important; 
+}
+
+/* Asegurar que el sidebar no corte el menú cuando está colapsado */
+.sidebar.collapsed {
+    overflow: visible !important;
+}
+.sidebar.collapsed .sidebar-nav {
+    overflow: visible !important;
+}
+
+/* Estilo para el scrollbar general del navegador */
+::-webkit-scrollbar {
+    width: 10px; /* Un poco más ancho que el del sidebar para mejor usabilidad */
+}
+
+::-webkit-scrollbar-track {
+    background: #ececec; /* Color gris del fondo de tu sistema para que se integre */
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: #2ecc71; /* Verde principal de PharmaSystem */
+    border-radius: 20px;
+    border: 3px solid #ececec; /* Efecto de padding para que parezca flotar */
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background-color: #27ae60; /* Verde más oscuro al pasar el mouse */
+}
+
+/* MOBILE RESPONSIVE */
+.sidebar-menu-button {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 1040;
+}
+
+/* Responsive media query code form small screens */
+@media (max-width: 768px) {
+    .sidebar-menu-button {
+        display: flex;
+        position: fixed;
+        left: 20px;
+        top: 20px;
+        border: none;
+        color: rgb(69, 68, 68);
+        background: #fff;
+        align-items: center;
+        justify-content: center;
+        width: 35px;
+        height: 35px;
+        padding: 0;
+        border-radius: 6px;
+        cursor: pointer;
+    }
+
+    .sidebar-menu-button span {
+        font-size: 1.8rem;
+    }
+
+    #sidebar {
+        margin-left: -264px;
+    }
+
+    #sidebar.collapsed {
+        margin-left: 0;
+    }
+}
