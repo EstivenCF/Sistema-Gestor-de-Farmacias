@@ -1,7 +1,13 @@
 <?php
 require_once __DIR__ . '/../conexion.php';
 session_start();
+
 header('Content-Type: application/json');
+
+if (!isset($_SESSION['id_sesion'])) {
+    echo json_encode(['success' => false, 'message' => 'Sesión no iniciada']);
+    exit();
+}
 
 $data = json_decode(file_get_contents('php://input'), true);
 if (!$data) {
@@ -9,149 +15,115 @@ if (!$data) {
     exit();
 }
 
-function generarNuevoNumeroDocumento($conexion) {
-    try {
-        $stmt = $conexion->query("SELECT numero_documento FROM ventas WHERE numero_documento LIKE 'FAC-%' ORDER BY id_venta DESC LIMIT 1");
-        $ultimo = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($ultimo) {
-            $numero = intval(substr($ultimo['numero_documento'], 4));
-            $nuevo_numero = $numero + 1;
-        } else {
-            $nuevo_numero = 1;
-        }
-        return 'FAC-' . str_pad($nuevo_numero, 6, '0', STR_PAD_LEFT);
-    } catch(PDOException $e) {
-        return 'FAC-' . date('Ymd') . '-0001';
-    }
-}
-
 try {
     $conexion->beginTransaction();
-    $id_usuario = $data['id_usuario'] ?? $_SESSION['id_usuario'] ?? null;
-    if (!$id_usuario) throw new Exception('Usuario no identificado');
-    
-    // Validar stock
-    foreach ($data['productos'] as $item) {
-        $stmt = $conexion->prepare("
-            SELECT i.cantidad, l.estado, l.fecha_vencimiento
-            FROM inventario i
-            JOIN lotes l ON i.id_lote = l.id_lote
-            WHERE i.id_lote = ? AND i.id_sucursal = ?
-        ");
-        $stmt->execute([$item['id_lote'], $data['id_sucursal']]);
-        $stock_info = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$stock_info) throw new Exception("Producto no encontrado en inventario");
-        if ($stock_info['estado'] != 'ACTIVO') throw new Exception("Lote no disponible (Estado: {$stock_info['estado']})");
-        if ($stock_info['fecha_vencimiento'] < date('Y-m-d')) throw new Exception("Lote vencido");
-        if ($stock_info['cantidad'] < $item['cantidad']) throw new Exception("Stock insuficiente. Disponible: {$stock_info['cantidad']}, Requerido: {$item['cantidad']}");
-    }
-    
-    // Obtener porcentaje ITBIS actual
-    $itbis_porcentaje = 18;
-    $stmtItbis = $conexion->query("SELECT porcentaje FROM config_itbis WHERE activo = true AND CURRENT_DATE BETWEEN fecha_inicio AND COALESCE(fecha_fin, CURRENT_DATE + INTERVAL '100 years') LIMIT 1");
-    $itbis_config = $stmtItbis->fetch();
-    if ($itbis_config) $itbis_porcentaje = $itbis_config['porcentaje'];
-    
-    $subtotal = floatval($data['subtotal']);
-    $descuento_total = floatval($data['monto_descuento'] ?? 0);
-    $itbis_total = floatval($data['itbis_total']); // ya viene calculado del frontend
-    $monto_cubre_seguro = floatval($data['monto_cubre_seguro'] ?? 0);
-    $usa_seguro = ($data['usa_seguro'] ?? false) ? 'true' : 'false';
-    $total = floatval($data['monto_paga_paciente'] ?? ($subtotal - $descuento_total + $itbis_total - $monto_cubre_seguro));
-    
-    $numero_documento = generarNuevoNumeroDocumento($conexion);
-    $id_cliente = !empty($data['id_cliente']) ? intval($data['id_cliente']) : null;
-    $id_metodo_pago = !empty($data['id_metodo_pago']) ? intval($data['id_metodo_pago']) : null;
-    $es_credito = ($data['id_condicion'] != 1) ? 'true' : 'false';
-    $estado_pago = ($data['id_condicion'] == 1) ? 'PAGADO' : 'PENDIENTE';
-    
-    $fecha_vencimiento_pago = null;
-    if ($data['id_condicion'] != 1) {
-        $stmt = $conexion->prepare("SELECT dias_plazo FROM condicion_pago WHERE id_condicion = ?");
-        $stmt->execute([$data['id_condicion']]);
-        $condicion = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($condicion && $condicion['dias_plazo'] > 0) {
-            $fecha_vencimiento_pago = date('Y-m-d', strtotime("+{$condicion['dias_plazo']} days"));
-        }
-    }
-    
+
+    // Validar y convertir tipos
+    $id_condicion = isset($data['id_condicion']) ? (int)$data['id_condicion'] : 1;
+    if ($id_condicion < 1 || $id_condicion > 3) $id_condicion = 1;
+    $es_credito = ($id_condicion == 2 || $id_condicion == 3);
+    $usa_seguro = isset($data['usa_seguro']) ? filter_var($data['usa_seguro'], FILTER_VALIDATE_BOOLEAN) : false;
+    $monto_seguro = isset($data['monto_cubre_seguro']) ? (float)$data['monto_cubre_seguro'] : 0.0;
+    $monto_paciente = isset($data['monto_paga_paciente']) ? (float)$data['monto_paga_paciente'] : (float)$data['total'];
+
     // Insertar venta
-    $stmt = $conexion->prepare("
-        INSERT INTO ventas (
-            numero_documento, fecha, id_usuario, id_cliente, id_sucursal, 
-            id_condicion, subtotal, itbis_total, descuento_total, total,
-            es_credito, estado_pago, fecha_vencimiento_pago,
-            usa_seguro, monto_cubre_seguro, monto_paga_paciente
-        ) VALUES (
-            ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?,
-            ?, ?, ?
-        ) RETURNING id_venta
-    ");
-    $stmt->execute([
-        $numero_documento, $id_usuario, $id_cliente, intval($data['id_sucursal']),
-        intval($data['id_condicion']), $subtotal, $itbis_total, $descuento_total, $total,
-        $es_credito, $estado_pago, $fecha_vencimiento_pago,
-        $usa_seguro, $monto_cubre_seguro, $total
-    ]);
+    $sql = "INSERT INTO ventas 
+        (numero_documento, id_usuario, id_cliente, id_sucursal, id_condicion, subtotal, descuento_total, itbis_total, total, es_credito, usa_seguro, monto_cubre_seguro, monto_paga_paciente)
+        VALUES (:num_doc, :id_user, :id_cliente, :id_sucursal, :id_condicion, :subtotal, :descuento, :itbis, :total, :credito, :seguro, :monto_seguro, :monto_paciente)
+        RETURNING id_venta";
+    $stmt = $conexion->prepare($sql);
+    $stmt->bindValue(':num_doc', $data['numero_documento'], PDO::PARAM_STR);
+    $stmt->bindValue(':id_user', $data['id_usuario'], PDO::PARAM_INT);
+    $stmt->bindValue(':id_cliente', $data['id_cliente'] ?? null, PDO::PARAM_INT);
+    $stmt->bindValue(':id_sucursal', $data['id_sucursal'], PDO::PARAM_INT);
+    $stmt->bindValue(':id_condicion', $id_condicion, PDO::PARAM_INT);
+    $stmt->bindValue(':subtotal', (float)$data['subtotal'], PDO::PARAM_STR);
+    $stmt->bindValue(':descuento', (float)($data['monto_descuento'] ?? 0), PDO::PARAM_STR);
+    $stmt->bindValue(':itbis', (float)$data['itbis_total'], PDO::PARAM_STR);
+    $stmt->bindValue(':total', (float)$data['total'], PDO::PARAM_STR);
+    $stmt->bindValue(':credito', $es_credito, PDO::PARAM_BOOL);
+    $stmt->bindValue(':seguro', $usa_seguro, PDO::PARAM_BOOL);
+    $stmt->bindValue(':monto_seguro', $monto_seguro, PDO::PARAM_STR);
+    $stmt->bindValue(':monto_paciente', $monto_paciente, PDO::PARAM_STR);
+    $stmt->execute();
     $id_venta = $stmt->fetchColumn();
-    if (!$id_venta) throw new Exception('Error al crear la venta');
-    
-    // Insertar detalles (con el ITBIS unitario recalculado)
-    foreach ($data['productos'] as $item) {
-        $item_subtotal = floatval($item['precio_unitario']) * intval($item['cantidad']);
-        $proporcion = $item_subtotal / $subtotal;
-        $item_descuento = $descuento_total * $proporcion;
-        $item_subtotal_con_desc = $item_subtotal - $item_descuento;
-        $itbis_unitario = 0;
-        if ($item['aplica_itbis']) {
-            $itbis_unitario = ($item_subtotal_con_desc * ($itbis_porcentaje / 100)) / intval($item['cantidad']);
+
+    // Detalle de venta
+    foreach ($data['productos'] as $prod) {
+        $itemSubtotal = (float)$prod['cantidad'] * (float)$prod['precio_unitario'];
+        $itemItbis = $prod['aplica_itbis'] ? $itemSubtotal * 0.18 : 0;
+        $sqlDet = "INSERT INTO detalle_venta (id_venta, id_lote, id_producto, cantidad, precio_unitario, descuento_unitario, itbis_unitario, subtotal)
+                   VALUES (:id_venta, :id_lote, :id_producto, :cant, :precio, :dto, :itbis, :subtotal)";
+        $stmtDet = $conexion->prepare($sqlDet);
+        $stmtDet->bindValue(':id_venta', $id_venta, PDO::PARAM_INT);
+        $stmtDet->bindValue(':id_lote', $prod['id_lote'], PDO::PARAM_INT);
+        $stmtDet->bindValue(':id_producto', $prod['id_producto'], PDO::PARAM_INT);
+        $stmtDet->bindValue(':cant', $prod['cantidad'], PDO::PARAM_INT);
+        $stmtDet->bindValue(':precio', $prod['precio_unitario'], PDO::PARAM_STR);
+        $stmtDet->bindValue(':dto', 0, PDO::PARAM_STR);
+        $stmtDet->bindValue(':itbis', $itemItbis, PDO::PARAM_STR);
+        $stmtDet->bindValue(':subtotal', $itemSubtotal + $itemItbis, PDO::PARAM_STR);
+        $stmtDet->execute();
+    }
+
+    // Pago al contado
+    if ($id_condicion == 1 && !empty($data['id_metodo_pago'])) {
+        $sqlPago = "INSERT INTO pagos (id_venta, id_metodo, monto) VALUES (:id_venta, :id_metodo, :monto)";
+        $stmtPago = $conexion->prepare($sqlPago);
+        $stmtPago->bindValue(':id_venta', $id_venta, PDO::PARAM_INT);
+        $stmtPago->bindValue(':id_metodo', $data['id_metodo_pago'], PDO::PARAM_INT);
+        $stmtPago->bindValue(':monto', (float)$data['total'], PDO::PARAM_STR);
+        $stmtPago->execute();
+    }
+
+    // ==================== ENTREGA CORREGIDA ====================
+    if (!empty($data['delivery_activo']) && filter_var($data['delivery_activo'], FILTER_VALIDATE_BOOLEAN)) {
+        // Obtener el id_estado correspondiente a 'PENDIENTE'
+        $stmtEstado = $conexion->prepare("SELECT id_estado FROM estado_entrega WHERE nombre = 'PENDIENTE'");
+        $stmtEstado->execute();
+        $id_estado_pendiente = $stmtEstado->fetchColumn();
+        if (!$id_estado_pendiente) {
+            throw new Exception("No se encontró el estado 'PENDIENTE' en la tabla estado_entrega");
         }
-        $subtotal_item = $item_subtotal_con_desc;
         
-        $stmtDet = $conexion->prepare("
-            INSERT INTO detalle_venta (id_venta, id_lote, id_producto, cantidad, precio_unitario, itbis_unitario, subtotal)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ");
-        $stmtDet->execute([
-            $id_venta, intval($item['id_lote']), intval($item['id_producto']),
-            intval($item['cantidad']), floatval($item['precio_unitario']),
-            $itbis_unitario, $subtotal_item
-        ]);
+        $numero_seguimiento = 'DEL-' . date('Ymd') . '-' . str_pad($id_venta, 6, '0', STR_PAD_LEFT);
+        $cliente_nombre = '';
+        if (!empty($data['id_cliente'])) {
+            $stmtCli = $conexion->prepare("SELECT nombre FROM clientes WHERE id_cliente = :id");
+            $stmtCli->execute([':id' => $data['id_cliente']]);
+            $cliente_nombre = $stmtCli->fetchColumn();
+        } else {
+            $cliente_nombre = 'Consumidor Final';
+        }
+
+        // Usar las columnas correctas según tu esquema:
+        // - fecha_asignada (con 'd') en lugar de fecha_asignacion
+        // - id_estado en lugar de estado (string)
+        // - No se usa estado booleano, se usa id_estado
+        $sqlEnt = "INSERT INTO entregas 
+            (id_venta, id_cliente, id_sucursal, id_repartidor, numero_seguimiento, direccion_entrega, costo_entrega, creado_por, cliente_nombre, id_estado, fecha_asignada)
+            VALUES (:id_venta, :id_cliente, :id_sucursal, :id_repartidor, :numero_seg, :direccion, :costo, :creado_por, :cliente_nombre, :id_estado, NOW())";
+        $stmtEnt = $conexion->prepare($sqlEnt);
+        $stmtEnt->bindValue(':id_venta', $id_venta, PDO::PARAM_INT);
+        $stmtEnt->bindValue(':id_cliente', $data['id_cliente'] ?? null, PDO::PARAM_INT);
+        $stmtEnt->bindValue(':id_sucursal', $data['id_sucursal'], PDO::PARAM_INT);
+        $stmtEnt->bindValue(':id_repartidor', $data['id_repartidor'] ?? null, PDO::PARAM_INT);
+        $stmtEnt->bindValue(':numero_seg', $numero_seguimiento, PDO::PARAM_STR);
+        $stmtEnt->bindValue(':direccion', $data['direccion_entrega'], PDO::PARAM_STR);
+        $stmtEnt->bindValue(':costo', (float)($data['costo_envio'] ?? 0), PDO::PARAM_STR);
+        $stmtEnt->bindValue(':creado_por', $data['id_usuario'], PDO::PARAM_INT);
+        $stmtEnt->bindValue(':cliente_nombre', $cliente_nombre, PDO::PARAM_STR);
+        $stmtEnt->bindValue(':id_estado', $id_estado_pendiente, PDO::PARAM_INT);
+        $stmtEnt->execute();
     }
-    
-    // Registrar descuento
-    if (!empty($data['id_descuento']) && $descuento_total > 0) {
-        $stmtDesc = $conexion->prepare("INSERT INTO venta_descuento (id_venta, id_descuento, monto_descuento, fecha_aplicacion, id_usuario) VALUES (?, ?, ?, NOW(), ?)");
-        $stmtDesc->execute([$id_venta, intval($data['id_descuento']), $descuento_total, $id_usuario]);
-    }
-    
-    // Registrar pago si es contado
-    if ($data['id_condicion'] == 1 && $id_metodo_pago) {
-        $stmtPago = $conexion->prepare("INSERT INTO pagos (id_venta, id_metodo, monto, id_aseguradora, monto_seguro, monto_paciente, estado) VALUES (?, ?, ?, ?, ?, ?, 'COMPLETADO')");
-        $stmtPago->execute([$id_venta, $id_metodo_pago, $total, $data['id_aseguradora'] ?? null, $monto_cubre_seguro, $total]);
-    }
-    
-    // Acumular puntos
-    if ($id_cliente) {
-        $puntos = floor($total);
-        $stmtPuntos = $conexion->prepare("INSERT INTO acumulacion_puntos (id_venta, id_cliente, puntos_ganados) VALUES (?, ?, ?)");
-        $stmtPuntos->execute([$id_venta, $id_cliente, $puntos]);
-        $stmtTarjeta = $conexion->prepare("UPDATE tarjetas_fidelidad SET puntos_acumulados = puntos_acumulados + ? WHERE id_cliente = ? AND activo = true");
-        $stmtTarjeta->execute([$puntos, $id_cliente]);
-    }
-    
+
     $conexion->commit();
-    $siguiente_numero = generarNuevoNumeroDocumento($conexion);
-    
     echo json_encode([
         'success' => true,
         'id_venta' => $id_venta,
-        'numero_documento' => $numero_documento,
-        'nuevo_numero_documento' => $siguiente_numero,
-        'total' => number_format($total, 2)
+        'numero_documento' => $data['numero_documento']
     ]);
-    
+
 } catch (Exception $e) {
     $conexion->rollBack();
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);

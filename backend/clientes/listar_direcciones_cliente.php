@@ -1,0 +1,41 @@
+<?php
+require_once __DIR__ . '/../conexion.php';
+session_start();
+
+header('Content-Type: application/json');
+
+if (!isset($_SESSION['id_sesion'])) {
+    echo json_encode(['success' => false, 'message' => 'No autorizado']);
+    exit();
+}
+
+$id_cliente = isset($_GET['id_cliente']) ? (int)$_GET['id_cliente'] : 0;
+if (!$id_cliente) {
+    echo json_encode(['success' => false, 'message' => 'Cliente no especificado']);
+    exit();
+}
+
+try {
+    // Obtener direcciones asociadas al cliente desde la tabla puente
+    $sql = "SELECT d.id_direccion, d.direccion, d.barrio, d.ciudad, d.referencia, cd.predeterminada
+            FROM direcciones d
+            JOIN cliente_direccion cd ON d.id_direccion = cd.id_direccion
+            WHERE cd.id_cliente = :id_cliente AND d.activo = true
+            ORDER BY cd.predeterminada DESC, d.direccion ASC";
+    $stmt = $conexion->prepare($sql);
+    $stmt->execute([':id_cliente' => $id_cliente]);
+    $direcciones = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Formatear dirección completa para mostrar
+    foreach ($direcciones as &$dir) {
+        $dir['texto_completo'] = trim($dir['direccion'] . ', ' . $dir['barrio'] . ', ' . $dir['ciudad']);
+        if ($dir['predeterminada']) {
+            $dir['texto_completo'] .= ' (Predeterminada)';
+        }
+    }
+    
+    echo json_encode(['success' => true, 'direcciones' => $direcciones]);
+} catch (PDOException $e) {
+    echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+}
+?>

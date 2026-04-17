@@ -10,14 +10,15 @@ if (!isset($_SESSION['id_sesion'])) {
 }
 
 $data = json_decode(file_get_contents('php://input'), true);
-if (!$data || empty($data['nombre'])) {
-    echo json_encode(['success' => false, 'message' => 'Nombre del cliente es requerido']);
+if (!$data) {
+    echo json_encode(['success' => false, 'message' => 'Datos inválidos']);
     exit();
 }
 
 try {
     $conexion->beginTransaction();
-    
+
+    // Insertar cliente
     $stmt = $conexion->prepare("
         INSERT INTO clientes (nombre, direccion, barrio, ciudad, permite_credito, fecha_registro)
         VALUES (:nombre, :direccion, :barrio, :ciudad, :permite_credito, CURRENT_DATE)
@@ -28,60 +29,63 @@ try {
         ':direccion' => $data['direccion'] ?? null,
         ':barrio' => $data['barrio'] ?? null,
         ':ciudad' => $data['ciudad'] ?? 'Santiago',
-        ':permite_credito' => isset($data['permite_credito']) ? ($data['permite_credito'] ? 't' : 'f') : 'f'
+        ':permite_credito' => $data['permite_credito'] ?? false
     ]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    $id_cliente = $row['id_cliente'];
-    
+    $id_cliente = $stmt->fetchColumn();
+
+    // Insertar teléfonos
     if (!empty($data['telefonos'])) {
+        $stmtTel = $conexion->prepare("INSERT INTO telefonos (numero, tipo, whatsapp, activo) VALUES (:numero, :tipo, :whatsapp, TRUE) RETURNING id_telefono");
+        $stmtRel = $conexion->prepare("INSERT INTO cliente_telefono (id_cliente, id_telefono) VALUES (:id_cliente, :id_telefono)");
         foreach ($data['telefonos'] as $tel) {
-            if (empty($tel['numero'])) continue;
-            $stmtTel = $conexion->prepare("
-                INSERT INTO telefonos (numero, tipo, whatsapp, activo)
-                VALUES (:numero, :tipo, :whatsapp, true)
-                RETURNING id_telefono
-            ");
             $stmtTel->execute([
                 ':numero' => $tel['numero'],
-                ':tipo' => $tel['tipo'] ?? 'PRINCIPAL',
-                ':whatsapp' => isset($tel['whatsapp']) ? ($tel['whatsapp'] ? 't' : 'f') : 'f'
+                ':tipo' => $tel['tipo'],
+                ':whatsapp' => $tel['whatsapp'] ?? false
             ]);
             $id_telefono = $stmtTel->fetchColumn();
-            
-            $stmtRel = $conexion->prepare("
-                INSERT INTO cliente_telefono (id_cliente, id_telefono)
-                VALUES (:id_cliente, :id_telefono)
-            ");
             $stmtRel->execute([':id_cliente' => $id_cliente, ':id_telefono' => $id_telefono]);
         }
     }
-    
+
+    // Insertar correos
     if (!empty($data['correos'])) {
+        $stmtCor = $conexion->prepare("INSERT INTO correos (email, tipo, activo) VALUES (:email, :tipo, TRUE) RETURNING id_correo");
+        $stmtRelCor = $conexion->prepare("INSERT INTO cliente_correo (id_cliente, id_correo) VALUES (:id_cliente, :id_correo)");
         foreach ($data['correos'] as $cor) {
-            if (empty($cor['email'])) continue;
-            $stmtCor = $conexion->prepare("
-                INSERT INTO correos (email, tipo, activo, verificado)
-                VALUES (:email, :tipo, true, false)
-                RETURNING id_correo
-            ");
             $stmtCor->execute([
                 ':email' => $cor['email'],
-                ':tipo' => $cor['tipo'] ?? 'PRINCIPAL'
+                ':tipo' => $cor['tipo']
             ]);
             $id_correo = $stmtCor->fetchColumn();
-            
-            $stmtRelCor = $conexion->prepare("
-                INSERT INTO cliente_correo (id_cliente, id_correo)
-                VALUES (:id_cliente, :id_correo)
-            ");
             $stmtRelCor->execute([':id_cliente' => $id_cliente, ':id_correo' => $id_correo]);
         }
     }
-    
+
+    // Insertar direcciones
+    if (!empty($data['direcciones'])) {
+        $stmtDir = $conexion->prepare("INSERT INTO direcciones (direccion, barrio, ciudad, referencia, activo) VALUES (:direccion, :barrio, :ciudad, :referencia, TRUE) RETURNING id_direccion");
+        $stmtRelDir = $conexion->prepare("INSERT INTO cliente_direccion (id_cliente, id_direccion, predeterminada) VALUES (:id_cliente, :id_direccion, :predeterminada)");
+        foreach ($data['direcciones'] as $dir) {
+            $stmtDir->execute([
+                ':direccion' => $dir['direccion'],
+                ':barrio' => $dir['barrio'] ?? null,
+                ':ciudad' => $dir['ciudad'] ?? 'Santiago',
+                ':referencia' => $dir['referencia'] ?? null
+            ]);
+            $id_direccion = $stmtDir->fetchColumn();
+            $stmtRelDir->execute([
+                ':id_cliente' => $id_cliente,
+                ':id_direccion' => $id_direccion,
+                ':predeterminada' => $dir['predeterminada'] ?? false
+            ]);
+        }
+    }
+
     $conexion->commit();
     echo json_encode(['success' => true, 'id_cliente' => $id_cliente]);
-    
-} catch (PDOException $e) {
+
+} catch (Exception $e) {
     $conexion->rollBack();
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }

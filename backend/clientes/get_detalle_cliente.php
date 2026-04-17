@@ -4,68 +4,62 @@ session_start();
 
 header('Content-Type: application/json');
 
-$id_cliente = $_GET['id_cliente'] ?? null;
+if (!isset($_SESSION['id_sesion'])) {
+    echo json_encode(['success' => false, 'message' => 'No autorizado']);
+    exit();
+}
+
+$id_cliente = isset($_GET['id_cliente']) ? (int)$_GET['id_cliente'] : 0;
 if (!$id_cliente) {
-    echo json_encode(['success' => false, 'message' => 'ID de cliente requerido']);
+    echo json_encode(['success' => false, 'message' => 'Cliente no especificado']);
     exit();
 }
 
 try {
-    $stmt = $conexion->prepare("
-        SELECT 
-            id_cliente,
-            nombre,
-            direccion,
-            barrio,
-            ciudad,
-            TO_CHAR(fecha_registro, 'DD/MM/YYYY') as fecha_registro,
-            permite_credito,
-            saldo_pendiente
-        FROM clientes
-        WHERE id_cliente = :id_cliente
-    ");
-    $stmt->execute([':id_cliente' => $id_cliente]);
+    // Datos del cliente
+    $stmt = $conexion->prepare("SELECT id_cliente, nombre, direccion, barrio, ciudad, permite_credito, saldo_pendiente, fecha_registro FROM clientes WHERE id_cliente = :id");
+    $stmt->execute([':id' => $id_cliente]);
     $cliente = $stmt->fetch(PDO::FETCH_ASSOC);
-    
     if (!$cliente) {
         echo json_encode(['success' => false, 'message' => 'Cliente no encontrado']);
         exit();
     }
-    
-    $stmtTel = $conexion->prepare("
+    $cliente['fecha_registro'] = date('d/m/Y', strtotime($cliente['fecha_registro']));
+
+    // Teléfonos
+    $stmt = $conexion->prepare("
         SELECT t.numero, t.tipo, t.whatsapp
-        FROM telefonos t
-        JOIN cliente_telefono ct ON t.id_telefono = ct.id_telefono
-        WHERE ct.id_cliente = :id_cliente AND t.activo = TRUE
-        ORDER BY t.tipo
+        FROM cliente_telefono ct
+        JOIN telefonos t ON ct.id_telefono = t.id_telefono
+        WHERE ct.id_cliente = :id AND t.activo = true
     ");
-    $stmtTel->execute([':id_cliente' => $id_cliente]);
-    $telefonos = $stmtTel->fetchAll(PDO::FETCH_ASSOC);
-    
-    $stmtCor = $conexion->prepare("
+    $stmt->execute([':id' => $id_cliente]);
+    $cliente['telefonos'] = $stmt->fetchAll();
+
+    // Correos
+    $stmt = $conexion->prepare("
         SELECT c.email, c.tipo
-        FROM correos c
-        JOIN cliente_correo cc ON c.id_correo = cc.id_correo
-        WHERE cc.id_cliente = :id_cliente AND c.activo = TRUE
-        ORDER BY c.tipo
+        FROM cliente_correo cc
+        JOIN correos c ON cc.id_correo = c.id_correo
+        WHERE cc.id_cliente = :id AND c.activo = true
     ");
-    $stmtCor->execute([':id_cliente' => $id_cliente]);
-    $correos = $stmtCor->fetchAll(PDO::FETCH_ASSOC);
-    
-    echo json_encode([
-        'success' => true,
-        'nombre' => $cliente['nombre'],
-        'direccion' => $cliente['direccion'],
-        'barrio' => $cliente['barrio'],
-        'ciudad' => $cliente['ciudad'],
-        'fecha_registro' => $cliente['fecha_registro'],
-        'permite_credito' => filter_var($cliente['permite_credito'], FILTER_VALIDATE_BOOLEAN),
-        'saldo_pendiente' => floatval($cliente['saldo_pendiente']),
-        'telefonos' => $telefonos,
-        'correos' => $correos
-    ]);
-    
-} catch(PDOException $e) {
+    $stmt->execute([':id' => $id_cliente]);
+    $cliente['correos'] = $stmt->fetchAll();
+
+    // Direcciones
+    $stmt = $conexion->prepare("
+        SELECT d.id_direccion, d.direccion, d.barrio, d.ciudad, d.referencia, cd.predeterminada
+        FROM cliente_direccion cd
+        JOIN direcciones d ON cd.id_direccion = d.id_direccion
+        WHERE cd.id_cliente = :id AND d.activo = true
+        ORDER BY cd.predeterminada DESC
+    ");
+    $stmt->execute([':id' => $id_cliente]);
+    $cliente['direcciones'] = $stmt->fetchAll();
+
+    echo json_encode(['success' => true, 'cliente' => $cliente]);
+
+} catch (PDOException $e) {
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }
 ?>

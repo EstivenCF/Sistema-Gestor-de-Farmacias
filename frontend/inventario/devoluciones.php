@@ -44,13 +44,10 @@ try {
                 <span class="material-symbols-rounded align-middle me-2">swap_vert</span>
                 Gestión de Devoluciones
             </h2>
-            <p class="text-muted mb-0">Administre devoluciones de clientes, proveedores y ajustes de inventario</p>
+            <p class="text-muted mb-0">Administre y apruebe devoluciones de clientes</p>
         </div>
         <div>
-            <button type="button" class="btn btn-primary shadow-sm" onclick="abrirModalNuevaDevolucion()">
-                <span class="material-symbols-rounded align-middle me-1">add</span>
-                Nueva Devolución
-            </button>
+            <!-- Botón "Nueva Devolución" eliminado -->
             <button type="button" class="btn btn-outline-primary ms-2" onclick="exportarPDF()">
                 <span class="material-symbols-rounded align-middle me-1">picture_as_pdf</span>
                 Exportar PDF
@@ -215,14 +212,14 @@ try {
     </div>
 </div>
 
-<!-- MODAL PARA NUEVA/EDITAR DEVOLUCIÓN -->
+<!-- MODAL PARA EDITAR ESTADO DE DEVOLUCIÓN (solo estado editable) -->
 <div class="modal fade" id="modalDevolucion" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
             <div class="modal-header bg-primary text-white p-4">
                 <h5 class="modal-title d-flex align-items-center" id="modalTitulo">
-                    <span class="material-symbols-rounded me-2">add</span>
-                    Nueva Devolución
+                    <span class="material-symbols-rounded me-2">edit</span>
+                    Editar Estado de Devolución
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
@@ -232,53 +229,39 @@ try {
                     
                     <div class="row g-3">
                         <div class="col-md-6">
-                            <label class="form-label fw-bold text-muted">TIPO DE DEVOLUCIÓN *</label>
-                            <select class="form-select" id="tipoDevolucion" required>
-                                <option value="">Seleccionar tipo...</option>
-                                <?php foreach ($tipos_devolucion as $tipo): ?>
-                                    <option value="<?php echo $tipo['id_tipo']; ?>"><?php echo htmlspecialchars($tipo['nombre']); ?></option>
-                                <?php endforeach; ?>
-                            </select>
+                            <label class="form-label fw-bold text-muted">TIPO DE DEVOLUCIÓN</label>
+                            <input type="text" class="form-control" id="tipoDevolucionTexto" readonly disabled>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label fw-bold text-muted">FECHA *</label>
-                            <input type="date" class="form-control" id="fechaDevolucion" required>
+                            <label class="form-label fw-bold text-muted">FECHA</label>
+                            <input type="text" class="form-control" id="fechaDevolucionTexto" readonly disabled>
                         </div>
-                        <div class="col-md-6" id="divCliente" style="display: none;">
-                            <label class="form-label fw-bold text-muted">CLIENTE *</label>
-                            <select class="form-select" id="idCliente">
-                                <option value="">Seleccionar cliente...</option>
-                            </select>
+                        <div class="col-md-6" id="divCliente">
+                            <label class="form-label fw-bold text-muted">CLIENTE</label>
+                            <input type="text" class="form-control" id="clienteTexto" readonly disabled>
                         </div>
                         <div class="col-md-6" id="divProveedor" style="display: none;">
-                            <label class="form-label fw-bold text-muted">PROVEEDOR *</label>
-                            <select class="form-select" id="idProveedor">
-                                <option value="">Seleccionar proveedor...</option>
-                            </select>
+                            <label class="form-label fw-bold text-muted">PROVEEDOR</label>
+                            <input type="text" class="form-control" id="proveedorTexto" readonly disabled>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label fw-bold text-muted">SUCURSAL *</label>
-                            <select class="form-select" id="sucursalDevolucion" required>
-                                <option value="">Seleccionar sucursal...</option>
-                                <?php foreach ($sucursales as $suc): ?>
-                                    <option value="<?php echo $suc['id_sucursal']; ?>"><?php echo htmlspecialchars($suc['nombre']); ?></option>
-                                <?php endforeach; ?>
-                            </select>
+                            <label class="form-label fw-bold text-muted">SUCURSAL</label>
+                            <input type="text" class="form-control" id="sucursalTexto" readonly disabled>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label fw-bold text-muted">ESTADO</label>
-                            <select class="form-select" id="estadoDevolucion">
+                            <select class="form-select" id="estadoDevolucion" required>
                                 <?php foreach ($estados_devolucion as $estado): ?>
                                     <option value="<?php echo $estado['id_estado']; ?>"><?php echo htmlspecialchars($estado['nombre']); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="col-12">
-                            <label class="form-label fw-bold text-muted">MOTIVO *</label>
-                            <textarea class="form-control" id="motivoDevolucion" rows="2" required placeholder="Explique el motivo de la devolución..."></textarea>
+                            <label class="form-label fw-bold text-muted">MOTIVO</label>
+                            <textarea class="form-control" id="motivoDevolucion" rows="2" readonly disabled></textarea>
                         </div>
                         <div class="col-12">
-                            <label class="form-label fw-bold text-muted">PRODUCTOS A DEVOLVER</label>
+                            <label class="form-label fw-bold text-muted">PRODUCTOS DEVUELTOS</label>
                             <div class="table-responsive">
                                 <table class="table table-sm" id="tablaProductosDevolucion">
                                     <thead class="bg-light">
@@ -288,27 +271,17 @@ try {
                                             <th>Cantidad</th>
                                             <th>Precio Unitario</th>
                                             <th>Subtotal</th>
-                                            <th style="width:40px"></th>
                                         </tr>
                                     </thead>
                                     <tbody id="productosDevolucionBody">
-                                        <tr id="filaProductoVacia">
-                                            <td colspan="6" class="text-center text-muted">No hay productos agregados</td>
+                                        <tr>
+                                            <td colspan="5" class="text-center text-muted">No hay productos</td>
                                         </tr>
                                     </tbody>
                                     <tfoot>
-                                        <tr>
-                                            <td colspan="6">
-                                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="agregarProductoDevolucion()">
-                                                    <span class="material-symbols-rounded align-middle me-1" style="font-size:16px;">add</span>
-                                                    Agregar producto
-                                                </button>
-                                            </td>
-                                        </tr>
                                         <tr class="bg-light">
                                             <td colspan="4" class="text-end fw-bold">TOTAL:</td>
                                             <td class="fw-bold text-success" id="totalDevolucion">RD$ 0.00</td>
-                                            <td></td>
                                         </tr>
                                     </tfoot>
                                 </table>
@@ -319,13 +292,13 @@ try {
             </div>
             <div class="modal-footer border-0 p-4 pt-0 d-flex justify-content-end gap-3">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-primary px-5 fw-bold shadow-sm" onclick="guardarDevolucion()">Guardar Devolución</button>
+                <button type="button" class="btn btn-primary px-5 fw-bold shadow-sm" onclick="guardarDevolucion()">Actualizar Estado</button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- MODAL PARA VER DETALLES -->
+<!-- MODAL PARA VER DETALLES (sin cambios) -->
 <div class="modal fade" id="modalDetalles" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
@@ -352,7 +325,7 @@ try {
                 <div>
                     <button type="button" class="btn btn-warning" id="btnEditarDesdeDetalle" onclick="editarDesdeDetalle()" style="display:none;">
                         <span class="material-symbols-rounded align-middle me-1">edit</span>
-                        Editar
+                        Editar Estado
                     </button>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
                 </div>
@@ -371,8 +344,7 @@ const RUTAS_API = {
     detalle: BASE_URL + '/backend/inventario/detalle_devolucion.php',
     estadisticas: BASE_URL + '/backend/inventario/estadisticas_devoluciones.php',
     listarClientes: BASE_URL + '/backend/clientes/listar_clientes_select.php',
-    listarProveedores: BASE_URL + '/backend/proveedores/listar_proveedores_select.php',
-    listarLotes: BASE_URL + '/backend/inventario/listar_lotes_select.php'
+    listarProveedores: BASE_URL + '/backend/proveedores/listar_proveedores_select.php'
 };
 
 // Variables globales
@@ -383,7 +355,6 @@ let filtros = { fecha_desde: '', fecha_hasta: '', tipo: '', estado: '', sucursal
 let timeoutBusqueda;
 let detallesActualId = null;
 let detallesActualData = null;
-let productosDevolucion = [];
 
 let modalDevolucion, modalDetalles;
 
@@ -406,34 +377,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     document.getElementById('filtroFechaDesde').value = hace30Dias.toISOString().split('T')[0];
     document.getElementById('filtroFechaHasta').value = hoy.toISOString().split('T')[0];
-    document.getElementById('fechaDevolucion').value = hoy.toISOString().split('T')[0];
     
     filtros.fecha_desde = document.getElementById('filtroFechaDesde').value;
     filtros.fecha_hasta = document.getElementById('filtroFechaHasta').value;
-    
-    // Mostrar/ocultar campos según tipo de devolución
-    document.getElementById('tipoDevolucion').addEventListener('change', function() {
-        const tipo = this.value;
-        const divCliente = document.getElementById('divCliente');
-        const divProveedor = document.getElementById('divProveedor');
-        
-        if (tipo === '1') { // CLIENTE
-            divCliente.style.display = 'block';
-            divProveedor.style.display = 'none';
-            document.getElementById('idCliente').required = true;
-            document.getElementById('idProveedor').required = false;
-        } else if (tipo === '2') { // PROVEEDOR
-            divCliente.style.display = 'none';
-            divProveedor.style.display = 'block';
-            document.getElementById('idCliente').required = false;
-            document.getElementById('idProveedor').required = true;
-        } else {
-            divCliente.style.display = 'none';
-            divProveedor.style.display = 'none';
-            document.getElementById('idCliente').required = false;
-            document.getElementById('idProveedor').required = false;
-        }
-    });
     
     // Filtros automáticos
     document.getElementById('filtroFechaDesde').addEventListener('change', function() {
@@ -482,9 +428,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 500);
     });
     
-    cargarClientesSelect();
-    cargarProveedoresSelect();
-    cargarLotesSelect();
     cargarDevoluciones();
     actualizarEstadisticas();
 });
@@ -500,145 +443,6 @@ function scrollAlModal() {
             });
         }
     }, 200);
-}
-
-function cargarClientesSelect() {
-    fetch(RUTAS_API.listarClientes)
-        .then(r => r.json())
-        .then(data => {
-            if (data.success && data.clientes) {
-                const select = document.getElementById('idCliente');
-                select.innerHTML = '<option value="">Seleccionar cliente...</option>';
-                data.clientes.forEach(c => {
-                    const option = document.createElement('option');
-                    option.value = c.id_cliente;
-                    option.textContent = c.nombre;
-                    select.appendChild(option);
-                });
-            }
-        })
-        .catch(error => console.error('Error cargando clientes:', error));
-}
-
-function cargarProveedoresSelect() {
-    fetch(RUTAS_API.listarProveedores)
-        .then(r => r.json())
-        .then(data => {
-            if (data.success && data.proveedores) {
-                const select = document.getElementById('idProveedor');
-                select.innerHTML = '<option value="">Seleccionar proveedor...</option>';
-                data.proveedores.forEach(p => {
-                    const option = document.createElement('option');
-                    option.value = p.id_proveedor;
-                    option.textContent = p.nombre;
-                    select.appendChild(option);
-                });
-            }
-        })
-        .catch(error => console.error('Error cargando proveedores:', error));
-}
-
-function cargarLotesSelect() {
-    fetch(RUTAS_API.listarLotes)
-        .then(r => r.json())
-        .then(data => {
-            if (data.success && data.lotes) {
-                window.lotesDisponibles = data.lotes;
-            }
-        })
-        .catch(error => console.error('Error cargando lotes:', error));
-}
-
-function agregarProductoDevolucion() {
-    if (!window.lotesDisponibles || window.lotesDisponibles.length === 0) {
-        Swal.fire('Error', 'No hay lotes disponibles', 'error');
-        return;
-    }
-    
-    // Crear modal de selección de producto
-    Swal.fire({
-        title: 'Agregar producto',
-        html: `
-            <div class="mb-3">
-                <label class="form-label">Lote</label>
-                <select class="form-select" id="selectLoteProducto">
-                    <option value="">Seleccionar lote...</option>
-                    ${window.lotesDisponibles.map(l => `<option value="${l.id_lote}" data-numero="${l.numero_lote}" data-medicamento="${l.medicamento_nombre}">${l.numero_lote} - ${l.medicamento_nombre}</option>`).join('')}
-                </select>
-            </div>
-            <div class="mb-3">
-                <label class="form-label">Cantidad</label>
-                <input type="number" class="form-control" id="cantidadProducto" min="1" value="1">
-            </div>
-            <div class="mb-3">
-                <label class="form-label">Precio Unitario</label>
-                <input type="number" step="0.01" class="form-control" id="precioProducto" min="0" value="0">
-            </div>
-        `,
-        showCancelButton: true,
-        confirmButtonText: 'Agregar',
-        cancelButtonText: 'Cancelar',
-        preConfirm: () => {
-            const loteSelect = document.getElementById('selectLoteProducto');
-            const idLote = loteSelect.value;
-            const cantidad = document.getElementById('cantidadProducto').value;
-            const precio = document.getElementById('precioProducto').value;
-            
-            if (!idLote) {
-                Swal.showValidationMessage('Seleccione un lote');
-                return false;
-            }
-            if (!cantidad || cantidad <= 0) {
-                Swal.showValidationMessage('Cantidad inválida');
-                return false;
-            }
-            if (!precio || precio < 0) {
-                Swal.showValidationMessage('Precio inválido');
-                return false;
-            }
-            
-            const lote = window.lotesDisponibles.find(l => l.id_lote == idLote);
-            return { id_lote: idLote, numero_lote: lote.numero_lote, medicamento: lote.medicamento_nombre, cantidad: parseInt(cantidad), precio: parseFloat(precio) };
-        }
-    }).then((result) => {
-        if (result.isConfirmed && result.value) {
-            const p = result.value;
-            productosDevolucion.push(p);
-            renderizarProductosDevolucion();
-        }
-    });
-}
-
-function eliminarProductoDevolucion(index) {
-    productosDevolucion.splice(index, 1);
-    renderizarProductosDevolucion();
-}
-
-function renderizarProductosDevolucion() {
-    const tbody = document.getElementById('productosDevolucionBody');
-    let total = 0;
-    
-    if (productosDevolucion.length === 0) {
-        tbody.innerHTML = '<tr id="filaProductoVacia"><td colspan="6" class="text-center text-muted">No hay productos agregados</td></tr>';
-        document.getElementById('totalDevolucion').innerHTML = 'RD$ 0.00';
-        return;
-    }
-    
-    let html = '';
-    productosDevolucion.forEach((p, index) => {
-        const subtotal = p.cantidad * p.precio;
-        total += subtotal;
-        html += `<tr>
-            <td>${escapeHtml(p.medicamento)}</td>
-            <td><code>${escapeHtml(p.numero_lote)}</code></td>
-            <td>${p.cantidad}</td>
-            <td>RD$ ${formatNum(p.precio)}</td>
-            <td>RD$ ${formatNum(subtotal)}</td>
-            <td><button type="button" class="btn btn-sm btn-danger" onclick="eliminarProductoDevolucion(${index})"><span class="material-symbols-rounded">delete</span></button></td>
-        </tr>`;
-    });
-    tbody.innerHTML = html;
-    document.getElementById('totalDevolucion').innerHTML = `RD$ ${formatNum(total)}`;
 }
 
 function actualizarEstadisticas() {
@@ -736,7 +540,7 @@ function renderizarTabla(devoluciones) {
                     <button class="btn btn-sm btn-light text-info" onclick="verDetalles(${d.id_devolucion})" title="Ver">
                         <span class="material-symbols-rounded">visibility</span>
                     </button>
-                    <button class="btn btn-sm btn-light text-primary" onclick="editarDevolucion(${d.id_devolucion})" title="Editar">
+                    <button class="btn btn-sm btn-light text-primary" onclick="editarDevolucion(${d.id_devolucion})" title="Editar estado">
                         <span class="material-symbols-rounded">edit_square</span>
                     </button>
                 </div>
@@ -744,19 +548,6 @@ function renderizarTabla(devoluciones) {
         </tr>`;
     });
     tbody.innerHTML = html;
-}
-
-function abrirModalNuevaDevolucion() {
-    document.getElementById('modalTitulo').innerHTML = '<span class="material-symbols-rounded me-2">add</span> Nueva Devolución';
-    document.getElementById('formDevolucion').reset();
-    document.getElementById('devolucionId').value = '';
-    document.getElementById('fechaDevolucion').value = new Date().toISOString().split('T')[0];
-    document.getElementById('tipoDevolucion').value = '';
-    document.getElementById('divCliente').style.display = 'none';
-    document.getElementById('divProveedor').style.display = 'none';
-    productosDevolucion = [];
-    renderizarProductosDevolucion();
-    modalDevolucion.show();
 }
 
 function editarDevolucion(id) {
@@ -768,33 +559,48 @@ function editarDevolucion(id) {
             Swal.close();
             if (data.success && data.devolucion) {
                 const d = data.devolucion;
-                document.getElementById('modalTitulo').innerHTML = '<span class="material-symbols-rounded me-2">edit</span> Editar Devolución';
                 document.getElementById('devolucionId').value = d.id_devolucion;
-                document.getElementById('tipoDevolucion').value = d.id_tipo;
-                document.getElementById('fechaDevolucion').value = d.fecha_solicitud.split('T')[0];
-                document.getElementById('sucursalDevolucion').value = d.id_sucursal;
+                // Llenar campos de solo lectura
+                document.getElementById('tipoDevolucionTexto').value = d.tipo_nombre || '';
+                document.getElementById('fechaDevolucionTexto').value = formatDate(d.fecha_solicitud);
+                document.getElementById('sucursalTexto').value = d.sucursal_nombre || '';
+                document.getElementById('motivoDevolucion').value = d.motivo || '';
                 document.getElementById('estadoDevolucion').value = d.id_estado;
-                document.getElementById('motivoDevolucion').value = d.motivo;
                 
+                // Cliente o proveedor
                 if (d.id_cliente) {
-                    document.getElementById('idCliente').value = d.id_cliente;
+                    document.getElementById('clienteTexto').value = d.cliente_nombre || '';
                     document.getElementById('divCliente').style.display = 'block';
                     document.getElementById('divProveedor').style.display = 'none';
                 } else if (d.id_proveedor) {
-                    document.getElementById('idProveedor').value = d.id_proveedor;
+                    document.getElementById('proveedorTexto').value = d.proveedor_nombre || '';
                     document.getElementById('divCliente').style.display = 'none';
                     document.getElementById('divProveedor').style.display = 'block';
+                } else {
+                    document.getElementById('divCliente').style.display = 'none';
+                    document.getElementById('divProveedor').style.display = 'none';
                 }
                 
+                // Productos (solo lectura)
                 if (d.detalles && d.detalles.length > 0) {
-                    productosDevolucion = d.detalles.map(item => ({
-                        id_lote: item.id_lote,
-                        numero_lote: item.numero_lote,
-                        medicamento: item.medicamento_nombre,
-                        cantidad: item.cantidad,
-                        precio: parseFloat(item.precio_unitario)
-                    }));
-                    renderizarProductosDevolucion();
+                    let html = '';
+                    let total = 0;
+                    d.detalles.forEach(item => {
+                        const subtotal = item.cantidad * item.precio_unitario;
+                        total += subtotal;
+                        html += `<tr>
+                            <td><strong>${escapeHtml(item.medicamento_nombre)}</strong><br><small>${escapeHtml(item.presentacion || '')}</small></td>
+                            <td><code>${escapeHtml(item.numero_lote)}</code></td>
+                            <td class="text-center">${item.cantidad}</td>
+                            <td class="text-center">RD$ ${formatNum(item.precio_unitario)}</td>
+                            <td class="text-center text-success fw-bold">RD$ ${formatNum(subtotal)}</td>
+                        </tr>`;
+                    });
+                    document.getElementById('productosDevolucionBody').innerHTML = html;
+                    document.getElementById('totalDevolucion').innerHTML = `RD$ ${formatNum(total)}`;
+                } else {
+                    document.getElementById('productosDevolucionBody').innerHTML = '<tr><td colspan="5" class="text-center text-muted">No hay productos</td></tr>';
+                    document.getElementById('totalDevolucion').innerHTML = 'RD$ 0.00';
                 }
                 
                 modalDevolucion.show();
@@ -810,54 +616,20 @@ function editarDevolucion(id) {
 
 function guardarDevolucion() {
     const idDevolucion = document.getElementById('devolucionId').value;
-    const idTipo = document.getElementById('tipoDevolucion').value;
-    const fecha = document.getElementById('fechaDevolucion').value;
-    const idSucursal = document.getElementById('sucursalDevolucion').value;
+    if (!idDevolucion) {
+        Swal.fire('Error', 'No se ha seleccionado ninguna devolución', 'error');
+        return;
+    }
+    
     const idEstado = document.getElementById('estadoDevolucion').value;
-    const motivo = document.getElementById('motivoDevolucion').value;
-    const idCliente = document.getElementById('idCliente').value;
-    const idProveedor = document.getElementById('idProveedor').value;
     
-    if (!idTipo || !fecha || !idSucursal || !motivo) {
-        Swal.fire('Error', 'Complete los campos requeridos', 'error');
-        return;
-    }
-    
-    if (idTipo === '1' && !idCliente) {
-        Swal.fire('Error', 'Seleccione un cliente', 'error');
-        return;
-    }
-    
-    if (idTipo === '2' && !idProveedor) {
-        Swal.fire('Error', 'Seleccione un proveedor', 'error');
-        return;
-    }
-    
-    if (productosDevolucion.length === 0) {
-        Swal.fire('Error', 'Agregue al menos un producto', 'error');
-        return;
-    }
-    
-    const total = productosDevolucion.reduce((sum, p) => sum + (p.cantidad * p.precio), 0);
-    
+    // Solo se envía el id_devolucion y el nuevo estado
     const datos = {
-        id_devolucion: idDevolucion || null,
-        id_tipo: parseInt(idTipo),
-        fecha: fecha,
-        id_sucursal: parseInt(idSucursal),
-        id_estado: parseInt(idEstado),
-        motivo: motivo,
-        id_cliente: idCliente ? parseInt(idCliente) : null,
-        id_proveedor: idProveedor ? parseInt(idProveedor) : null,
-        monto_reembolso: total,
-        detalles: productosDevolucion.map(p => ({
-            id_lote: p.id_lote,
-            cantidad: p.cantidad,
-            precio_unitario: p.precio
-        }))
+        id_devolucion: parseInt(idDevolucion),
+        id_estado: parseInt(idEstado)
     };
     
-    Swal.fire({ title: 'Guardando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    Swal.fire({ title: 'Actualizando estado...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
     
     fetch(RUTAS_API.guardar, {
         method: 'POST',
@@ -868,7 +640,7 @@ function guardarDevolucion() {
     .then(data => {
         Swal.close();
         if (data.success) {
-            Swal.fire({ icon: 'success', title: datos.id_devolucion ? '¡Actualizada!' : '¡Creada!', text: data.message, timer: 1500, showConfirmButton: false })
+            Swal.fire({ icon: 'success', title: '¡Estado actualizado!', text: data.message, timer: 1500, showConfirmButton: false })
             .then(() => {
                 modalDevolucion.hide();
                 cargarDevoluciones();

@@ -17,11 +17,13 @@ $filtro_usuario = $_GET['usuario'] ?? '';
 $filtro_estado = $_GET['estado'] ?? '';
 $busqueda = $_GET['busqueda'] ?? '';
 
-$clientes = $usuarios = $metodos_pago = [];
+$clientes = $usuarios = $metodos_pago = $repartidores = $estados_entrega = [];
 try {
     $clientes = $conexion->query("SELECT id_cliente, nombre FROM clientes ORDER BY nombre")->fetchAll();
     $usuarios = $conexion->query("SELECT id_usuario, nombre FROM usuarios WHERE estado = true ORDER BY nombre")->fetchAll();
     $metodos_pago = $conexion->query("SELECT id_metodo, nombre FROM metodos_pago ORDER BY nombre")->fetchAll();
+    $repartidores = $conexion->query("SELECT id_repartidor, nombre FROM repartidores WHERE activo = true ORDER BY nombre")->fetchAll();
+    $estados_entrega = $conexion->query("SELECT id_estado, nombre FROM estado_entrega ORDER BY id_estado")->fetchAll();
 } catch(PDOException $e) {}
 
 $query = "
@@ -34,11 +36,20 @@ $query = "
         COALESCE(c.nombre, 'Consumidor Final') as cliente_nombre,
         u.nombre as usuario_nombre,
         cp.nombre as condicion_pago,
-        (SELECT COUNT(*) FROM detalle_venta dv WHERE dv.id_venta = v.id_venta) as total_productos
+        (SELECT COUNT(*) FROM detalle_venta dv WHERE dv.id_venta = v.id_venta) as total_productos,
+        e.id_entrega,
+        e.direccion_entrega,
+        e.costo_entrega,
+        ee.nombre as estado_entrega,
+        r.nombre as repartidor_nombre,
+        e.numero_seguimiento
     FROM ventas v
     LEFT JOIN clientes c ON v.id_cliente = c.id_cliente
     JOIN usuarios u ON v.id_usuario = u.id_usuario
     JOIN condicion_pago cp ON v.id_condicion = cp.id_condicion
+    LEFT JOIN entregas e ON v.id_venta = e.id_venta
+    LEFT JOIN estado_entrega ee ON e.id_estado = ee.id_estado
+    LEFT JOIN repartidores r ON e.id_repartidor = r.id_repartidor
     WHERE 1=1
 ";
 
@@ -74,7 +85,9 @@ try {
     $stmt = $conexion->prepare($query);
     $stmt->execute($params);
     $ventas = $stmt->fetchAll();
-} catch(PDOException $e) { $ventas = []; }
+} catch(PDOException $e) { 
+    $ventas = []; 
+}
 
 $total_ventas = count($ventas);
 $suma_total = $suma_itbis = $suma_seguro = $suma_descuento = 0;
@@ -87,16 +100,13 @@ foreach ($ventas as $v) {
 $base_url = '/sistema-gestor-de-farmacias';
 ?>
 <style>
-    /* (tus estilos actuales se mantienen igual, solo añado uno nuevo para badge descuento) */
-    .badge-descuento {
-        background-color: #fd7e14;
-        color: white;
-        padding: 4px 10px;
-        border-radius: 20px;
-        font-size: 0.7rem;
-        font-weight: 600;
-    }
-    /* ... el resto de tus estilos se conservan ... */
+    /* Estilos base (igual que antes) */
+    .badge-delivery-pendiente { background-color: #ffc107; color: #000; }
+    .badge-delivery-asignada { background-color: #17a2b8; color: #fff; }
+    .badge-delivery-en_camino { background-color: #fd7e14; color: #fff; }
+    .badge-delivery-entregado { background-color: #28a745; color: #fff; }
+    .badge-delivery-cancelado { background-color: #dc3545; color: #fff; }
+    .delivery-icon { font-size: 1.2rem; vertical-align: middle; margin-right: 4px; }
     .modal-backdrop { display: none !important; }
     .modal { background-color: rgba(0, 0, 0, 0.5) !important; z-index: 1050; }
     .modal-dialog-centered { display: flex; align-items: center; min-height: calc(100% - 1rem); }
@@ -316,6 +326,31 @@ $base_url = '/sistema-gestor-de-farmacias';
         opacity: 0.5;
         margin: 15px 0;
     }
+    .delivery-card {
+        background: #e7f3ff;
+        border-left: 4px solid #17a2b8;
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 15px;
+    }
+    .modal-lg-custom { max-width: 800px; }
+    .incidencia-item { border-left: 3px solid #ffc107; padding-left: 12px; margin-bottom: 10px; }
+    
+    /* Estilos adicionales para el modal de devolución */
+    .info-cliente-vendedor {
+        background: #f8f9fa;
+        padding: 10px;
+        border-radius: 8px;
+        margin-bottom: 15px;
+    }
+    .info-cliente-vendedor p {
+        margin-bottom: 5px;
+    }
+    .producto-devuelto-info {
+        font-size: 0.75rem;
+        color: #6c757d;
+        margin-top: 4px;
+    }
 </style>
 
 <div class="dashboard-container">
@@ -340,7 +375,6 @@ $base_url = '/sistema-gestor-de-farmacias';
         <div class="col-md-3"><div class="card-total text-center"><small>ITBIS TOTAL</small><h3>RD$ <?php echo number_format($suma_itbis, 2); ?></h3></div></div>
         <div class="col-md-3"><div class="card-total-seguro text-center"><small>DESCUENTO SEGURO</small><h3>RD$ <?php echo number_format($suma_seguro, 2); ?></h3></div></div>
     </div>
-    <!-- Nueva tarjeta para descuentos comerciales -->
     <div class="row mb-4">
         <div class="col-md-4 offset-md-4">
             <div class="card-total-descuento text-center">
@@ -370,11 +404,12 @@ $base_url = '/sistema-gestor-de-farmacias';
                         <tr>
                             <th>Nº Documento</th><th>Fecha</th><th>Cliente</th><th>Vendedor</th><th>Productos</th>
                             <th>Subtotal</th><th>ITBIS</th><th>Descuento</th><th class="texto-seguro">Seguro</th><th>Total</th>
-                            <th>Abonado</th><th>Saldo</th><th>Estado</th><th>NCF</th><th class="text-center">Acciones</th>
+                            <th>Abonado</th><th>Saldo</th><th>Delivery</th><th>Estado</th><th>NCF</th><th class="text-center">Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php if (empty($ventas)): ?><tr><td colspan="15" class="text-center text-muted py-5">No hay ventas registradas con los filtros seleccionados</td></tr>
+                        <?php if (empty($ventas)): ?>
+                            <tr><td colspan="16" class="text-center text-muted py-5">No hay ventas registradas con los filtros seleccionados</td></tr>
                         <?php else: foreach ($ventas as $venta): 
                             $saldo_pendiente = floatval($venta['total']) - floatval($venta['abonos_acumulados'] ?? 0);
                             $monto_seguro = floatval($venta['monto_cubre_seguro'] ?? 0);
@@ -385,6 +420,20 @@ $base_url = '/sistema-gestor-de-farmacias';
                             elseif ($saldo_pendiente <= 0) { $estado_class = 'badge-credito-pagado'; $estado_texto = 'Crédito Pagado'; }
                             elseif ($venta['abonos_acumulados'] > 0 && $saldo_pendiente > 0) { $estado_class = 'badge-credito-parcial'; $estado_texto = 'Crédito Parcial'; }
                             else { $estado_class = 'badge-credito-pendiente'; $estado_texto = 'Crédito Pendiente'; }
+                            
+                            $delivery_estado = $venta['estado_entrega'] ?? null;
+                            $delivery_badge = '';
+                            $delivery_icono = '';
+                            if ($delivery_estado) {
+                                switch ($delivery_estado) {
+                                    case 'PENDIENTE': $delivery_badge = 'badge-delivery-pendiente'; $delivery_icono = 'schedule'; break;
+                                    case 'ASIGNADA': $delivery_badge = 'badge-delivery-asignada'; $delivery_icono = 'assignment_ind'; break;
+                                    case 'EN_CAMINO': $delivery_badge = 'badge-delivery-en_camino'; $delivery_icono = 'local_shipping'; break;
+                                    case 'ENTREGADA': $delivery_badge = 'badge-delivery-entregado'; $delivery_icono = 'check_circle'; break;
+                                    case 'CANCELADA': $delivery_badge = 'badge-delivery-cancelado'; $delivery_icono = 'cancel'; break;
+                                    default: $delivery_badge = 'badge-delivery-pendiente'; $delivery_icono = 'schedule';
+                                }
+                            }
                         ?>
                             <tr onclick="verDetalleVenta(<?php echo $venta['id_venta']; ?>)" style="cursor: pointer;">
                                 <td class="fw-bold"><?php echo htmlspecialchars($venta['numero_documento']); ?></td>
@@ -399,12 +448,28 @@ $base_url = '/sistema-gestor-de-farmacias';
                                 <td class="fw-bold text-success">RD$ <?php echo number_format(floatval($venta['total']), 2); ?></td>
                                 <td class="text-info"><?php if ($venta['es_credito']): ?>RD$ <?php echo number_format(floatval($venta['abonos_acumulados'] ?? 0), 2); ?><?php else: ?>—<?php endif; ?></td>
                                 <td class="text-warning"><?php if ($venta['es_credito']): ?>RD$ <?php echo number_format($saldo_pendiente, 2); ?><?php else: ?>—<?php endif; ?></td>
+                                <td>
+                                    <?php if ($delivery_estado): ?>
+                                        <span class="badge-estado <?php echo $delivery_badge; ?>">
+                                            <span class="material-symbols-rounded delivery-icon" style="font-size: 0.8rem;"><?php echo $delivery_icono; ?></span>
+                                            <?php echo ucfirst(strtolower($delivery_estado)); ?>
+                                        </span>
+                                        <br><small class="text-muted">RD$ <?php echo number_format(floatval($venta['costo_entrega'] ?? 0), 2); ?></small>
+                                    <?php else: ?>
+                                        <span class="text-muted">—</span>
+                                    <?php endif; ?>
+                                </td>
                                 <td><span class="badge-estado <?php echo $estado_class; ?>"><?php echo $estado_texto; ?></span></td>
                                 <td><?php if ($venta['ncf']): ?><code><?php echo htmlspecialchars($venta['ncf']); ?></code><?php else: ?>—<?php endif; ?></td>
                                 <td class="text-center">
                                     <div class="d-flex gap-1 justify-content-center" onclick="event.stopPropagation();">
                                         <button class="btn btn-outline-primary btn-accion" onclick="verDetalleVenta(<?php echo $venta['id_venta']; ?>)" title="Ver detalle"><span class="material-symbols-rounded" style="font-size: 18px;">visibility</span></button>
                                         <button class="btn btn-outline-secondary btn-accion" onclick="imprimirVenta(<?php echo $venta['id_venta']; ?>)" title="Imprimir recibo"><span class="material-symbols-rounded" style="font-size: 18px;">print</span></button>
+                                        <?php if ($venta['id_entrega']): ?>
+                                            <button class="btn btn-outline-info btn-accion" onclick="editarEntrega(<?php echo $venta['id_entrega']; ?>, <?php echo $venta['id_venta']; ?>)" title="Editar entrega"><span class="material-symbols-rounded" style="font-size: 18px;">local_shipping</span></button>
+                                        <?php else: ?>
+                                            <button class="btn btn-outline-secondary btn-accion" disabled title="Sin entrega"><span class="material-symbols-rounded" style="font-size: 18px;">local_shipping</span></button>
+                                        <?php endif; ?>
                                         <?php if ($venta['es_credito'] && $saldo_pendiente > 0 && $venta['estado_fiscal'] != 'ANULADO'): ?>
                                             <button class="btn btn-abono btn-accion" onclick="abrirModalAbono(<?php echo $venta['id_venta']; ?>, '<?php echo htmlspecialchars($venta['numero_documento']); ?>', <?php echo floatval($venta['total']); ?>, <?php echo floatval($venta['abonos_acumulados'] ?? 0); ?>)" title="Registrar abono"><span class="material-symbols-rounded" style="font-size: 18px;">payments</span></button>
                                         <?php endif; ?>
@@ -434,6 +499,7 @@ $base_url = '/sistema-gestor-de-farmacias';
             <div class="modal-footer">
                 <button type="button" class="btn btn-cancelar" data-bs-dismiss="modal">Cerrar</button>
                 <button type="button" class="btn btn-secondary" onclick="imprimirVentaDesdeModal()">Imprimir</button>
+                <button type="button" class="btn btn-danger" id="btnDevolverDesdeModal" style="display: none;" onclick="abrirModalDevolucionDesdeDetalle()">Devolución</button>
             </div>
         </div>
     </div>
@@ -466,10 +532,97 @@ $base_url = '/sistema-gestor-de-farmacias';
     </div>
 </div>
 
+<!-- Modal Editar Entrega -->
+<div class="modal fade" id="modalEditarEntrega" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg-custom modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title d-flex align-items-center gap-2"><span class="material-symbols-rounded">local_shipping</span> Editar Entrega</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="formEditarEntrega">
+                    <input type="hidden" id="editEntregaId" name="id_entrega">
+                    <input type="hidden" id="editVentaId" name="id_venta">
+                    <div class="row g-3">
+                        <div class="col-md-6"><label class="form-label fw-semibold">Número de seguimiento</label><input type="text" id="editNumeroSeguimiento" class="form-control" readonly></div>
+                        <div class="col-md-6"><label class="form-label fw-semibold">Estado de entrega</label><select id="editEstadoEntrega" class="form-select" required><?php foreach ($estados_entrega as $ee): ?><option value="<?php echo $ee['id_estado']; ?>"><?php echo htmlspecialchars($ee['nombre']); ?></option><?php endforeach; ?></select></div>
+                        <div class="col-md-6"><label class="form-label fw-semibold">Repartidor</label><select id="editRepartidor" class="form-select"><option value="">-- Sin asignar --</option><?php foreach ($repartidores as $rep): ?><option value="<?php echo $rep['id_repartidor']; ?>"><?php echo htmlspecialchars($rep['nombre']); ?></option><?php endforeach; ?></select></div>
+                        <div class="col-md-6"><label class="form-label fw-semibold">Costo de envío (RD$)</label><input type="number" step="0.01" id="editCostoEnvio" class="form-control" required></div>
+                        <div class="col-12"><label class="form-label fw-semibold">Dirección de entrega</label><input type="text" id="editDireccion" class="form-control" required></div>
+                        <div class="col-12"><label class="form-label fw-semibold">Observaciones / Incidencia</label><textarea id="editObservaciones" class="form-control" rows="3"></textarea></div>
+                        <div class="col-12"><div class="alert alert-warning small"><strong>Nota:</strong> Si cambia el estado a "ENTREGADA", se registrará la fecha actual como fecha de entrega real. Si marca "CANCELADA", se anulará el envío.</div></div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer"><button type="button" class="btn btn-cancelar" data-bs-dismiss="modal">Cancelar</button><button type="button" class="btn btn-info text-white" onclick="guardarEdicionEntrega()">Guardar cambios</button></div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Devolución (con control de cantidades y estado SOLICITADA) -->
+<div class="modal fade" id="modalDevolucion" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title d-flex align-items-center gap-2"><span class="material-symbols-rounded">assignment_return</span> Registrar Devolución</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="formDevolucionModal">
+                    <input type="hidden" id="devIdVenta" name="id_venta">
+                    
+                    <div class="info-cliente-vendedor">
+                        <p><strong>Venta:</strong> <span id="devDocumento"></span></p>
+                        <p><strong>Cliente:</strong> <span id="devClienteNombre"></span></p>
+                        <p><strong>Vendedor:</strong> <span id="devVendedorNombre"></span></p>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Fecha de devolución</label>
+                        <input type="date" class="form-control" id="devFecha" readonly required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Tipo de devolución</label>
+                        <select id="devTipo" class="form-select" required>
+                            <option value="3">Dañado</option>
+                            <option value="4">Vencido</option>
+                            <option value="5">Otro</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Motivo de la devolución</label>
+                        <textarea id="devMotivo" class="form-control" rows="3" placeholder="Ej: Producto defectuoso, lote vencido, etc." required></textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Productos a devolver</label>
+                        <div id="devProductosList" class="border rounded p-2" style="max-height: 300px; overflow-y: auto;">
+                            <!-- Se llena dinámicamente -->
+                        </div>
+                        <small class="text-muted">* Solo se pueden devolver las cantidades no devueltas previamente. Las solicitudes quedan en estado "SOLICITADA" pendiente de aprobación.</small>
+                    </div>
+
+                    <div class="alert alert-info small">
+                        <strong>Importante:</strong> Esta devolución quedará en estado <strong>SOLICITADA</strong> y deberá ser aprobada por un supervisor o gerente. Al registrar, se ajustará el inventario y se generará un reembolso pendiente solo después de la aprobación.
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-cancelar" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-danger" onclick="confirmarDevolucion()">Solicitar Devolución</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
 const BASE_URL = '<?php echo $base_url; ?>';
 let ventaActualId = null;
+let productosVentaActual = [];
 
 function aplicarFiltros() {
     let url = BASE_URL + '/frontend/menuprincipal.php?mod=historial_ventas';
@@ -496,6 +649,8 @@ function verDetalleVenta(idVenta) {
     const modalElement = document.getElementById('modalDetalleVenta');
     const modal = new bootstrap.Modal(modalElement, { backdrop: 'static', keyboard: true });
     modal.show();
+    document.getElementById('btnDevolverDesdeModal').style.display = 'none';
+    
     setTimeout(() => {
         modalElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
         const modalDialog = modalElement.querySelector('.modal-dialog');
@@ -514,9 +669,14 @@ function verDetalleVenta(idVenta) {
         .then(r => r.json())
         .then(data => {
             if (data.success) {
+                productosVentaActual = data.productos || [];
+                if (productosVentaActual.length > 0) {
+                    document.getElementById('btnDevolverDesdeModal').style.display = 'inline-block';
+                }
+                
                 let productosHtml = '';
-                if (data.productos && data.productos.length) {
-                    data.productos.forEach(p => {
+                if (productosVentaActual.length) {
+                    productosVentaActual.forEach(p => {
                         productosHtml += `<div class="detalle-item d-flex justify-content-between"><div><strong>${escapeHtml(p.producto_nombre)}</strong><br><small>Cant: ${p.cantidad} x RD$ ${parseFloat(p.precio_unitario).toLocaleString()}</small></div><div class="fw-bold text-success">RD$ ${parseFloat(p.subtotal).toLocaleString()}</div></div>`;
                     });
                 } else productosHtml = '<div class="text-center text-muted">No hay productos</div>';
@@ -529,24 +689,65 @@ function verDetalleVenta(idVenta) {
                     });
                     pagosHtml += '</div>';
                 } else pagosHtml = '<div class="mt-3"><strong>📋 HISTORIAL DE PAGOS</strong><hr><div class="text-center text-muted">No hay pagos registrados</div></div>';
-                const saldoPendiente = data.total - (data.abonos_acumulados || 0);
-                const montoSeguro = data.monto_cubre_seguro || 0;
-                const descuento = data.descuento_total || 0;
-                const descuentoNombre = data.descuento_nombre || '';
-                const totalOriginal = data.subtotal + data.itbis_total;
-                const botonAbono = (data.es_credito && saldoPendiente > 0) ? `<button class="btn btn-abono btn-sm mt-2" onclick="abrirModalAbonoDesdeDetalle(${data.id_venta}, '${escapeHtml(data.numero_documento)}', ${data.total}, ${data.abonos_acumulados || 0})">Registrar Nuevo Abono</button>` : '';
+                
+                const subtotal = parseFloat(data.subtotal);
+                const itbis = parseFloat(data.itbis_total);
+                const montoSeguro = data.usa_seguro ? parseFloat(data.monto_cubre_seguro || 0) : 0;
+                const costoEnvio = (data.entrega && data.entrega.costo_entrega) ? parseFloat(data.entrega.costo_entrega) : 0;
+                const descuento = parseFloat(data.descuento_total || 0);
+                const totalReal = subtotal + itbis - montoSeguro + costoEnvio;
+                const saldoPendiente = totalReal - (parseFloat(data.abonos_acumulados || 0));
+                const totalOriginal = subtotal + itbis;
+                
+                const botonAbono = (data.es_credito && saldoPendiente > 0) ? `<button class="btn btn-abono btn-sm mt-2" onclick="abrirModalAbonoDesdeDetalle(${data.id_venta}, '${escapeHtml(data.numero_documento)}', ${totalReal}, ${data.abonos_acumulados || 0})">Registrar Nuevo Abono</button>` : '';
                 let estadoPagoText = '', estadoPagoClass = '';
                 if (!data.es_credito) { estadoPagoText = 'Contado'; estadoPagoClass = 'bg-success'; }
                 else if (saldoPendiente <= 0) { estadoPagoText = 'Pagado'; estadoPagoClass = 'bg-info'; }
                 else if (data.abonos_acumulados > 0 && saldoPendiente > 0) { estadoPagoText = 'Parcial'; estadoPagoClass = 'bg-warning'; }
                 else { estadoPagoText = 'Pendiente'; estadoPagoClass = 'bg-danger'; }
+                
+                let deliveryHtml = '';
+                if (data.entrega) {
+                    const entrega = data.entrega;
+                    let estadoEntregaBadge = '';
+                    switch (entrega.estado_entrega) {
+                        case 'PENDIENTE': estadoEntregaBadge = 'badge-delivery-pendiente'; break;
+                        case 'ASIGNADA': estadoEntregaBadge = 'badge-delivery-asignada'; break;
+                        case 'EN_CAMINO': estadoEntregaBadge = 'badge-delivery-en_camino'; break;
+                        case 'ENTREGADA': estadoEntregaBadge = 'badge-delivery-entregado'; break;
+                        case 'CANCELADA': estadoEntregaBadge = 'badge-delivery-cancelado'; break;
+                        default: estadoEntregaBadge = 'badge-delivery-pendiente';
+                    }
+                    deliveryHtml = `
+                        <div class="col-12">
+                            <div class="delivery-card">
+                                <div class="d-flex align-items-center gap-2 mb-2">
+                                    <span class="material-symbols-rounded text-info">local_shipping</span>
+                                    <strong>INFORMACIÓN DE ENVÍO</strong>
+                                    <span class="badge-estado ${estadoEntregaBadge} ms-2">${entrega.estado_entrega}</span>
+                                </div>
+                                <div class="row g-2">
+                                    <div class="col-md-6"><small class="text-muted">Nº Seguimiento:</small><br><strong>${escapeHtml(entrega.numero_seguimiento)}</strong></div>
+                                    <div class="col-md-6"><small class="text-muted">Repartidor:</small><br><strong>${escapeHtml(entrega.repartidor_nombre ?? 'No asignado')}</strong> ${entrega.repartidor_telefono ? `📞 ${escapeHtml(entrega.repartidor_telefono)}` : ''}</div>
+                                    <div class="col-12"><small class="text-muted">Dirección de entrega:</small><br>${escapeHtml(entrega.direccion_entrega)}</div>
+                                    <div class="col-md-6"><small class="text-muted">Costo de envío:</small><br><strong class="text-success">RD$ ${parseFloat(entrega.costo_entrega || 0).toLocaleString()}</strong></div>
+                                    <div class="col-md-6"><small class="text-muted">Fecha asignación:</small><br>${entrega.fecha_asignada ? new Date(entrega.fecha_asignada).toLocaleString() : '—'}</div>
+                                    ${entrega.fecha_entrega_real ? `<div class="col-md-6"><small class="text-muted">Fecha entrega real:</small><br>${new Date(entrega.fecha_entrega_real).toLocaleString()}</div>` : ''}
+                                    ${entrega.observaciones ? `<div class="col-12"><small class="text-muted">Observaciones del envío:</small><br>${escapeHtml(entrega.observaciones)}</div>` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
                 const seguroHtml = (data.usa_seguro && montoSeguro > 0) ? `
                     <div class="col-md-6"><div class="bg-light p-3 rounded"><small class="text-muted">💰 DESCUENTO DEL SEGURO</small><strong class="texto-seguro">- RD$ ${montoSeguro.toLocaleString()}</strong></div></div>
                     <div class="col-md-6"><div class="bg-light p-3 rounded"><small class="text-muted">💰 TOTAL ORIGINAL SIN SEGURO</small><strong>RD$ ${totalOriginal.toLocaleString()}</strong></div></div>
                 ` : '';
                 const descuentoHtml = (descuento > 0) ? `
-                    <div class="col-md-6"><div class="bg-light p-3 rounded"><small class="text-muted">🏷️ DESCUENTO COMERCIAL</small><strong class="text-warning">- RD$ ${descuento.toLocaleString()}</strong>${descuentoNombre ? `<br><small>${escapeHtml(descuentoNombre)}</small>` : ''}</div></div>
+                    <div class="col-md-6"><div class="bg-light p-3 rounded"><small class="text-muted">🏷️ DESCUENTO COMERCIAL</small><strong class="text-warning">- RD$ ${descuento.toLocaleString()}</strong>${data.descuento_nombre ? `<br><small>${escapeHtml(data.descuento_nombre)}</small>` : ''}</div></div>
                 ` : '';
+                
                 const html = `
                     <div class="row g-3">
                         <div class="col-md-6"><div class="bg-light p-3 rounded"><small>Nº DOCUMENTO</small><strong class="fs-5">${escapeHtml(data.numero_documento)}</strong></div></div>
@@ -557,18 +758,22 @@ function verDetalleVenta(idVenta) {
                         <div class="col-md-6"><div class="bg-light p-3 rounded"><small>ESTADO DE PAGO</small><span class="badge ${estadoPagoClass}">${estadoPagoText}</span>${botonAbono}</div></div>
                         ${descuentoHtml}
                         ${seguroHtml}
+                        ${deliveryHtml}
                         ${data.ncf ? `<div class="col-md-6"><div class="bg-light p-3 rounded"><small>NCF</small><code>${escapeHtml(data.ncf)}</code></div></div>` : ''}
                         ${data.es_credito ? `<div class="col-md-6"><div class="bg-light p-3 rounded"><small>ABONOS ACUMULADOS</small><strong class="text-info">RD$ ${parseFloat(data.abonos_acumulados || 0).toLocaleString()}</strong></div></div>
                         <div class="col-md-6"><div class="bg-light p-3 rounded"><small>SALDO PENDIENTE</small><strong class="text-warning">RD$ ${saldoPendiente.toLocaleString()}</strong></div></div>` : ''}
                         <div class="col-12"><div class="bg-light p-3 rounded"><small>PRODUCTOS</small>${productosHtml}</div></div>
                         <div class="col-12">${pagosHtml}</div>
-                        <div class="col-12"><div class="bg-success bg-opacity-10 p-3 rounded text-end">
-                            <small>Subtotal: RD$ ${parseFloat(data.subtotal).toLocaleString()}</small><br>
-                            <small>ITBIS: RD$ ${parseFloat(data.itbis_total).toLocaleString()}</small><br>
-                            ${descuento > 0 ? `<small class="text-warning">Descuento: - RD$ ${descuento.toLocaleString()}</small><br>` : ''}
-                            ${data.usa_seguro && montoSeguro > 0 ? `<small class="texto-seguro">Seguro Médico: - RD$ ${montoSeguro.toLocaleString()}</small><br>` : ''}
-                            <strong class="fs-4 text-success">TOTAL PAGADO: RD$ ${parseFloat(data.total).toLocaleString()}</strong>
-                        </div></div>
+                        <div class="col-12">
+                            <div class="bg-success bg-opacity-10 p-3 rounded text-end">
+                                <small>Subtotal: RD$ ${subtotal.toLocaleString()}</small><br>
+                                <small>ITBIS: RD$ ${itbis.toLocaleString()}</small><br>
+                                ${descuento > 0 ? `<small class="text-warning">Descuento: - RD$ ${descuento.toLocaleString()}</small><br>` : ''}
+                                ${data.usa_seguro && montoSeguro > 0 ? `<small class="texto-seguro">Seguro Médico: - RD$ ${montoSeguro.toLocaleString()}</small><br>` : ''}
+                                ${costoEnvio > 0 ? `<small class="text-info">Costo de envío: + RD$ ${costoEnvio.toLocaleString()}</small><br>` : ''}
+                                <strong class="fs-4 text-success">TOTAL PAGADO: RD$ ${totalReal.toLocaleString()}</strong>
+                            </div>
+                        </div>
                     </div>
                 `;
                 modalBody.innerHTML = html;
@@ -576,11 +781,11 @@ function verDetalleVenta(idVenta) {
         }).catch(err => { modalBody.innerHTML = '<div class="text-center py-5 text-danger">Error de conexión</div>'; });
 }
 
-function abrirModalAbonoDesdeDetalle(idVenta, documento, total, abonosAcumulados) {
-    const saldoPendiente = total - abonosAcumulados;
+function abrirModalAbonoDesdeDetalle(idVenta, documento, totalReal, abonosAcumulados) {
+    const saldoPendiente = totalReal - abonosAcumulados;
     document.getElementById('abonoIdVenta').value = idVenta;
     document.getElementById('abonoDocumento').value = documento;
-    document.getElementById('abonoTotal').value = `RD$ ${parseFloat(total).toLocaleString()}`;
+    document.getElementById('abonoTotal').value = `RD$ ${totalReal.toLocaleString()}`;
     document.getElementById('abonoSaldoPendiente').value = `RD$ ${saldoPendiente.toLocaleString()}`;
     document.getElementById('abonoMonto').value = '';
     document.getElementById('abonoReferencia').value = '';
@@ -593,19 +798,22 @@ function abrirModalAbonoDesdeDetalle(idVenta, documento, total, abonosAcumulados
     setTimeout(() => { modalAbonoElement.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 200);
 }
 
-function abrirModalAbono(idVenta, documento, total, abonosAcumulados) {
-    const saldoPendiente = total - abonosAcumulados;
-    document.getElementById('abonoIdVenta').value = idVenta;
-    document.getElementById('abonoDocumento').value = documento;
-    document.getElementById('abonoTotal').value = `RD$ ${parseFloat(total).toLocaleString()}`;
-    document.getElementById('abonoSaldoPendiente').value = `RD$ ${saldoPendiente.toLocaleString()}`;
-    document.getElementById('abonoMonto').value = '';
-    document.getElementById('abonoReferencia').value = '';
-    document.getElementById('abonoMonto').max = saldoPendiente;
-    const modalAbonoElement = document.getElementById('modalAbono');
-    const modalAbono = new bootstrap.Modal(modalAbonoElement, { backdrop: 'static', keyboard: true });
-    modalAbono.show();
-    setTimeout(() => { modalAbonoElement.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 200);
+function abrirModalAbono(idVenta, documento, totalDB, abonosAcumulados) {
+    Swal.fire('Cargando información...', '', 'info');
+    fetch(BASE_URL + `/backend/ventas/get_detalle_venta_completo.php?id_venta=${idVenta}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                const subtotal = parseFloat(data.subtotal);
+                const itbis = parseFloat(data.itbis_total);
+                const montoSeguro = data.usa_seguro ? parseFloat(data.monto_cubre_seguro || 0) : 0;
+                const costoEnvio = (data.entrega && data.entrega.costo_entrega) ? parseFloat(data.entrega.costo_entrega) : 0;
+                const totalReal = subtotal + itbis - montoSeguro + costoEnvio;
+                abrirModalAbonoDesdeDetalle(idVenta, documento, totalReal, parseFloat(data.abonos_acumulados || 0));
+            } else {
+                Swal.fire('Error', 'No se pudo obtener la información de la venta', 'error');
+            }
+        }).catch(() => Swal.fire('Error', 'Error de conexión', 'error'));
 }
 
 function confirmarAbono() {
@@ -661,6 +869,199 @@ function generarFactura(idVenta) {
                 if (data.success) Swal.fire('Éxito', 'Factura generada correctamente', 'success').then(() => location.reload());
                 else Swal.fire('Error', data.message || 'Error al generar factura', 'error');
             });
+        }
+    });
+}
+
+function editarEntrega(idEntrega, idVenta) {
+    console.log("Editando entrega ID:", idEntrega);
+    Swal.fire({ title: 'Cargando información de la entrega...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    fetch(BASE_URL + `/backend/ventas/get_entrega.php?id_entrega=${idEntrega}`)
+        .then(r => r.json())
+        .then(data => {
+            Swal.close();
+            if (data.success) {
+                document.getElementById('editEntregaId').value = data.id_entrega;
+                document.getElementById('editVentaId').value = data.id_venta;
+                document.getElementById('editNumeroSeguimiento').value = data.numero_seguimiento;
+                document.getElementById('editEstadoEntrega').value = data.id_estado;
+                const repartidorSelect = document.getElementById('editRepartidor');
+                repartidorSelect.value = data.id_repartidor || "";
+                document.getElementById('editCostoEnvio').value = data.costo_entrega ? parseFloat(data.costo_entrega).toFixed(2) : "0.00";
+                document.getElementById('editDireccion').value = data.direccion_entrega || '';
+                document.getElementById('editObservaciones').value = data.observaciones || '';
+                const modalElement = document.getElementById('modalEditarEntrega');
+                const modal = new bootstrap.Modal(modalElement, { backdrop: 'static', keyboard: true });
+                modal.show();
+            } else {
+                Swal.fire('Error', 'No se pudo cargar la información de la entrega: ' + (data.message || ''), 'error');
+            }
+        })
+        .catch(error => { Swal.close(); Swal.fire('Error', 'Error de conexión', 'error'); });
+}
+
+function guardarEdicionEntrega() {
+    const idEntrega = document.getElementById('editEntregaId').value;
+    const idEstado = document.getElementById('editEstadoEntrega').value;
+    const idRepartidor = document.getElementById('editRepartidor').value || null;
+    const costoEnvio = parseFloat(document.getElementById('editCostoEnvio').value);
+    const direccion = document.getElementById('editDireccion').value.trim();
+    const observaciones = document.getElementById('editObservaciones').value.trim();
+    if (!direccion) { Swal.fire('Error', 'La dirección es obligatoria', 'error'); return; }
+    if (isNaN(costoEnvio) || costoEnvio < 0) { Swal.fire('Error', 'Costo de envío inválido', 'error'); return; }
+    Swal.fire({
+        title: 'Confirmar cambios',
+        text: '¿Está seguro de actualizar los datos de la entrega?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, actualizar'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            Swal.fire({ title: 'Guardando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+            fetch(BASE_URL + '/backend/ventas/editar_entrega.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id_entrega: idEntrega, id_estado: idEstado, id_repartidor: idRepartidor, costo_entrega: costoEnvio, direccion_entrega: direccion, observaciones: observaciones })
+            }).then(r => r.json()).then(data => {
+                Swal.close();
+                if (data.success) Swal.fire('Éxito', 'Entrega actualizada correctamente', 'success').then(() => location.reload());
+                else Swal.fire('Error', data.message || 'Error al actualizar', 'error');
+            }).catch(err => { Swal.close(); Swal.fire('Error', 'Error de conexión', 'error'); });
+        }
+    });
+}
+
+// === FUNCIONES PARA DEVOLUCIONES CON CONTROL DE CANTIDADES ===
+function abrirModalDevolucionDesdeDetalle() {
+    if (!ventaActualId) return;
+    Swal.fire({ title: 'Cargando información de la venta y devoluciones previas...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    
+    fetch(BASE_URL + `/backend/ventas/get_detalle_venta_completo.php?id_venta=${ventaActualId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                const productos = data.productos || [];
+                return fetch(BASE_URL + `/backend/ventas/get_devoluciones_por_venta.php?id_venta=${ventaActualId}`)
+                    .then(r => r.json())
+                    .then(devolucionesData => {
+                        const devueltosMap = {};
+                        if (devolucionesData.success && devolucionesData.devueltos) {
+                            devolucionesData.devueltos.forEach(d => {
+                                devueltosMap[d.id_detalle] = d.cantidad_devuelta;
+                            });
+                        }
+                        productos.forEach(p => {
+                            p.cantidad_devuelta = devueltosMap[p.id_detalle] || 0;
+                            p.disponible = p.cantidad - p.cantidad_devuelta;
+                        });
+                        productosVentaActual = productos;
+                        
+                        document.getElementById('devIdVenta').value = ventaActualId;
+                        document.getElementById('devDocumento').innerText = data.numero_documento;
+                        document.getElementById('devClienteNombre').innerText = data.cliente_nombre || 'Consumidor Final';
+                        document.getElementById('devVendedorNombre').innerText = data.vendedor_nombre || 'Desconocido';
+                        const hoy = new Date().toISOString().split('T')[0];
+                        document.getElementById('devFecha').value = hoy;
+                        document.getElementById('devMotivo').value = '';
+                        document.getElementById('devTipo').value = '3';
+                        
+                        let html = '';
+                        productos.forEach(p => {
+                            const disponible = p.disponible;
+                            const disabled = (disponible <= 0) ? 'disabled' : '';
+                            html += `
+                                <div class="detalle-item d-flex justify-content-between align-items-center mb-2">
+                                    <div>
+                                        <strong>${escapeHtml(p.producto_nombre)}</strong><br>
+                                        <small>Cantidad vendida: ${p.cantidad}</small><br>
+                                        <small class="text-muted">Ya devuelto/pendiente: ${p.cantidad_devuelta}</small><br>
+                                        <small class="text-info">Disponible para devolver: ${disponible}</small>
+                                    </div>
+                                    <div style="width: 150px;">
+                                        <label class="small">Devolver:</label>
+                                        <input type="number" class="form-control form-control-sm cantidad-devolver" 
+                                               data-id-detalle="${p.id_detalle}" 
+                                               data-max="${disponible}" 
+                                               placeholder="0" 
+                                               min="0" 
+                                               max="${disponible}" 
+                                               step="1" 
+                                               value="0"
+                                               ${disabled}>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        document.getElementById('devProductosList').innerHTML = html;
+                        
+                        Swal.close();
+                        const modalDetalle = bootstrap.Modal.getInstance(document.getElementById('modalDetalleVenta'));
+                        if (modalDetalle) modalDetalle.hide();
+                        const modalDevolucion = new bootstrap.Modal(document.getElementById('modalDevolucion'), { backdrop: 'static', keyboard: true });
+                        modalDevolucion.show();
+                    });
+            } else {
+                Swal.close();
+                Swal.fire('Error', 'No se pudo obtener información de la venta', 'error');
+            }
+        })
+        .catch(() => { Swal.close(); Swal.fire('Error', 'Error de conexión', 'error'); });
+}
+
+function confirmarDevolucion() {
+    const idVenta = document.getElementById('devIdVenta').value;
+    const motivo = document.getElementById('devMotivo').value.trim();
+    const tipo = document.getElementById('devTipo').value;
+    if (!motivo) {
+        Swal.fire('Error', 'Debe especificar el motivo de la devolución', 'error');
+        return;
+    }
+    const items = [];
+    let algunaCantidad = false;
+    document.querySelectorAll('#devProductosList .cantidad-devolver').forEach(input => {
+        const cantidad = parseInt(input.value);
+        if (cantidad > 0) {
+            const max = parseInt(input.dataset.max);
+            if (cantidad > max) {
+                Swal.fire('Error', `No puede devolver más de ${max} unidades de este producto`, 'error');
+                algunaCantidad = false;
+                return;
+            }
+            items.push({
+                id_detalle_venta: input.dataset.idDetalle,
+                cantidad: cantidad
+            });
+            algunaCantidad = true;
+        }
+    });
+    if (!algunaCantidad) {
+        Swal.fire('Error', 'Debe seleccionar al menos un producto y cantidad a devolver', 'error');
+        return;
+    }
+    Swal.fire({
+        title: 'Confirmar solicitud de devolución',
+        html: `<p>Se solicitará la devolución de ${items.length} producto(s). La solicitud quedará en estado <strong>SOLICITADA</strong> y deberá ser aprobada por un supervisor.</p>`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, solicitar',
+        cancelButtonText: 'Cancelar'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            Swal.fire({ title: 'Procesando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+            fetch(BASE_URL + '/backend/ventas/registrar_devolucion.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id_venta: idVenta, motivo: motivo, id_tipo: tipo, items: items })
+            }).then(r => r.json()).then(data => {
+                Swal.close();
+                if (data.success) {
+                    Swal.fire('Éxito', 'Solicitud de devolución registrada correctamente. Queda pendiente de aprobación.', 'success').then(() => {
+                        location.reload();
+                    });
+                } else {
+                    Swal.fire('Error', data.message || 'Error al registrar la solicitud', 'error');
+                }
+            }).catch(err => { Swal.close(); Swal.fire('Error', 'Error de conexión', 'error'); });
         }
     });
 }

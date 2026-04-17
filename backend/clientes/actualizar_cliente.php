@@ -10,15 +10,17 @@ if (!isset($_SESSION['id_sesion'])) {
 }
 
 $data = json_decode(file_get_contents('php://input'), true);
-if (!$data || empty($data['nombre']) || empty($data['id_cliente'])) {
-    echo json_encode(['success' => false, 'message' => 'Datos incompletos']);
+if (!$data || !isset($data['id_cliente'])) {
+    echo json_encode(['success' => false, 'message' => 'Datos inválidos']);
     exit();
 }
 
+$id_cliente = (int)$data['id_cliente'];
+
 try {
     $conexion->beginTransaction();
-    
-    // Actualizar cliente (sin fecha_registro)
+
+    // Actualizar datos básicos del cliente
     $stmt = $conexion->prepare("
         UPDATE clientes SET
             nombre = :nombre,
@@ -26,74 +28,76 @@ try {
             barrio = :barrio,
             ciudad = :ciudad,
             permite_credito = :permite_credito
-        WHERE id_cliente = :id_cliente
+        WHERE id_cliente = :id
     ");
     $stmt->execute([
-        ':id_cliente' => $data['id_cliente'],
         ':nombre' => $data['nombre'],
         ':direccion' => $data['direccion'] ?? null,
         ':barrio' => $data['barrio'] ?? null,
         ':ciudad' => $data['ciudad'] ?? 'Santiago',
-        ':permite_credito' => isset($data['permite_credito']) ? ($data['permite_credito'] ? 't' : 'f') : 'f'
+        ':permite_credito' => $data['permite_credito'] ?? false,
+        ':id' => $id_cliente
     ]);
-    
-    // Eliminar relaciones antiguas
-    $stmtDelTel = $conexion->prepare("DELETE FROM cliente_telefono WHERE id_cliente = :id_cliente");
-    $stmtDelTel->execute([':id_cliente' => $data['id_cliente']]);
-    $stmtDelCor = $conexion->prepare("DELETE FROM cliente_correo WHERE id_cliente = :id_cliente");
-    $stmtDelCor->execute([':id_cliente' => $data['id_cliente']]);
-    
-    // Insertar nuevos teléfonos
+
+    // Reemplazar teléfonos
+    $stmtDelTel = $conexion->prepare("DELETE FROM cliente_telefono WHERE id_cliente = :id");
+    $stmtDelTel->execute([':id' => $id_cliente]);
     if (!empty($data['telefonos'])) {
+        $stmtTel = $conexion->prepare("INSERT INTO telefonos (numero, tipo, whatsapp, activo) VALUES (:numero, :tipo, :whatsapp, TRUE) RETURNING id_telefono");
+        $stmtRel = $conexion->prepare("INSERT INTO cliente_telefono (id_cliente, id_telefono) VALUES (:id_cliente, :id_telefono)");
         foreach ($data['telefonos'] as $tel) {
-            if (empty($tel['numero'])) continue;
-            $stmtTel = $conexion->prepare("
-                INSERT INTO telefonos (numero, tipo, whatsapp, activo)
-                VALUES (:numero, :tipo, :whatsapp, true)
-                RETURNING id_telefono
-            ");
             $stmtTel->execute([
                 ':numero' => $tel['numero'],
-                ':tipo' => $tel['tipo'] ?? 'PRINCIPAL',
-                ':whatsapp' => isset($tel['whatsapp']) ? ($tel['whatsapp'] ? 't' : 'f') : 'f'
+                ':tipo' => $tel['tipo'],
+                ':whatsapp' => $tel['whatsapp'] ?? false
             ]);
             $id_telefono = $stmtTel->fetchColumn();
-            
-            $stmtRel = $conexion->prepare("
-                INSERT INTO cliente_telefono (id_cliente, id_telefono)
-                VALUES (:id_cliente, :id_telefono)
-            ");
-            $stmtRel->execute([':id_cliente' => $data['id_cliente'], ':id_telefono' => $id_telefono]);
+            $stmtRel->execute([':id_cliente' => $id_cliente, ':id_telefono' => $id_telefono]);
         }
     }
-    
-    // Insertar nuevos correos
+
+    // Reemplazar correos
+    $stmtDelCor = $conexion->prepare("DELETE FROM cliente_correo WHERE id_cliente = :id");
+    $stmtDelCor->execute([':id' => $id_cliente]);
     if (!empty($data['correos'])) {
+        $stmtCor = $conexion->prepare("INSERT INTO correos (email, tipo, activo) VALUES (:email, :tipo, TRUE) RETURNING id_correo");
+        $stmtRelCor = $conexion->prepare("INSERT INTO cliente_correo (id_cliente, id_correo) VALUES (:id_cliente, :id_correo)");
         foreach ($data['correos'] as $cor) {
-            if (empty($cor['email'])) continue;
-            $stmtCor = $conexion->prepare("
-                INSERT INTO correos (email, tipo, activo, verificado)
-                VALUES (:email, :tipo, true, false)
-                RETURNING id_correo
-            ");
             $stmtCor->execute([
                 ':email' => $cor['email'],
-                ':tipo' => $cor['tipo'] ?? 'PRINCIPAL'
+                ':tipo' => $cor['tipo']
             ]);
             $id_correo = $stmtCor->fetchColumn();
-            
-            $stmtRelCor = $conexion->prepare("
-                INSERT INTO cliente_correo (id_cliente, id_correo)
-                VALUES (:id_cliente, :id_correo)
-            ");
-            $stmtRelCor->execute([':id_cliente' => $data['id_cliente'], ':id_correo' => $id_correo]);
+            $stmtRelCor->execute([':id_cliente' => $id_cliente, ':id_correo' => $id_correo]);
         }
     }
-    
+
+    // Reemplazar direcciones
+    $stmtDelDir = $conexion->prepare("DELETE FROM cliente_direccion WHERE id_cliente = :id");
+    $stmtDelDir->execute([':id' => $id_cliente]);
+    if (!empty($data['direcciones'])) {
+        $stmtDir = $conexion->prepare("INSERT INTO direcciones (direccion, barrio, ciudad, referencia, activo) VALUES (:direccion, :barrio, :ciudad, :referencia, TRUE) RETURNING id_direccion");
+        $stmtRelDir = $conexion->prepare("INSERT INTO cliente_direccion (id_cliente, id_direccion, predeterminada) VALUES (:id_cliente, :id_direccion, :predeterminada)");
+        foreach ($data['direcciones'] as $dir) {
+            $stmtDir->execute([
+                ':direccion' => $dir['direccion'],
+                ':barrio' => $dir['barrio'] ?? null,
+                ':ciudad' => $dir['ciudad'] ?? 'Santiago',
+                ':referencia' => $dir['referencia'] ?? null
+            ]);
+            $id_direccion = $stmtDir->fetchColumn();
+            $stmtRelDir->execute([
+                ':id_cliente' => $id_cliente,
+                ':id_direccion' => $id_direccion,
+                ':predeterminada' => $dir['predeterminada'] ?? false
+            ]);
+        }
+    }
+
     $conexion->commit();
     echo json_encode(['success' => true]);
-    
-} catch (PDOException $e) {
+
+} catch (Exception $e) {
     $conexion->rollBack();
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }
