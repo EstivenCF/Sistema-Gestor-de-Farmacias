@@ -79,6 +79,7 @@ $base_url = '/sistema-gestor-de-farmacias';
 ?>
 
 <style>
+    /* Estilos generales */
     .modal-backdrop { display: none !important; }
     .modal { background-color: rgba(0, 0, 0, 0.5) !important; z-index: 1050; }
     .modal-dialog-centered { display: flex; align-items: center; min-height: calc(100% - 1rem); }
@@ -219,6 +220,23 @@ $base_url = '/sistema-gestor-de-farmacias';
     .texto-seguro { color: #007bff; font-weight: 600; }
     #selectDescuento { width: auto; min-width: 150px; font-size: 0.85rem; }
 
+    .delivery-info {
+        background: #e3f2fd;
+        border-left: 4px solid #17a2b8;
+        padding: 12px;
+        border-radius: 8px;
+        margin-top: 15px;
+    }
+    .btn-quitar-delivery {
+        background-color: #dc3545;
+        color: white;
+        border: none;
+        border-radius: 20px;
+        padding: 4px 12px;
+        font-size: 0.75rem;
+    }
+    .btn-quitar-delivery:hover { background-color: #b02a37; }
+
     .delivery-modal .modal-content {
         border-radius: 20px;
     }
@@ -341,7 +359,7 @@ $base_url = '/sistema-gestor-de-farmacias';
             <!-- Botón para agregar productos -->
             <div class="card shadow-sm border-0 mb-4">
                 <div class="card-body p-4 text-center">
-                    <button type="button" class="btn btn-success btn-lg px-5" onclick="abrirModalProductos()">
+                    <button type="button" class="btn btn-success btn-lg px-5" id="btnAgregarProducto">
                         <span class="material-symbols-rounded align-middle me-2">add_shopping_cart</span>
                         Agregar Producto
                     </button>
@@ -381,16 +399,9 @@ $base_url = '/sistema-gestor-de-farmacias';
 
         <div class="col-lg-4">
             <div class="resumen-card">
-                <h5 class="mb-3 d-flex align-items-center justify-content-between">
-                    <span><span class="material-symbols-rounded me-2 text-success">summary</span> Resumen de Venta</span>
-                    <div>
-                        <button type="button" class="btn btn-sm btn-info text-white me-1" onclick="abrirModalDelivery()" style="border-radius: 30px;">
-                            <span class="material-symbols-rounded align-middle me-1" style="font-size: 1rem;">local_shipping</span> Delivery
-                        </button>
-                        <button type="button" class="btn btn-sm btn-danger text-white" id="btnQuitarDelivery" onclick="quitarDelivery()" style="border-radius: 30px; display: none;">
-                            <span class="material-symbols-rounded align-middle me-1" style="font-size: 1rem;">cancel</span> Quitar Delivery
-                        </button>
-                    </div>
+                <h5 class="mb-3 d-flex align-items-center">
+                    <span class="material-symbols-rounded me-2 text-success"></span>
+                    Resumen de Venta
                 </h5>
                 <div class="resumen-linea"><span>Subtotal:</span><span id="resumenSubtotal">RD$ 0.00</span></div>
                 <div class="resumen-linea"><span>ITBIS (<?php echo $itbis_porcentaje; ?>%):</span><span id="resumenItbis">RD$ 0.00</span></div>
@@ -399,7 +410,7 @@ $base_url = '/sistema-gestor-de-farmacias';
                     <span id="resumenSeguro" class="text-info fw-bold">- RD$ 0.00</span>
                 </div>
                 <div class="resumen-linea" id="resumenEnvioLinea" style="display: none;">
-                    <span>ENVÍO (10%):</span>
+                    <span>ENVÍO:</span>
                     <span id="resumenEnvio" class="text-info fw-bold">RD$ 0.00</span>
                 </div>
                 <div class="resumen-linea">
@@ -443,6 +454,27 @@ $base_url = '/sistema-gestor-de-farmacias';
                 <div class="alert alert-info small" id="alertCredito" style="display: none;">
                     <i class="fas fa-info-circle me-1"></i> Esta venta se registrará a crédito.
                 </div>
+
+                <!-- SECCIÓN DELIVERY -->
+                <div class="mt-3">
+                    <div id="deliveryState" style="display: none;" class="delivery-info">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong><span class="material-symbols-rounded" style="font-size: 1rem;">local_shipping</span> Delivery asignado</strong><br>
+                                <small>Repartidor: <span id="deliveryRepartidor"></span></small><br>
+                                <small>Costo: RD$ <span id="deliveryCosto"></span></small><br>
+                                <small>Dirección: <span id="deliveryDireccion"></span></small>
+                            </div>
+                            <button type="button" class="btn-quitar-delivery" onclick="quitarDelivery()">
+                                <span class="material-symbols-rounded" style="font-size: 1rem;">delete</span> Quitar
+                            </button>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-outline-info w-100" id="btnAsignarDelivery" onclick="abrirModalDelivery()">
+                        <span class="material-symbols-rounded align-middle me-1">local_shipping</span> Asignar Delivery
+                    </button>
+                </div>
+
                 <div class="d-grid gap-2 mt-3">
                     <button class="btn btn-success btn-lg" onclick="procesarVenta()">
                         <span class="material-symbols-rounded align-middle me-1">check_circle</span> Procesar Venta
@@ -531,7 +563,7 @@ $base_url = '/sistema-gestor-de-farmacias';
     </div>
 </div>
 
-<!-- MODAL DE DELIVERY -->
+<!-- Modal Delivery -->
 <div class="modal fade" id="modalDelivery" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered modal-lg">
         <div class="modal-content border-0 shadow-lg delivery-modal">
@@ -543,42 +575,55 @@ $base_url = '/sistema-gestor-de-farmacias';
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4">
-                <div class="row g-3">
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Factura N°</label>
-                        <input type="text" class="form-control" id="deliveryFactura" readonly style="background:#e9ecef;">
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Fecha y Hora</label>
-                        <input type="text" class="form-control" id="deliveryFecha" readonly style="background:#e9ecef;">
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label fw-bold">Repartidor</label>
-                        <select class="form-select" id="deliveryRepartidor" required>
-                            <option value="">Seleccione un repartidor disponible...</option>
-                        </select>
-                        <small class="text-muted">Solo se muestran repartidores activos y no ocupados</small>
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label fw-bold">Dirección de Entrega</label>
-                        <select class="form-select" id="direccionEntregaSelect" required>
-                            <option value="">Cargando direcciones...</option>
-                        </select>
-                        <small class="text-muted">Seleccione la dirección donde se entregará el pedido</small>
-                    </div>
-                    <div class="col-12">
-                        <div class="alert alert-success">
-                            <strong>Costo de envío:</strong> <span id="costoEnvioMostrar">RD$ 0.00</span><br>
-                            <small>Se calcula como el <strong>10% del total de la factura</strong> (sin incluir el envío).</small>
+                <form id="formDelivery">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small text-muted">Nº DOCUMENTO</label>
+                            <input type="text" class="form-control" id="modalNumeroDocumento" readonly style="background-color: #f8f9fa;">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small text-muted">FECHA</label>
+                            <input type="text" class="form-control" id="modalFechaVenta" readonly style="background-color: #f8f9fa;">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small text-muted">CLIENTE</label>
+                            <input type="text" class="form-control" id="modalClienteNombre" readonly style="background-color: #f8f9fa;">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small text-muted">SUCURSAL</label>
+                            <input type="text" class="form-control" id="modalSucursalNombre" readonly style="background-color: #f8f9fa;">
                         </div>
                     </div>
-                </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-muted">DIRECCIÓN DE ENTREGA *</label>
+                        <select class="form-select" id="direccionEntrega" required>
+                            <option value="">Cargando direcciones...</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-muted">REPARTIDOR *</label>
+                        <select class="form-select" id="repartidorEntrega" required>
+                            <option value="">Cargando repartidores...</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-muted">COSTO DE ENVÍO (RD$)</label>
+                        <input type="number" step="0.01" class="form-control" id="costoEnvio" value="0" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-muted">OBSERVACIONES (OPCIONAL)</label>
+                        <textarea class="form-control" id="observacionesDelivery" rows="2"></textarea>
+                    </div>
+                </form>
             </div>
             <div class="modal-footer border-0 p-4 pt-0 d-flex justify-content-end gap-3">
                 <button type="button" class="btn btn-cancelar" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-info text-white px-4" onclick="confirmarDelivery()">
-                    <span class="material-symbols-rounded align-middle me-1">check_circle</span>
-                    Aplicar Envío
+                <button type="button" class="btn btn-info text-white px-4" onclick="guardarDelivery()">
+                    <span class="material-symbols-rounded align-middle me-1">check</span> Asignar Delivery
                 </button>
             </div>
         </div>
@@ -601,15 +646,11 @@ let datosSeguroCliente = null;
 let coberturaActual = null;
 let descuentoSeleccionado = { id: null, valor: 0, esPorcentaje: false, montoAplicado: 0 };
 
-// Variables para delivery
-let deliveryActivo = false;
-let costoEnvio = 0;
-let idRepartidorSeleccionado = null;
-let direccionSeleccionada = '';
-let totalActualVenta = 0;
+let sucursalActual = null;
+let deliveryAsignado = null;
 
-// ==================== DESCUENTO ====================
-function aplicarDescuento(subtotal) {
+// ==================== FUNCIONES DE DESCUENTO ====================
+function aplicarDescuento(base) {
     const select = document.getElementById('selectDescuento');
     const selectedOption = select.options[select.selectedIndex];
     if (!selectedOption.value) {
@@ -621,7 +662,7 @@ function aplicarDescuento(subtotal) {
     const esPorcentaje = selectedOption.dataset.es_porcentaje === '1';
     let monto = 0;
     if (esPorcentaje) {
-        monto = subtotal * (valor / 100);
+        monto = base * (valor / 100);
     } else {
         monto = valor;
     }
@@ -636,6 +677,10 @@ function aplicarDescuento(subtotal) {
 }
 
 // ==================== RECÁLCULO ====================
+let totalActualVenta = 0;
+let deliveryActivo = false;
+let costoEnvio = 0;
+
 function recalcularTodo() {
     if (carrito.length === 0) {
         document.getElementById('resumenSubtotal').innerHTML = 'RD$ 0.00';
@@ -799,119 +844,21 @@ async function cargarDatosSeguroCliente(idCliente) {
     }
 }
 
-// ==================== DELIVERY ====================
-async function cargarDireccionesCliente(idCliente) {
-    const selectDireccion = document.getElementById('direccionEntregaSelect');
-    selectDireccion.innerHTML = '<option value="">Cargando direcciones...</option>';
-    try {
-        const response = await fetch(BASE_URL + `/backend/clientes/listar_direcciones_cliente.php?id_cliente=${idCliente}`);
-        const data = await response.json();
-        if (data.success && data.direcciones && data.direcciones.length > 0) {
-            selectDireccion.innerHTML = '';
-            data.direcciones.forEach(dir => {
-                const option = document.createElement('option');
-                option.value = dir.id_direccion;
-                option.textContent = dir.texto_completo;
-                option.dataset.direccion = dir.direccion;
-                if (dir.predeterminada) option.selected = true;
-                selectDireccion.appendChild(option);
-            });
-        } else {
-            selectDireccion.innerHTML = '<option value="">No hay direcciones registradas</option>';
-        }
-    } catch (error) {
-        console.error(error);
-        selectDireccion.innerHTML = '<option value="">Error al cargar direcciones</option>';
-    }
-}
-
-function abrirModalDelivery() {
-    const clienteSelect = document.getElementById('cliente');
-    const clienteId = clienteSelect.value;
-    if (!clienteId) {
-        Swal.fire('Atención', 'Debe seleccionar un cliente para el envío a domicilio', 'warning');
-        return;
-    }
-    cargarDireccionesCliente(clienteId);
-    
-    document.getElementById('deliveryFactura').value = document.getElementById('numeroDocumento').value;
-    document.getElementById('deliveryFecha').value = document.getElementById('fechaVenta').value;
-    
-    costoEnvio = totalActualVenta * 0.10;
-    document.getElementById('costoEnvioMostrar').innerHTML = `RD$ ${costoEnvio.toFixed(2)}`;
-    
-    fetch(BASE_URL + '/backend/delivery/listar_repartidores_disponibles.php')
-        .then(r => r.json())
-        .then(data => {
-            const select = document.getElementById('deliveryRepartidor');
-            select.innerHTML = '<option value="">Seleccione un repartidor disponible...</option>';
-            if (data.success && data.repartidores && data.repartidores.length) {
-                data.repartidores.forEach(rep => {
-                    const option = document.createElement('option');
-                    option.value = rep.id_repartidor;
-                    option.textContent = `${rep.nombre} (${rep.telefono || 'sin teléfono'}) - Entregas activas: ${rep.entregas_activas || 0}`;
-                    select.appendChild(option);
-                });
-            } else {
-                select.innerHTML = '<option value="">No hay repartidores disponibles</option>';
-            }
-        })
-        .catch(err => {
-            console.error(err);
-            Swal.fire('Error', 'No se pudieron cargar los repartidores', 'error');
-        });
-    
-    if (modalDelivery) modalDelivery.show();
-}
-
-function confirmarDelivery() {
-    const repartidorSelect = document.getElementById('deliveryRepartidor');
-    const direccionSelect = document.getElementById('direccionEntregaSelect');
-    const idRepartidor = repartidorSelect.value;
-    const selectedOption = direccionSelect.options[direccionSelect.selectedIndex];
-    const idDireccion = selectedOption?.value;
-    const direccionCompleta = selectedOption?.dataset?.direccion || '';
-    
-    if (!idRepartidor) {
-        Swal.fire('Error', 'Debe seleccionar un repartidor', 'error');
-        return;
-    }
-    if (!idDireccion) {
-        Swal.fire('Error', 'Debe seleccionar una dirección de entrega', 'error');
-        return;
-    }
-    
-    idRepartidorSeleccionado = parseInt(idRepartidor);
-    direccionSeleccionada = direccionCompleta;
-    deliveryActivo = true;
-    recalcularTodo();
-    actualizarBotonQuitarDelivery();
-    if (modalDelivery) modalDelivery.hide();
-    Swal.fire('Éxito', 'Envío configurado correctamente', 'success');
-}
-
-function actualizarBotonQuitarDelivery() {
-    const btn = document.getElementById('btnQuitarDelivery');
-    if (btn) btn.style.display = deliveryActivo ? 'inline-flex' : 'none';
-}
-
-function quitarDelivery() {
-    if (!deliveryActivo) return;
-    deliveryActivo = false;
-    costoEnvio = 0;
-    idRepartidorSeleccionado = null;
-    direccionSeleccionada = '';
-    recalcularTodo();
-    actualizarBotonQuitarDelivery();
-    Swal.fire('Envío cancelado', 'El costo de envío ha sido eliminado', 'info');
-}
-
 // ==================== MANEJO DEL CARRITO ====================
-function abrirModalProductos() { if (modalProductos) modalProductos.show(); }
+function abrirModalProductos() {
+    if (!sucursalActual) {
+        Swal.fire('Error', 'Primero debe seleccionar una sucursal', 'error');
+        return;
+    }
+    if (modalProductos) modalProductos.show();
+}
+
 function cargarProductosModal() {
+    if (!sucursalActual) return;
     const listaDiv = document.getElementById('listaProductosModal');
     listaDiv.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-success"></div><p>Cargando...</p></div>';
-    fetch(BASE_URL + '/backend/ventas/listar_productos_venta.php')
+    
+    fetch(BASE_URL + `/backend/ventas/listar_productos_venta.php?id_sucursal=${sucursalActual}`)
         .then(response => response.json())
         .then(data => {
             if (data.success && data.productos) {
@@ -923,10 +870,11 @@ function cargarProductosModal() {
         })
         .catch(error => { listaDiv.innerHTML = '<div class="text-center py-5 text-danger">Error de conexión</div>'; });
 }
+
 function renderizarProductosModal(productos) {
     const listaDiv = document.getElementById('listaProductosModal');
     if (!productos || productos.length === 0) {
-        listaDiv.innerHTML = '<div class="text-center py-5 text-muted">No hay productos disponibles</div>';
+        listaDiv.innerHTML = '<div class="text-center py-5 text-muted">No hay productos disponibles en esta sucursal</div>';
         return;
     }
     let html = '<div class="row">';
@@ -943,7 +891,7 @@ function renderizarProductosModal(productos) {
                         <div class="nombre">${escapeHtml(p.nombre)}</div>
                         <div class="precio">RD$ ${parseFloat(p.precio).toFixed(2)}</div>
                     </div>
-                    <div class="small text-muted mt-1">Lote: ${escapeHtml(p.numero_lote)}</div>
+                    <div class="small text-muted mt-1">Lote: ${escapeHtml(p.id_lote)}</div>
                     <div class="mt-2 d-flex justify-content-between align-items-center">
                         <span class="stock ${stockClass}">${stockText}</span>
                         ${itbisBadge}
@@ -955,11 +903,13 @@ function renderizarProductosModal(productos) {
     html += '</div>';
     listaDiv.innerHTML = html;
 }
+
 function filtrarProductos() {
     const filtroNombre = document.getElementById('filtroNombreProducto')?.value.toLowerCase() || '';
     let filtrados = productosData.filter(p => p.nombre.toLowerCase().includes(filtroNombre));
     renderizarProductosModal(filtrados);
 }
+
 function seleccionarProducto(idLote, nombre, precio, stock, idMedicamento, aplicaItbis) {
     productoSeleccionado = {
         id_lote: idLote,
@@ -978,15 +928,16 @@ function seleccionarProducto(idLote, nombre, precio, stock, idMedicamento, aplic
     if (modalProductos) modalProductos.hide();
     if (modalCantidad) modalCantidad.show();
 }
+
 function confirmarAgregarProducto() {
     const cantidad = parseInt(document.getElementById('cantidadProducto').value);
     const stock = productoSeleccionado.stock;
     if (isNaN(cantidad) || cantidad < 1) { Swal.fire('Error', 'Cantidad inválida', 'error'); return; }
-    if (cantidad > stock) { Swal.fire('Stock insuficiente', `Solo hay ${stock} unidades`, 'warning'); return; }
+    if (cantidad > stock) { Swal.fire('Stock insuficiente', `Solo hay ${stock} unidades en esta sucursal`, 'warning'); return; }
     const existente = carrito.find(item => item.id_lote === productoSeleccionado.id_lote);
     if (existente) {
         const nuevaCantidad = existente.cantidad + cantidad;
-        if (nuevaCantidad > stock) { Swal.fire('Stock insuficiente', `Solo hay ${stock} unidades en total`, 'warning'); return; }
+        if (nuevaCantidad > stock) { Swal.fire('Stock insuficiente', `Solo hay ${stock} unidades en total en esta sucursal`, 'warning'); return; }
         existente.cantidad = nuevaCantidad;
     } else {
         carrito.push({
@@ -1003,6 +954,7 @@ function confirmarAgregarProducto() {
     if (modalCantidad) modalCantidad.hide();
     productoSeleccionado = null;
 }
+
 function actualizarCarrito() {
     const tbody = document.getElementById('carritoBody');
     if (carrito.length === 0) {
@@ -1033,22 +985,175 @@ function actualizarCarrito() {
     tbody.innerHTML = html;
     recalcularTodo();
 }
+
 function actualizarCantidad(index, nuevaCantidad) {
     nuevaCantidad = parseInt(nuevaCantidad);
     if (isNaN(nuevaCantidad) || nuevaCantidad < 1) nuevaCantidad = 1;
     if (nuevaCantidad > carrito[index].stock) {
-        Swal.fire('Stock insuficiente', `Solo hay ${carrito[index].stock} unidades disponibles`, 'warning');
+        Swal.fire('Stock insuficiente', `Solo hay ${carrito[index].stock} unidades disponibles en esta sucursal`, 'warning');
         nuevaCantidad = carrito[index].stock;
     }
     carrito[index].cantidad = nuevaCantidad;
     actualizarCarrito();
 }
+
 function eliminarProducto(index) {
     carrito.splice(index, 1);
     actualizarCarrito();
 }
 
-// ==================== PROCESAR VENTA (CORREGIDO) ====================
+// ==================== DELIVERY ====================
+function abrirModalDelivery() {
+    const clienteId = document.getElementById('cliente').value;
+    if (!clienteId) {
+        Swal.fire('Error', 'Debe seleccionar un cliente antes de asignar delivery', 'error');
+        return;
+    }
+    document.getElementById('modalNumeroDocumento').value = document.getElementById('numeroDocumento').value;
+    document.getElementById('modalFechaVenta').value = document.getElementById('fechaVenta').value;
+    const clienteNombre = document.getElementById('cliente').options[document.getElementById('cliente').selectedIndex]?.text || 'Consumidor Final';
+    document.getElementById('modalClienteNombre').value = clienteNombre;
+    const sucursalNombre = document.getElementById('sucursal').options[document.getElementById('sucursal').selectedIndex]?.text || '';
+    document.getElementById('modalSucursalNombre').value = sucursalNombre;
+    
+    cargarDireccionesCliente(clienteId);
+    cargarRepartidoresDisponibles();
+    
+    if (modalDelivery) modalDelivery.show();
+}
+
+async function cargarDireccionesCliente(idCliente) {
+    const select = document.getElementById('direccionEntrega');
+    select.innerHTML = '<option value="">Cargando...</option>';
+    try {
+        const response = await fetch(BASE_URL + `/backend/clientes/listar_direcciones_cliente.php?id_cliente=${idCliente}`);
+        const data = await response.json();
+        if (data.success && data.direcciones.length > 0) {
+            select.innerHTML = '<option value="">Seleccionar dirección...</option>';
+            data.direcciones.forEach(dir => {
+                const option = document.createElement('option');
+                option.value = dir.id_direccion;
+                // Guardar campos separados como data-attributes para usarlos al guardar
+                option.dataset.direccion = dir.direccion || '';
+                option.dataset.barrio    = dir.barrio    || '';
+                option.dataset.ciudad    = dir.ciudad    || '';
+                option.dataset.referencia= dir.referencia|| '';
+                option.dataset.completa  = dir.direccion_completa || dir.direccion;
+                option.textContent = dir.predeterminada
+                    ? `★ ${dir.direccion_completa}` 
+                    : dir.direccion_completa;
+                select.appendChild(option);
+            });
+            // Pre-seleccionar la predeterminada si existe
+            const predeterminada = data.direcciones.find(d => d.predeterminada);
+            if (predeterminada) select.value = predeterminada.id_direccion;
+        } else {
+            select.innerHTML = '<option value="">No hay direcciones registradas para este cliente</option>';
+        }
+    } catch(error) {
+        select.innerHTML = '<option value="">Error al cargar direcciones</option>';
+    }
+}
+
+async function cargarRepartidoresDisponibles() {
+    const select = document.getElementById('repartidorEntrega');
+    select.innerHTML = '<option value="">Cargando...</option>';
+    try {
+        const response = await fetch(BASE_URL + '/backend/ventas/listar_repartidores_disponibles.php');
+        const data = await response.json();
+        if (data.success && data.repartidores.length > 0) {
+            select.innerHTML = '<option value="">Seleccionar repartidor...</option>';
+            data.repartidores.forEach(rep => {
+                const option = document.createElement('option');
+                option.value = rep.id_repartidor;
+                option.textContent = `${rep.nombre}${rep.telefono ? ` (${rep.telefono})` : ''}`;
+                select.appendChild(option);
+            });
+        } else {
+            select.innerHTML = '<option value="">No hay repartidores disponibles</option>';
+        }
+    } catch(error) {
+        select.innerHTML = '<option value="">Error al cargar repartidores</option>';
+    }
+}
+
+function guardarDelivery() {
+    const direccionSelect = document.getElementById('direccionEntrega');
+    const direccionId     = direccionSelect.value;
+    const repartidorId    = document.getElementById('repartidorEntrega').value;
+    const costo           = parseFloat(document.getElementById('costoEnvio').value);
+    const observaciones   = document.getElementById('observacionesDelivery').value;
+    
+    if (!direccionId) {
+        Swal.fire('Error', 'Seleccione una dirección de entrega', 'error');
+        return;
+    }
+    if (!repartidorId) {
+        Swal.fire('Error', 'Seleccione un repartidor', 'error');
+        return;
+    }
+    if (isNaN(costo) || costo < 0) {
+        Swal.fire('Error', 'Costo de envío inválido', 'error');
+        return;
+    }
+    
+    // Leer data-attributes del option seleccionado
+    const selectedOpt  = direccionSelect.options[direccionSelect.selectedIndex];
+    const repartidorTexto = document.getElementById('repartidorEntrega').options[document.getElementById('repartidorEntrega').selectedIndex]?.text || '';
+    
+    deliveryAsignado = {
+        id_repartidor     : parseInt(repartidorId),
+        nombre_repartidor : repartidorTexto,
+        costo_entrega     : costo,
+        // Campos de dirección separados para guardar correctamente en BD
+        direccion_entrega : selectedOpt.dataset.direccion  || selectedOpt.dataset.completa || selectedOpt.text,
+        barrio_entrega    : selectedOpt.dataset.barrio     || '',
+        ciudad_entrega    : selectedOpt.dataset.ciudad     || 'Santiago',
+        referencia_entrega: selectedOpt.dataset.referencia || '',
+        // Texto completo para mostrar en pantalla
+        direccion_completa: selectedOpt.dataset.completa   || selectedOpt.text,
+        observaciones     : observaciones
+    };
+    costoEnvio    = costo;
+    deliveryActivo = true;
+    
+    document.getElementById('deliveryRepartidor').innerText = deliveryAsignado.nombre_repartidor;
+    document.getElementById('deliveryCosto').innerText      = deliveryAsignado.costo_entrega.toFixed(2);
+    document.getElementById('deliveryDireccion').innerText  = deliveryAsignado.direccion_completa;
+    document.getElementById('deliveryState').style.display  = 'block';
+    document.getElementById('btnAsignarDelivery').style.display = 'none';
+    
+    if (modalDelivery) modalDelivery.hide();
+    recalcularTodo();
+    Swal.fire('Éxito', 'Delivery asignado correctamente', 'success');
+}
+
+function quitarDelivery() {
+    Swal.fire({
+        title: '¿Quitar delivery?',
+        text: 'Se eliminará la asignación actual',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, quitar',
+        cancelButtonText: 'No'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            deliveryAsignado = null;
+            deliveryActivo = false;
+            costoEnvio = 0;
+            document.getElementById('deliveryState').style.display = 'none';
+            document.getElementById('btnAsignarDelivery').style.display = 'block';
+            recalcularTodo();
+            Swal.fire('Delivery eliminado', '', 'success');
+        }
+    });
+}
+
+function actualizarBotonQuitarDelivery() {
+    // No es necesario, solo para mantener consistencia
+}
+
+// ==================== PROCESAR VENTA ====================
 function procesarVenta() {
     const sucursal = document.getElementById('sucursal').value;
     const condicionPago = document.getElementById('condicionPago').value;
@@ -1105,7 +1210,6 @@ function procesarVentaConfirmado(sucursal, condicionPago, idCliente, tieneSeguro
         totalPagar = (subtotalConDescuento + nuevoItbis) - montoSeguro;
         if (totalPagar < 0) totalPagar = 0;
     }
-    if (deliveryActivo && costoEnvio > 0) totalPagar += costoEnvio;
     
     const datos = {
         numero_documento: document.getElementById('numeroDocumento').value,
@@ -1121,19 +1225,24 @@ function procesarVentaConfirmado(sucursal, condicionPago, idCliente, tieneSeguro
             precio_unitario: parseFloat(item.precio),
             aplica_itbis: item.aplica_itbis === true
         })),
-        subtotal: parseFloat(subtotal),
-        itbis_total: parseFloat(nuevoItbis),
-        total: parseFloat(totalPagar),
-        usa_seguro: tieneSeguro === true,
-        id_aseguradora: (tieneSeguro && datosSeguroCliente) ? datosSeguroCliente.id_aseguradora : null,
-        monto_cubre_seguro: parseFloat(montoSeguro) || 0,
-        monto_paga_paciente: parseFloat(totalPagar) || 0,
-        id_descuento: descuentoSeleccionado.id ? parseInt(descuentoSeleccionado.id) : null,
-        monto_descuento: parseFloat(descuentoMonto) || 0,
-        delivery_activo: deliveryActivo === true,
-        costo_envio: deliveryActivo ? parseFloat(costoEnvio) : 0,
-        id_repartidor: deliveryActivo ? idRepartidorSeleccionado : null,
-        direccion_entrega: deliveryActivo ? direccionSeleccionada : null
+        subtotal: subtotal,
+        itbis_total: nuevoItbis,
+        total: totalPagar,
+        usa_seguro: tieneSeguro,
+        id_aseguradora: tieneSeguro ? datosSeguroCliente?.id_aseguradora : null,
+        monto_cubre_seguro: parseFloat(montoSeguro),
+        monto_paga_paciente: totalPagar,
+        id_descuento: descuentoSeleccionado.id,
+        monto_descuento: descuentoMonto,
+        delivery: deliveryAsignado ? {
+            id_repartidor     : deliveryAsignado.id_repartidor,
+            costo_entrega     : deliveryAsignado.costo_entrega,
+            direccion_entrega : deliveryAsignado.direccion_entrega,
+            barrio_entrega    : deliveryAsignado.barrio_entrega    || '',
+            ciudad_entrega    : deliveryAsignado.ciudad_entrega    || 'Santiago',
+            referencia_entrega: deliveryAsignado.referencia_entrega|| '',
+            observaciones     : deliveryAsignado.observaciones
+        } : null
     };
     
     Swal.fire({ title: 'Procesando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
@@ -1178,6 +1287,7 @@ function escapeHtml(str) {
     });
 }
 
+// ==================== INICIALIZACIÓN ====================
 document.addEventListener('DOMContentLoaded', function() {
     const elModalProductos = document.getElementById('modalProductos');
     const elModalCantidad = document.getElementById('modalCantidad');
@@ -1185,6 +1295,31 @@ document.addEventListener('DOMContentLoaded', function() {
     if (elModalProductos) modalProductos = new bootstrap.Modal(elModalProductos, { backdrop: false, keyboard: true });
     if (elModalCantidad) modalCantidad = new bootstrap.Modal(elModalCantidad, { backdrop: false, keyboard: true });
     if (elModalDelivery) modalDelivery = new bootstrap.Modal(elModalDelivery, { backdrop: false, keyboard: true });
+    
+    document.getElementById('btnAgregarProducto').addEventListener('click', abrirModalProductos);
+    
+    const sucursalSelect = document.getElementById('sucursal');
+    sucursalSelect.addEventListener('change', function() {
+        sucursalActual = this.value;
+        if (carrito.length > 0) {
+            Swal.fire({
+                title: 'Cambio de sucursal',
+                text: 'Los productos del carrito pertenecen a otra sucursal. ¿Desea vaciar el carrito?',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, vaciar',
+                cancelButtonText: 'No, mantener'
+            }).then(result => {
+                if (result.isConfirmed) {
+                    carrito = [];
+                    actualizarCarrito();
+                }
+            });
+        }
+        if (modalProductos && modalProductos._isShown) {
+            cargarProductosModal();
+        }
+    });
     
     document.getElementById('cliente').addEventListener('change', function() {
         const tieneSeguro = this.options[this.selectedIndex]?.dataset?.tieneSeguro === '1';
@@ -1195,7 +1330,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         recalcularTodo();
         actualizarCondicionCredito();
+        if (deliveryAsignado) quitarDelivery();
     });
+    
     document.getElementById('condicionPago').addEventListener('change', function() {
         const alertCredito = document.getElementById('alertCredito');
         const divMetodo = document.getElementById('divMetodoPago');
@@ -1207,10 +1344,24 @@ document.addEventListener('DOMContentLoaded', function() {
             divMetodo.style.display = 'block';
         }
     });
+    
     document.getElementById('filtroNombreProducto')?.addEventListener('input', filtrarProductos);
     document.getElementById('selectDescuento').addEventListener('change', () => recalcularTodo());
-    if (elModalProductos) elModalProductos.addEventListener('show.bs.modal', cargarProductosModal);
-    actualizarBotonQuitarDelivery();
+    
+    if (elModalProductos) {
+        elModalProductos.addEventListener('show.bs.modal', function(event) {
+            if (!sucursalActual) {
+                event.preventDefault();
+                Swal.fire('Error', 'Primero debe seleccionar una sucursal', 'error');
+            } else {
+                cargarProductosModal();
+            }
+        });
+    }
+    
+    document.getElementById('deliveryState').style.display = 'none';
+    document.getElementById('btnAsignarDelivery').style.display = 'block';
+    sucursalActual = null;
 });
 
 function actualizarCondicionCredito() {
