@@ -2530,6 +2530,8 @@ INSERT INTO tipo_devolucion (id_tipo, nombre) VALUES
 (4, 'Vencido'),
 (5, 'Otro')
 ON CONFLICT (id_tipo) DO NOTHING;
+
+ALTER TABLE roles ADD COLUMN IF NOT EXISTS estado BOOLEAN DEFAULT TRUE;
 -- =============================================================================
 -- FIN DEL SCRIPT
 -- =============================================================================
