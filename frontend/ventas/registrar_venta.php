@@ -78,6 +78,9 @@ try {
 $base_url = '/sistema-gestor-de-farmacias';
 ?>
 
+<!-- Agregar FontAwesome justo después del inicio del contenido -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
 <style>
     /* Estilos generales */
     .modal-backdrop { display: none !important; }
@@ -255,6 +258,131 @@ $base_url = '/sistema-gestor-de-farmacias';
         border-radius: 10px;
         padding: 8px 12px;
         width: 100%;
+    }
+
+    /* Badges para tipos de producto - más modernos */
+.badge-tipo-medicamento {
+    background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+    color: white;
+    font-size: 0.65rem;
+    padding: 3px 10px;
+    border-radius: 20px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.badge-tipo-ropa {
+    background: linear-gradient(135deg, #17a2b8 0%, #0f6b7a 100%);
+    color: white;
+    font-size: 0.65rem;
+    padding: 3px 10px;
+    border-radius: 20px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Badges ITBIS mejorados */
+.badge-itbis {
+    font-size: 0.7rem;
+    padding: 4px 10px;
+    border-radius: 20px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.badge-itbis.aplica { 
+    background-color: #fff3cd; 
+    color: #856404; 
+}
+
+.badge-itbis.exento { 
+    background-color: #d4edda; 
+    color: #155724; 
+}
+
+/* Estilos para pestañas manuales */
+.tab-btn {
+    background: none;
+    border: none;
+    padding: 10px 24px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #6c757d;
+    border-radius: 12px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.tab-btn:hover {
+    background-color: #e9ecef;
+    color: #28a745;
+}
+
+.tab-btn.active {
+    background-color: #28a745;
+    color: white;
+    box-shadow: 0 2px 8px rgba(40,167,69,0.3);
+}
+
+.tab-pane {
+    display: none;
+}
+
+.tab-pane.active {
+    display: block;
+}
+
+    /* Tarjetas de producto mejoradas */
+    .producto-card {
+        transition: all 0.2s ease;
+        cursor: pointer;
+        border: 1px solid #e9ecef;
+        border-radius: 16px;
+        padding: 16px;
+        margin-bottom: 12px;
+        background: white;
+    }
+
+    .producto-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        border-color: #28a745;
+        background: linear-gradient(135deg, #ffffff 0%, #f8fff9 100%);
+    }
+
+    .producto-card .nombre {
+        font-weight: 600;
+        color: #2c3e50;
+        font-size: 0.95rem;
+    }
+
+    .producto-card .precio {
+        color: #28a745;
+        font-weight: 700;
+        font-size: 1.1rem;
+    }
+
+    .producto-card .stock {
+        font-size: 0.7rem;
+        padding: 4px 10px;
+        border-radius: 20px;
+        background-color: #e9ecef;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .producto-card .stock.bajo { 
+        background-color: #fff3cd; 
+        color: #856404; 
+    }
+
+    .producto-card .stock.critico { 
+        background-color: #f8d7da; 
+        color: #721c24; 
     }
 </style>
 
@@ -488,29 +616,54 @@ $base_url = '/sistema-gestor-de-farmacias';
     </div>
 </div>
 
-<!-- Modal Productos -->
+<!-- Modal Productos con pestañas -->
+<!-- Modal Productos con pestañas -->
 <div class="modal fade" id="modalProductos" tabindex="-1">
     <div class="modal-dialog modal-xl modal-dialog-centered">
         <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
             <div class="modal-header bg-success text-white p-4">
                 <h5 class="modal-title d-flex align-items-center">
-                    <span class="material-symbols-rounded me-2">medication</span>
+                    <i class="fas fa-boxes me-2"></i>
                     Seleccionar Producto
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4">
-                <div class="filtro-busqueda">
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-12">
-                            <input type="text" class="form-control form-control-lg" id="filtroNombreProducto" placeholder="🔍 Buscar por nombre...">
-                        </div>
+                <!-- Pestañas manuales -->
+                <div class="d-flex gap-2 border-bottom pb-2 mb-4">
+                    <button class="tab-btn active" data-tab="medicamentos">
+                        <i class="fas fa-capsules me-2"></i> Medicamentos
+                    </button>
+                    <button class="tab-btn" data-tab="ropa">
+                        <i class="fas fa-tshirt me-2"></i> Ropa y Accesorios
+                    </button>
+                </div>
+                
+                <!-- Barra de búsqueda -->
+                <div class="filtro-busqueda mb-3">
+                    <div class="position-relative d-flex align-items-center">
+                        <i class="fas fa-search position-absolute" style="left: 18px; color: #28a745; font-size: 1.2rem;"></i>
+                        <input type="text" class="form-control form-control-lg" id="filtroNombreProducto" placeholder="Buscar por nombre..." style="padding-left: 48px; border-radius: 50px;">
                     </div>
                 </div>
-                <div class="lista-productos" id="listaProductosModal">
-                    <div class="text-center py-5">
-                        <div class="spinner-border text-success" role="status"></div>
-                        <p class="mt-2">Cargando productos...</p>
+                
+                <!-- Contenido de pestañas -->
+                <div>
+                    <div class="tab-pane active" id="tab-medicamentos">
+                        <div class="lista-productos" id="listaMedicamentos">
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-success"></div>
+                                <p class="mt-2">Cargando medicamentos...</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tab-pane" id="tab-ropa">
+                        <div class="lista-productos" id="listaRopa">
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-success"></div>
+                                <p class="mt-2">Cargando ropa...</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -563,7 +716,7 @@ $base_url = '/sistema-gestor-de-farmacias';
     </div>
 </div>
 
-<!-- Modal Delivery -->
+<!-- MODAL DE DELIVERY -->
 <div class="modal fade" id="modalDelivery" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered modal-lg">
         <div class="modal-content border-0 shadow-lg delivery-modal">
@@ -575,50 +728,49 @@ $base_url = '/sistema-gestor-de-farmacias';
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4">
-                <form id="formDelivery">
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold small text-muted">Nº DOCUMENTO</label>
-                            <input type="text" class="form-control" id="modalNumeroDocumento" readonly style="background-color: #f8f9fa;">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold small text-muted">FECHA</label>
-                            <input type="text" class="form-control" id="modalFechaVenta" readonly style="background-color: #f8f9fa;">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold small text-muted">CLIENTE</label>
-                            <input type="text" class="form-control" id="modalClienteNombre" readonly style="background-color: #f8f9fa;">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold small text-muted">SUCURSAL</label>
-                            <input type="text" class="form-control" id="modalSucursalNombre" readonly style="background-color: #f8f9fa;">
-                        </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-muted">Nº DOCUMENTO</label>
+                        <input type="text" class="form-control" id="modalNumeroDocumento" readonly style="background-color: #f8f9fa;">
                     </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-muted">FECHA</label>
+                        <input type="text" class="form-control" id="modalFechaVenta" readonly style="background-color: #f8f9fa;">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-muted">CLIENTE</label>
+                        <input type="text" class="form-control" id="modalClienteNombre" readonly style="background-color: #f8f9fa;">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-muted">SUCURSAL</label>
+                        <input type="text" class="form-control" id="modalSucursalNombre" readonly style="background-color: #f8f9fa;">
+                    </div>
+                </div>
 
-                    <div class="mb-3">
-                        <label class="form-label fw-bold text-muted">DIRECCIÓN DE ENTREGA *</label>
-                        <select class="form-select" id="direccionEntrega" required>
-                            <option value="">Cargando direcciones...</option>
-                        </select>
-                    </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-muted">DIRECCIÓN DE ENTREGA *</label>
+                    <select class="form-select" id="direccionEntrega" required>
+                        <option value="">Cargando direcciones...</option>
+                    </select>
+                </div>
 
-                    <div class="mb-3">
-                        <label class="form-label fw-bold text-muted">REPARTIDOR *</label>
-                        <select class="form-select" id="repartidorEntrega" required>
-                            <option value="">Cargando repartidores...</option>
-                        </select>
-                    </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-muted">REPARTIDOR *</label>
+                    <select class="form-select" id="repartidorEntrega" required>
+                        <option value="">Cargando repartidores...</option>
+                    </select>
+                </div>
 
-                    <div class="mb-3">
-                        <label class="form-label fw-bold text-muted">COSTO DE ENVÍO (RD$)</label>
-                        <input type="number" step="0.01" class="form-control" id="costoEnvio" value="0" required>
-                    </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-muted">COSTO DE ENVÍO (RD$) *</label>
+                    <input type="number" step="0.01" class="form-control" id="costoEnvio" value="0" required>
+                    <small class="text-muted">Ingrese el costo de envío manualmente</small>
+                </div>
 
-                    <div class="mb-3">
-                        <label class="form-label fw-bold text-muted">OBSERVACIONES (OPCIONAL)</label>
-                        <textarea class="form-control" id="observacionesDelivery" rows="2"></textarea>
-                    </div>
-                </form>
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-muted">OBSERVACIONES (OPCIONAL)</label>
+                    <textarea class="form-control" id="observacionesDelivery" rows="2"></textarea>
+                </div>
             </div>
             <div class="modal-footer border-0 p-4 pt-0 d-flex justify-content-end gap-3">
                 <button type="button" class="btn btn-cancelar" data-bs-dismiss="modal">Cancelar</button>
@@ -636,18 +788,23 @@ const BASE_URL = '<?php echo $base_url; ?>';
 const ID_USUARIO_ACTUAL = <?php echo $usuario_actual; ?>;
 const ITBIS_PORCENTAJE = <?php echo $itbis_porcentaje; ?>;
 
+// ==================== VARIABLES GLOBALES ====================
 let carrito = [];
 let productoSeleccionado = null;
 let modalProductos = null;
 let modalCantidad = null;
 let modalDelivery = null;
-let productosData = [];
+let medicamentosData = [];
+let ropaData = [];
 let datosSeguroCliente = null;
 let coberturaActual = null;
 let descuentoSeleccionado = { id: null, valor: 0, esPorcentaje: false, montoAplicado: 0 };
 
 let sucursalActual = null;
-let deliveryAsignado = null;
+let deliveryActivo = false;
+let costoEnvio = 0;
+let idRepartidorSeleccionado = null;
+let direccionSeleccionada = '';
 
 // ==================== FUNCIONES DE DESCUENTO ====================
 function aplicarDescuento(base) {
@@ -676,11 +833,43 @@ function aplicarDescuento(base) {
     return monto;
 }
 
-// ==================== RECÁLCULO ====================
-let totalActualVenta = 0;
-let deliveryActivo = false;
-let costoEnvio = 0;
+// ==================== MANEJO DE PESTAÑAS MANUALES ====================
+function initTabs() {
+    const tabButtons = document.querySelectorAll('.tab-btn');
+    const tabPanes = document.querySelectorAll('.tab-pane');
+    
+    tabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const tabId = button.getAttribute('data-tab');
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            tabPanes.forEach(pane => pane.classList.remove('active'));
+            button.classList.add('active');
+            const activePane = document.getElementById(`tab-${tabId}`);
+            if (activePane) activePane.classList.add('active');
+        });
+    });
+}
 
+// ==================== FUNCIÓN AUXILIAR COLOR HEX ====================
+function getColorHex(colorNombre) {
+    const colores = {
+        'rojo': '#dc3545', 'roja': '#dc3545', 'red': '#dc3545',
+        'azul': '#007bff', 'blue': '#007bff',
+        'verde': '#28a745', 'green': '#28a745',
+        'negro': '#212529', 'black': '#212529',
+        'blanco': '#f8f9fa', 'white': '#f8f9fa',
+        'amarillo': '#ffc107', 'yellow': '#ffc107',
+        'gris': '#6c757d', 'gray': '#6c757d', 'grey': '#6c757d',
+        'morado': '#6f42c1', 'purple': '#6f42c1',
+        'naranja': '#fd7e14', 'orange': '#fd7e14',
+        'rosa': '#e83e8c', 'pink': '#e83e8c',
+        'celeste': '#17a2b8', 'cyan': '#17a2b8',
+        'marrón': '#795548', 'brown': '#795548'
+    };
+    return colores[colorNombre?.toLowerCase()] || '#6c757d';
+}
+
+// ==================== RECÁLCULO ====================
 function recalcularTodo() {
     if (carrito.length === 0) {
         document.getElementById('resumenSubtotal').innerHTML = 'RD$ 0.00';
@@ -690,7 +879,6 @@ function recalcularTodo() {
         document.getElementById('resumenSeguroLinea').style.display = 'none';
         document.getElementById('seguroInfo').style.display = 'none';
         document.getElementById('resumenEnvioLinea').style.display = 'none';
-        totalActualVenta = 0;
         actualizarBotonQuitarDelivery();
         return;
     }
@@ -727,7 +915,6 @@ function calcularSinSeguro() {
         }
     }
     let total = subtotalConDescuento + nuevoItbis;
-    totalActualVenta = total;
     
     if (deliveryActivo && costoEnvio > 0) {
         total += costoEnvio;
@@ -777,7 +964,6 @@ async function calcularConSeguro(idCliente) {
             const montoPacienteSinDescuento = coberturaActual.monto_paga_paciente;
             const descuentoMonto = aplicarDescuento(montoPacienteSinDescuento);
             let totalFinal = montoPacienteSinDescuento - descuentoMonto;
-            totalActualVenta = totalFinal;
             
             if (deliveryActivo && costoEnvio > 0) {
                 totalFinal += costoEnvio;
@@ -795,7 +981,7 @@ async function calcularConSeguro(idCliente) {
             document.getElementById('seguroInfo').style.display = 'block';
             document.getElementById('montoSeguro').innerHTML = `RD$ ${coberturaActual.monto_cubre_seguro.toFixed(2)}`;
             
-            if (coberturaActual.requiere_autorizacion && coberturaActual.autorizaciones_faltantes.length > 0) {
+            if (coberturaActual.requiere_autorizacion && coberturaActual.autorizaciones_faltantes?.length > 0) {
                 document.getElementById('autorizacionPendiente').style.display = 'block';
                 document.getElementById('autorizacionesFaltantes').innerHTML = coberturaActual.autorizaciones_faltantes.join(', ');
             } else {
@@ -853,47 +1039,127 @@ function abrirModalProductos() {
     if (modalProductos) modalProductos.show();
 }
 
+// ==================== FUNCIONES PARA CARGAR PRODUCTOS ====================
 function cargarProductosModal() {
     if (!sucursalActual) return;
-    const listaDiv = document.getElementById('listaProductosModal');
-    listaDiv.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-success"></div><p>Cargando...</p></div>';
     
-    fetch(BASE_URL + `/backend/ventas/listar_productos_venta.php?id_sucursal=${sucursalActual}`)
+    const listaMed = document.getElementById('listaMedicamentos');
+    const listaRopa = document.getElementById('listaRopa');
+    
+    if (listaMed) listaMed.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-success"></div><p>Cargando medicamentos...</p></div>';
+    if (listaRopa) listaRopa.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-success"></div><p>Cargando ropa...</p></div>';
+    
+    fetch(BASE_URL + `/backend/ventas/listar_productos_unificado.php?id_sucursal=${sucursalActual}`)
         .then(response => response.json())
         .then(data => {
             if (data.success && data.productos) {
-                productosData = data.productos;
-                renderizarProductosModal(productosData);
+                medicamentosData = data.productos.filter(p => p.tipo === 'MEDICAMENTO');
+                ropaData = data.productos.filter(p => p.tipo === 'ROPA');
+                renderizarMedicamentos(medicamentosData);
+                renderizarRopa(ropaData);
             } else {
-                listaDiv.innerHTML = '<div class="text-center py-5 text-danger">Error al cargar productos</div>';
+                if (listaMed) listaMed.innerHTML = '<div class="text-center py-5 text-danger">Error al cargar productos</div>';
+                if (listaRopa) listaRopa.innerHTML = '<div class="text-center py-5 text-danger">Error al cargar ropa</div>';
             }
         })
-        .catch(error => { listaDiv.innerHTML = '<div class="text-center py-5 text-danger">Error de conexión</div>'; });
+        .catch(error => {
+            console.error(error);
+            if (listaMed) listaMed.innerHTML = '<div class="text-center py-5 text-danger">Error de conexión</div>';
+            if (listaRopa) listaRopa.innerHTML = '<div class="text-center py-5 text-danger">Error de conexión</div>';
+        });
 }
 
-function renderizarProductosModal(productos) {
-    const listaDiv = document.getElementById('listaProductosModal');
-    if (!productos || productos.length === 0) {
-        listaDiv.innerHTML = '<div class="text-center py-5 text-muted">No hay productos disponibles en esta sucursal</div>';
+function renderizarMedicamentos(medicamentos) {
+    const listaDiv = document.getElementById('listaMedicamentos');
+    if (!listaDiv) return;
+    
+    if (!medicamentos || medicamentos.length === 0) {
+        listaDiv.innerHTML = `
+            <div class="text-center py-5">
+                <i class="fas fa-capsules" style="font-size: 48px; opacity: 0.3;"></i>
+                <p class="text-muted mt-2">No hay medicamentos disponibles en esta sucursal</p>
+            </div>
+        `;
         return;
     }
-    let html = '<div class="row">';
-    productos.forEach(p => {
-        let stockClass = '';
-        let stockText = `Stock: ${p.stock}`;
-        if (p.stock < 5) { stockClass = 'critico'; stockText = `⚠️ Stock crítico: ${p.stock}`; }
-        else if (p.stock < 10) { stockClass = 'bajo'; stockText = `⚠️ Stock bajo: ${p.stock}`; }
-        const itbisBadge = p.exento_itbis ? '<span class="badge-itbis exento">Exento ITBIS</span>' : '<span class="badge-itbis aplica">Aplica ITBIS</span>';
+    
+    let html = '<div class="row g-3">';
+    medicamentos.forEach(m => {
+        let stockClass = '', stockText = `${m.stock} unidades`;
+        if (m.stock < 5) { stockClass = 'critico'; stockText = `⚠️ Stock crítico: ${m.stock}`; }
+        else if (m.stock < 10) { stockClass = 'bajo'; stockText = `⚠️ Stock bajo: ${m.stock}`; }
+        
+        const itbisBadge = m.exento_itbis 
+            ? '<span class="badge-itbis exento">✓ Exento ITBIS</span>' 
+            : '<span class="badge-itbis aplica">📄 Aplica ITBIS</span>';
+        
+        const productoJson = JSON.stringify(m).replace(/'/g, "\\'");
+        
         html += `
             <div class="col-md-6 col-lg-4">
-                <div class="producto-card" onclick="seleccionarProducto(${p.id_lote}, '${escapeHtml(p.nombre)}', ${p.precio}, ${p.stock}, ${p.id_medicamento}, ${p.exento_itbis ? 0 : 1})">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div class="nombre">${escapeHtml(p.nombre)}</div>
-                        <div class="precio">RD$ ${parseFloat(p.precio).toFixed(2)}</div>
+                <div class="producto-card" onclick='seleccionarProducto(${productoJson})'>
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="nombre fw-bold">${escapeHtml(m.nombre)}</div>
+                        <div class="precio fs-5 fw-bold">RD$ ${parseFloat(m.precio).toFixed(2)}</div>
                     </div>
-                    <div class="small text-muted mt-1">Lote: ${escapeHtml(p.id_lote)}</div>
-                    <div class="mt-2 d-flex justify-content-between align-items-center">
-                        <span class="stock ${stockClass}">${stockText}</span>
+                    <div class="small text-secondary mb-2">
+                        <i class="fas fa-tag me-1"></i> Lote: ${escapeHtml(m.numero_lote || 'N/A')} | 
+                        <i class="far fa-calendar-alt me-1"></i> Vence: ${m.fecha_vencimiento || 'N/A'}
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mt-2">
+                        <span class="stock ${stockClass}"><i class="fas fa-boxes me-1"></i> ${stockText}</span>
+                        ${itbisBadge}
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+    listaDiv.innerHTML = html;
+}
+
+function renderizarRopa(ropa) {
+    const listaDiv = document.getElementById('listaRopa');
+    if (!listaDiv) return;
+    
+    if (!ropa || ropa.length === 0) {
+        listaDiv.innerHTML = `
+            <div class="text-center py-5">
+                <i class="fas fa-tshirt" style="font-size: 48px; opacity: 0.3;"></i>
+                <p class="text-muted mt-2">No hay ropa disponible en esta sucursal</p>
+            </div>
+        `;
+        return;
+    }
+    
+    let html = '<div class="row g-3">';
+    ropa.forEach(r => {
+        let stockClass = '', stockText = `${r.stock} unidades`;
+        if (r.stock < 3) { stockClass = 'critico'; stockText = `⚠️ Stock crítico: ${r.stock}`; }
+        else if (r.stock < 6) { stockClass = 'bajo'; stockText = `⚠️ Stock bajo: ${r.stock}`; }
+        
+        const itbisBadge = r.exento_itbis 
+            ? '<span class="badge-itbis exento">✓ Exento ITBIS</span>' 
+            : '<span class="badge-itbis aplica">📄 Aplica ITBIS</span>';
+        
+        const tallaBadge = r.talla ? `<span class="badge bg-secondary me-1"><i class="fas fa-ruler me-1"></i>${escapeHtml(r.talla)}</span>` : '';
+        const colorHex = getColorHex(r.color);
+        const colorBadge = r.color ? `<span class="badge" style="background-color: ${colorHex}; color: white;"><i class="fas fa-palette me-1"></i>${escapeHtml(r.color)}</span>` : '';
+        
+        const productoJson = JSON.stringify(r).replace(/'/g, "\\'");
+        
+        html += `
+            <div class="col-md-6 col-lg-4">
+                <div class="producto-card" onclick='seleccionarProducto(${productoJson})'>
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="nombre fw-bold">${escapeHtml(r.nombre)}</div>
+                        <div class="precio fs-5 fw-bold">RD$ ${parseFloat(r.precio).toFixed(2)}</div>
+                    </div>
+                    <div class="small text-secondary mb-2">
+                        ${tallaBadge} ${colorBadge}
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mt-2">
+                        <span class="stock ${stockClass}"><i class="fas fa-boxes me-1"></i> ${stockText}</span>
                         ${itbisBadge}
                     </div>
                 </div>
@@ -906,50 +1172,92 @@ function renderizarProductosModal(productos) {
 
 function filtrarProductos() {
     const filtroNombre = document.getElementById('filtroNombreProducto')?.value.toLowerCase() || '';
-    let filtrados = productosData.filter(p => p.nombre.toLowerCase().includes(filtroNombre));
-    renderizarProductosModal(filtrados);
+    const medFiltrados = medicamentosData.filter(m => m.nombre.toLowerCase().includes(filtroNombre));
+    const ropaFiltrados = ropaData.filter(r => r.nombre.toLowerCase().includes(filtroNombre));
+    renderizarMedicamentos(medFiltrados);
+    renderizarRopa(ropaFiltrados);
 }
 
-function seleccionarProducto(idLote, nombre, precio, stock, idMedicamento, aplicaItbis) {
+function seleccionarProducto(producto) {
+    console.log('Producto seleccionado:', producto);
+    
     productoSeleccionado = {
-        id_lote: idLote,
-        id_producto: idMedicamento,
-        nombre: nombre,
-        precio: precio,
-        stock: stock,
-        aplica_itbis: aplicaItbis === 1
+        tipo: producto.tipo,
+        id_lote: producto.id_lote,
+        id_producto: producto.id_medicamento,
+        id_talla: producto.id_talla,
+        id_color: producto.id_color,
+        nombre: producto.nombre,
+        precio: parseFloat(producto.precio),
+        stock: parseInt(producto.stock),
+        aplica_itbis: !producto.exento_itbis,
+        talla: producto.talla,
+        color: producto.color,
+        numero_lote: producto.numero_lote
     };
-    document.getElementById('productoNombreModal').innerText = nombre;
-    document.getElementById('productoInfoModal').innerHTML = `Stock: ${stock} | Precio: RD$ ${precio.toFixed(2)}`;
+    
+    document.getElementById('productoNombreModal').innerText = producto.nombre;
+    let infoText = `Stock: ${producto.stock} | Precio: RD$ ${parseFloat(producto.precio).toFixed(2)}`;
+    if (producto.tipo === 'ROPA') {
+        infoText += ` | Talla: ${producto.talla || 'N/A'} | Color: ${producto.color || 'N/A'}`;
+    } else {
+        infoText += ` | Lote: ${producto.numero_lote || 'N/A'}`;
+    }
+    
+    document.getElementById('productoInfoModal').innerHTML = infoText;
     document.getElementById('cantidadProducto').value = 1;
-    document.getElementById('precioProducto').value = precio.toFixed(2);
-    document.getElementById('stockDisponible').innerText = stock;
-    document.getElementById('stockAdvertencia').style.display = stock < 10 ? 'block' : 'none';
+    document.getElementById('precioProducto').value = parseFloat(producto.precio).toFixed(2);
+    document.getElementById('stockDisponible').innerText = producto.stock;
+    document.getElementById('stockAdvertencia').style.display = producto.stock < 10 ? 'block' : 'none';
+    
     if (modalProductos) modalProductos.hide();
     if (modalCantidad) modalCantidad.show();
 }
 
 function confirmarAgregarProducto() {
+    if (!productoSeleccionado) {
+        Swal.fire('Error', 'No hay producto seleccionado', 'error');
+        return;
+    }
+    
     const cantidad = parseInt(document.getElementById('cantidadProducto').value);
     const stock = productoSeleccionado.stock;
-    if (isNaN(cantidad) || cantidad < 1) { Swal.fire('Error', 'Cantidad inválida', 'error'); return; }
-    if (cantidad > stock) { Swal.fire('Stock insuficiente', `Solo hay ${stock} unidades en esta sucursal`, 'warning'); return; }
-    const existente = carrito.find(item => item.id_lote === productoSeleccionado.id_lote);
+    
+    if (isNaN(cantidad) || cantidad < 1) { 
+        Swal.fire('Error', 'Cantidad inválida', 'error'); 
+        return; 
+    }
+    if (cantidad > stock) { 
+        Swal.fire('Stock insuficiente', `Solo hay ${stock} unidades disponibles`, 'warning'); 
+        return; 
+    }
+    
+    let existente = null;
+    if (productoSeleccionado.tipo === 'MEDICAMENTO') {
+        existente = carrito.find(item => 
+            item.tipo === 'MEDICAMENTO' && 
+            item.id_lote === productoSeleccionado.id_lote
+        );
+    } else {
+        existente = carrito.find(item => 
+            item.tipo === 'ROPA' && 
+            item.id_producto === productoSeleccionado.id_producto &&
+            item.id_talla === productoSeleccionado.id_talla &&
+            item.id_color === productoSeleccionado.id_color
+        );
+    }
+    
     if (existente) {
         const nuevaCantidad = existente.cantidad + cantidad;
-        if (nuevaCantidad > stock) { Swal.fire('Stock insuficiente', `Solo hay ${stock} unidades en total en esta sucursal`, 'warning'); return; }
+        if (nuevaCantidad > stock) { 
+            Swal.fire('Stock insuficiente', `Solo hay ${stock} unidades disponibles`, 'warning'); 
+            return; 
+        }
         existente.cantidad = nuevaCantidad;
     } else {
-        carrito.push({
-            id_lote: productoSeleccionado.id_lote,
-            id_producto: productoSeleccionado.id_producto,
-            nombre: productoSeleccionado.nombre,
-            precio: productoSeleccionado.precio,
-            cantidad: cantidad,
-            stock: stock,
-            aplica_itbis: productoSeleccionado.aplica_itbis
-        });
+        carrito.push({ ...productoSeleccionado, cantidad: cantidad });
     }
+    
     actualizarCarrito();
     if (modalCantidad) modalCantidad.hide();
     productoSeleccionado = null;
@@ -958,10 +1266,11 @@ function confirmarAgregarProducto() {
 function actualizarCarrito() {
     const tbody = document.getElementById('carritoBody');
     if (carrito.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4"><i class="fas fa-shopping-cart" style="font-size: 2rem; opacity: 0.3;"></i><p>No hay productos agregados</p><\/td><\/tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4"><i class="fas fa-shopping-cart" style="font-size: 2rem; opacity: 0.3;"></i><p>No hay productos agregados</p></td></tr>`;
         recalcularTodo();
         return;
     }
+    
     let html = '';
     for (let i = 0; i < carrito.length; i++) {
         const item = carrito[i];
@@ -970,15 +1279,28 @@ function actualizarCarrito() {
         const totalConItbis = subtotal + itbis;
         const itbisText = item.aplica_itbis ? `Aplica (${ITBIS_PORCENTAJE}%)` : 'Exento';
         const itbisClass = item.aplica_itbis ? 'text-success' : 'text-muted';
+        
+        let infoAdicional = '', badgeTipo = '';
+        if (item.tipo === 'ROPA') {
+            badgeTipo = '<span class="badge-tipo-ropa me-1">👕 ROPA</span>';
+            infoAdicional = `<br><small class="text-muted">Talla: ${item.talla || 'N/A'} | Color: ${item.color || 'N/A'}</small>`;
+        } else {
+            badgeTipo = '<span class="badge-tipo-medicamento me-1">💊 MED</span>';
+            infoAdicional = `<br><small class="text-muted">Lote: ${item.id_lote}</small>`;
+        }
+        
         html += `
             <tr>
-                <td><strong>${escapeHtml(item.nombre)}</strong></td>
-                <td><small class="text-muted">Lote: ${item.id_lote}</small></td>
+                <td style="min-width: 200px;">
+                    ${badgeTipo}
+                    <strong>${escapeHtml(item.nombre)}</strong>
+                    ${infoAdicional}
+                </td>
                 <td><input type="number" class="cantidad-input" value="${item.cantidad}" min="1" max="${item.stock}" onchange="actualizarCantidad(${i}, this.value)"></td>
-                <td>RD$ ${item.precio.toFixed(2)}<\/small></td>
-                <td class="${itbisClass}">${itbisText}<\/td>
-                <td class="fw-bold text-success">RD$ ${totalConItbis.toFixed(2)}<\/small><\/td>
-                <td class="text-center"><button class="btn-eliminar-item" onclick="eliminarProducto(${i})"><span class="material-symbols-rounded">delete<\/span><\/button><\/td>
+                <td class="text-end">RD$ ${item.precio.toFixed(2)}</td>
+                <td class="${itbisClass} text-end">${itbisText}</td>
+                <td class="fw-bold text-success text-end">RD$ ${totalConItbis.toFixed(2)}</td>
+                <td class="text-center"><button class="btn-eliminar-item" onclick="eliminarProducto(${i})"><span class="material-symbols-rounded">delete</span></button></td>
             </tr>
         `;
     }
@@ -990,7 +1312,7 @@ function actualizarCantidad(index, nuevaCantidad) {
     nuevaCantidad = parseInt(nuevaCantidad);
     if (isNaN(nuevaCantidad) || nuevaCantidad < 1) nuevaCantidad = 1;
     if (nuevaCantidad > carrito[index].stock) {
-        Swal.fire('Stock insuficiente', `Solo hay ${carrito[index].stock} unidades disponibles en esta sucursal`, 'warning');
+        Swal.fire('Stock insuficiente', `Solo hay ${carrito[index].stock} unidades disponibles`, 'warning');
         nuevaCantidad = carrito[index].stock;
     }
     carrito[index].cantidad = nuevaCantidad;
@@ -1003,17 +1325,22 @@ function eliminarProducto(index) {
 }
 
 // ==================== DELIVERY ====================
+let deliveryAsignado = null;
+
 function abrirModalDelivery() {
     const clienteId = document.getElementById('cliente').value;
     if (!clienteId) {
         Swal.fire('Error', 'Debe seleccionar un cliente antes de asignar delivery', 'error');
         return;
     }
+    
     document.getElementById('modalNumeroDocumento').value = document.getElementById('numeroDocumento').value;
     document.getElementById('modalFechaVenta').value = document.getElementById('fechaVenta').value;
+    
     const clienteNombre = document.getElementById('cliente').options[document.getElementById('cliente').selectedIndex]?.text || 'Consumidor Final';
-    document.getElementById('modalClienteNombre').value = clienteNombre;
     const sucursalNombre = document.getElementById('sucursal').options[document.getElementById('sucursal').selectedIndex]?.text || '';
+    
+    document.getElementById('modalClienteNombre').value = clienteNombre;
     document.getElementById('modalSucursalNombre').value = sucursalNombre;
     
     cargarDireccionesCliente(clienteId);
@@ -1024,44 +1351,44 @@ function abrirModalDelivery() {
 
 async function cargarDireccionesCliente(idCliente) {
     const select = document.getElementById('direccionEntrega');
-    select.innerHTML = '<option value="">Cargando...</option>';
+    if (!select) return;
+    
+    select.innerHTML = '<option value="">Cargando direcciones...</option>';
     try {
         const response = await fetch(BASE_URL + `/backend/clientes/listar_direcciones_cliente.php?id_cliente=${idCliente}`);
         const data = await response.json();
-        if (data.success && data.direcciones.length > 0) {
-            select.innerHTML = '<option value="">Seleccionar dirección...</option>';
+        if (data.success && data.direcciones && data.direcciones.length > 0) {
+            select.innerHTML = '';
             data.direcciones.forEach(dir => {
                 const option = document.createElement('option');
                 option.value = dir.id_direccion;
-                // Guardar campos separados como data-attributes para usarlos al guardar
-                option.dataset.direccion = dir.direccion || '';
-                option.dataset.barrio    = dir.barrio    || '';
-                option.dataset.ciudad    = dir.ciudad    || '';
-                option.dataset.referencia= dir.referencia|| '';
-                option.dataset.completa  = dir.direccion_completa || dir.direccion;
-                option.textContent = dir.predeterminada
-                    ? `★ ${dir.direccion_completa}` 
-                    : dir.direccion_completa;
+                option.textContent = dir.direccion_completa || dir.direccion;
+                option.dataset.direccion = dir.direccion;
+                option.dataset.barrio = dir.barrio || '';
+                option.dataset.ciudad = dir.ciudad || '';
+                option.dataset.referencia = dir.referencia || '';
+                option.dataset.completa = dir.direccion_completa || dir.direccion;
+                if (dir.predeterminada) option.selected = true;
                 select.appendChild(option);
             });
-            // Pre-seleccionar la predeterminada si existe
-            const predeterminada = data.direcciones.find(d => d.predeterminada);
-            if (predeterminada) select.value = predeterminada.id_direccion;
         } else {
             select.innerHTML = '<option value="">No hay direcciones registradas para este cliente</option>';
         }
     } catch(error) {
+        console.error(error);
         select.innerHTML = '<option value="">Error al cargar direcciones</option>';
     }
 }
 
 async function cargarRepartidoresDisponibles() {
     const select = document.getElementById('repartidorEntrega');
-    select.innerHTML = '<option value="">Cargando...</option>';
+    if (!select) return;
+    
+    select.innerHTML = '<option value="">Cargando repartidores...</option>';
     try {
         const response = await fetch(BASE_URL + '/backend/ventas/listar_repartidores_disponibles.php');
         const data = await response.json();
-        if (data.success && data.repartidores.length > 0) {
+        if (data.success && data.repartidores && data.repartidores.length > 0) {
             select.innerHTML = '<option value="">Seleccionar repartidor...</option>';
             data.repartidores.forEach(rep => {
                 const option = document.createElement('option');
@@ -1073,16 +1400,23 @@ async function cargarRepartidoresDisponibles() {
             select.innerHTML = '<option value="">No hay repartidores disponibles</option>';
         }
     } catch(error) {
+        console.error(error);
         select.innerHTML = '<option value="">Error al cargar repartidores</option>';
     }
 }
 
 function guardarDelivery() {
     const direccionSelect = document.getElementById('direccionEntrega');
-    const direccionId     = direccionSelect.value;
-    const repartidorId    = document.getElementById('repartidorEntrega').value;
-    const costo           = parseFloat(document.getElementById('costoEnvio').value);
-    const observaciones   = document.getElementById('observacionesDelivery').value;
+    const repartidorSelect = document.getElementById('repartidorEntrega');
+    const costoInput = document.getElementById('costoEnvio');
+    const observacionesText = document.getElementById('observacionesDelivery');
+    
+    if (!direccionSelect || !repartidorSelect || !costoInput) return;
+    
+    const direccionId = direccionSelect.value;
+    const repartidorId = repartidorSelect.value;
+    const costo = parseFloat(costoInput.value);
+    const observaciones = observacionesText ? observacionesText.value : '';
     
     if (!direccionId) {
         Swal.fire('Error', 'Seleccione una dirección de entrega', 'error');
@@ -1097,31 +1431,34 @@ function guardarDelivery() {
         return;
     }
     
-    // Leer data-attributes del option seleccionado
-    const selectedOpt  = direccionSelect.options[direccionSelect.selectedIndex];
-    const repartidorTexto = document.getElementById('repartidorEntrega').options[document.getElementById('repartidorEntrega').selectedIndex]?.text || '';
+    const selectedOpt = direccionSelect.options[direccionSelect.selectedIndex];
+    const repartidorTexto = repartidorSelect.options[repartidorSelect.selectedIndex]?.text || '';
     
     deliveryAsignado = {
-        id_repartidor     : parseInt(repartidorId),
-        nombre_repartidor : repartidorTexto,
-        costo_entrega     : costo,
-        // Campos de dirección separados para guardar correctamente en BD
-        direccion_entrega : selectedOpt.dataset.direccion  || selectedOpt.dataset.completa || selectedOpt.text,
-        barrio_entrega    : selectedOpt.dataset.barrio     || '',
-        ciudad_entrega    : selectedOpt.dataset.ciudad     || 'Santiago',
+        id_repartidor: parseInt(repartidorId),
+        nombre_repartidor: repartidorTexto,
+        costo_entrega: costo,
+        direccion_entrega: selectedOpt.dataset.direccion || selectedOpt.dataset.completa || selectedOpt.text,
+        barrio_entrega: selectedOpt.dataset.barrio || '',
+        ciudad_entrega: selectedOpt.dataset.ciudad || 'Santiago',
         referencia_entrega: selectedOpt.dataset.referencia || '',
-        // Texto completo para mostrar en pantalla
-        direccion_completa: selectedOpt.dataset.completa   || selectedOpt.text,
-        observaciones     : observaciones
+        direccion_completa: selectedOpt.dataset.completa || selectedOpt.text,
+        observaciones: observaciones
     };
-    costoEnvio    = costo;
+    costoEnvio = costo;
     deliveryActivo = true;
     
-    document.getElementById('deliveryRepartidor').innerText = deliveryAsignado.nombre_repartidor;
-    document.getElementById('deliveryCosto').innerText      = deliveryAsignado.costo_entrega.toFixed(2);
-    document.getElementById('deliveryDireccion').innerText  = deliveryAsignado.direccion_completa;
-    document.getElementById('deliveryState').style.display  = 'block';
-    document.getElementById('btnAsignarDelivery').style.display = 'none';
+    const deliveryRepartidor = document.getElementById('deliveryRepartidor');
+    const deliveryCosto = document.getElementById('deliveryCosto');
+    const deliveryDireccion = document.getElementById('deliveryDireccion');
+    const deliveryState = document.getElementById('deliveryState');
+    const btnAsignar = document.getElementById('btnAsignarDelivery');
+    
+    if (deliveryRepartidor) deliveryRepartidor.innerText = deliveryAsignado.nombre_repartidor;
+    if (deliveryCosto) deliveryCosto.innerText = deliveryAsignado.costo_entrega.toFixed(2);
+    if (deliveryDireccion) deliveryDireccion.innerText = deliveryAsignado.direccion_completa;
+    if (deliveryState) deliveryState.style.display = 'block';
+    if (btnAsignar) btnAsignar.style.display = 'none';
     
     if (modalDelivery) modalDelivery.hide();
     recalcularTodo();
@@ -1141,8 +1478,13 @@ function quitarDelivery() {
             deliveryAsignado = null;
             deliveryActivo = false;
             costoEnvio = 0;
-            document.getElementById('deliveryState').style.display = 'none';
-            document.getElementById('btnAsignarDelivery').style.display = 'block';
+            
+            const deliveryState = document.getElementById('deliveryState');
+            const btnAsignar = document.getElementById('btnAsignarDelivery');
+            
+            if (deliveryState) deliveryState.style.display = 'none';
+            if (btnAsignar) btnAsignar.style.display = 'block';
+            
             recalcularTodo();
             Swal.fire('Delivery eliminado', '', 'success');
         }
@@ -1150,7 +1492,47 @@ function quitarDelivery() {
 }
 
 function actualizarBotonQuitarDelivery() {
-    // No es necesario, solo para mantener consistencia
+    // Función vacía pero necesaria para evitar errores
+}
+
+function quitarDelivery() {
+    if (!deliveryActivo) return;
+    
+    Swal.fire({
+        title: '¿Quitar delivery?',
+        text: 'Se eliminará la asignación actual',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, quitar',
+        cancelButtonText: 'No'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            deliveryAsignado = null;
+            deliveryActivo = false;
+            costoEnvio = 0;
+            idRepartidorSeleccionado = null;
+            direccionSeleccionada = '';
+            
+            // Ocultar la información del delivery
+            const deliveryState = document.getElementById('deliveryState');
+            if (deliveryState) deliveryState.style.display = 'none';
+            
+            // Mostrar el botón de asignar delivery
+            const btnAsignar = document.getElementById('btnAsignarDelivery');
+            if (btnAsignar) btnAsignar.style.display = 'block';
+            
+            // Limpiar los campos de información
+            const deliveryRepartidor = document.getElementById('deliveryRepartidor');
+            const deliveryCosto = document.getElementById('deliveryCosto');
+            const deliveryDireccion = document.getElementById('deliveryDireccion');
+            if (deliveryRepartidor) deliveryRepartidor.innerText = '';
+            if (deliveryCosto) deliveryCosto.innerText = '0.00';
+            if (deliveryDireccion) deliveryDireccion.innerText = '';
+            
+            recalcularTodo();
+            Swal.fire('Delivery eliminado', 'Puede asignar un nuevo delivery si lo desea', 'success');
+        }
+    });
 }
 
 // ==================== PROCESAR VENTA ====================
@@ -1159,25 +1541,14 @@ function procesarVenta() {
     const condicionPago = document.getElementById('condicionPago').value;
     const idCliente = document.getElementById('cliente').value;
     const tieneSeguro = datosSeguroCliente && coberturaActual?.monto_cubre_seguro > 0;
+    
     if (!sucursal) { Swal.fire('Error', 'Seleccione una sucursal', 'error'); return; }
     if (carrito.length === 0) { Swal.fire('Error', 'Agregue al menos un producto', 'error'); return; }
     if (condicionPago === '1') {
         const metodoPago = document.getElementById('metodoPago').value;
         if (!metodoPago) { Swal.fire('Error', 'Seleccione un método de pago', 'error'); return; }
     }
-    if (coberturaActual?.requiere_autorizacion && coberturaActual.autorizaciones_faltantes?.length > 0) {
-        Swal.fire({
-            title: '⚠️ Autorizaciones requeridas',
-            html: `Los siguientes medicamentos requieren autorización del seguro:<br><strong>${coberturaActual.autorizaciones_faltantes.join(', ')}</strong><br><br>El seguro NO cubrirá estos medicamentos. ¿Desea continuar?`,
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonText: 'Sí, continuar sin seguro para estos',
-            cancelButtonText: 'Cancelar'
-        }).then((result) => {
-            if (result.isConfirmed) procesarVentaConfirmado(sucursal, condicionPago, idCliente, tieneSeguro);
-        });
-        return;
-    }
+    
     procesarVentaConfirmado(sucursal, condicionPago, idCliente, tieneSeguro);
 }
 
@@ -1210,6 +1581,7 @@ function procesarVentaConfirmado(sucursal, condicionPago, idCliente, tieneSeguro
         totalPagar = (subtotalConDescuento + nuevoItbis) - montoSeguro;
         if (totalPagar < 0) totalPagar = 0;
     }
+    if (deliveryActivo && costoEnvio > 0) totalPagar += costoEnvio;
     
     const datos = {
         numero_documento: document.getElementById('numeroDocumento').value,
@@ -1219,10 +1591,13 @@ function procesarVentaConfirmado(sucursal, condicionPago, idCliente, tieneSeguro
         id_condicion: parseInt(condicionPago) || 1,
         id_metodo_pago: (condicionPago === '1' && metodoPago) ? parseInt(metodoPago) : null,
         productos: carrito.map(item => ({
-            id_lote: parseInt(item.id_lote),
-            id_producto: parseInt(item.id_producto),
-            cantidad: parseInt(item.cantidad),
-            precio_unitario: parseFloat(item.precio),
+            tipo: item.tipo,
+            id_lote: item.id_lote,
+            id_producto: item.id_producto,
+            id_talla: item.id_talla,
+            id_color: item.id_color,
+            cantidad: item.cantidad,
+            precio_unitario: item.precio,
             aplica_itbis: item.aplica_itbis === true
         })),
         subtotal: subtotal,
@@ -1230,22 +1605,17 @@ function procesarVentaConfirmado(sucursal, condicionPago, idCliente, tieneSeguro
         total: totalPagar,
         usa_seguro: tieneSeguro,
         id_aseguradora: tieneSeguro ? datosSeguroCliente?.id_aseguradora : null,
-        monto_cubre_seguro: parseFloat(montoSeguro),
+        monto_cubre_seguro: montoSeguro,
         monto_paga_paciente: totalPagar,
-        id_descuento: descuentoSeleccionado.id,
         monto_descuento: descuentoMonto,
-        delivery: deliveryAsignado ? {
-            id_repartidor     : deliveryAsignado.id_repartidor,
-            costo_entrega     : deliveryAsignado.costo_entrega,
-            direccion_entrega : deliveryAsignado.direccion_entrega,
-            barrio_entrega    : deliveryAsignado.barrio_entrega    || '',
-            ciudad_entrega    : deliveryAsignado.ciudad_entrega    || 'Santiago',
-            referencia_entrega: deliveryAsignado.referencia_entrega|| '',
-            observaciones     : deliveryAsignado.observaciones
-        } : null
+        delivery_activo: deliveryActivo,
+        id_repartidor: idRepartidorSeleccionado,
+        costo_envio: costoEnvio,
+        direccion_entrega: direccionSeleccionada
     };
     
     Swal.fire({ title: 'Procesando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    
     fetch(BASE_URL + '/backend/ventas/procesar_venta.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1255,12 +1625,17 @@ function procesarVentaConfirmado(sucursal, condicionPago, idCliente, tieneSeguro
     .then(data => {
         Swal.close();
         if (data.success) {
-            Swal.fire('Éxito', `Venta ${data.numero_documento} registrada`, 'success').then(() => location.reload());
+            Swal.fire('Éxito', `Venta ${data.numero_documento} registrada correctamente`, 'success')
+                .then(() => location.reload());
         } else {
             Swal.fire('Error', data.message || 'Error al procesar la venta', 'error');
         }
     })
-    .catch(error => { Swal.close(); Swal.fire('Error', 'Error de conexión', 'error'); console.error(error); });
+    .catch(error => {
+        Swal.close();
+        Swal.fire('Error', 'Error de conexión: ' + error.message, 'error');
+        console.error(error);
+    });
 }
 
 function cancelarVenta() {
@@ -1272,7 +1647,9 @@ function cancelarVenta() {
         confirmButtonColor: '#dc3545',
         confirmButtonText: 'Sí, cancelar',
         cancelButtonText: 'No'
-    }).then((result) => { if (result.isConfirmed) location.reload(); });
+    }).then((result) => { 
+        if (result.isConfirmed) location.reload(); 
+    });
 }
 
 function escapeHtml(str) {
@@ -1287,66 +1664,87 @@ function escapeHtml(str) {
     });
 }
 
+function actualizarCondicionCredito() {
+    const clienteSelect = document.getElementById('cliente');
+    const selectedOption = clienteSelect.options[clienteSelect.selectedIndex];
+    const permiteCredito = selectedOption?.dataset?.permiteCredito === '1';
+    const condicionSelect = document.getElementById('condicionPago');
+    const alertCredito = document.getElementById('alertCredito');
+    const divMetodo = document.getElementById('divMetodoPago');
+    
+    if (!permiteCredito && (condicionSelect.value === '2' || condicionSelect.value === '3')) {
+        condicionSelect.value = '1';
+        Swal.fire('Aviso', 'Este cliente no tiene crédito habilitado', 'info');
+        if (alertCredito) alertCredito.style.display = 'none';
+        if (divMetodo) divMetodo.style.display = 'block';
+    }
+    
+    if (condicionSelect.value === '2' || condicionSelect.value === '3') {
+        if (alertCredito) alertCredito.style.display = 'block';
+        if (divMetodo) divMetodo.style.display = 'none';
+    } else {
+        if (alertCredito) alertCredito.style.display = 'none';
+        if (divMetodo) divMetodo.style.display = 'block';
+    }
+}
+
 // ==================== INICIALIZACIÓN ====================
 document.addEventListener('DOMContentLoaded', function() {
+    initTabs();
+    
     const elModalProductos = document.getElementById('modalProductos');
     const elModalCantidad = document.getElementById('modalCantidad');
     const elModalDelivery = document.getElementById('modalDelivery');
+    
     if (elModalProductos) modalProductos = new bootstrap.Modal(elModalProductos, { backdrop: false, keyboard: true });
     if (elModalCantidad) modalCantidad = new bootstrap.Modal(elModalCantidad, { backdrop: false, keyboard: true });
     if (elModalDelivery) modalDelivery = new bootstrap.Modal(elModalDelivery, { backdrop: false, keyboard: true });
     
-    document.getElementById('btnAgregarProducto').addEventListener('click', abrirModalProductos);
+    const btnAgregar = document.getElementById('btnAgregarProducto');
+    if (btnAgregar) btnAgregar.addEventListener('click', abrirModalProductos);
     
     const sucursalSelect = document.getElementById('sucursal');
-    sucursalSelect.addEventListener('change', function() {
-        sucursalActual = this.value;
-        if (carrito.length > 0) {
-            Swal.fire({
-                title: 'Cambio de sucursal',
-                text: 'Los productos del carrito pertenecen a otra sucursal. ¿Desea vaciar el carrito?',
-                icon: 'warning',
-                showCancelButton: true,
-                confirmButtonText: 'Sí, vaciar',
-                cancelButtonText: 'No, mantener'
-            }).then(result => {
-                if (result.isConfirmed) {
-                    carrito = [];
-                    actualizarCarrito();
-                }
-            });
-        }
-        if (modalProductos && modalProductos._isShown) {
-            cargarProductosModal();
-        }
-    });
+    if (sucursalSelect) {
+        sucursalSelect.addEventListener('change', function() {
+            sucursalActual = this.value;
+            if (carrito.length > 0) {
+                Swal.fire({
+                    title: 'Cambio de sucursal',
+                    text: 'Los productos del carrito pertenecen a otra sucursal. ¿Desea vaciar el carrito?',
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonText: 'Sí, vaciar',
+                    cancelButtonText: 'No'
+                }).then(result => {
+                    if (result.isConfirmed) { carrito = []; actualizarCarrito(); }
+                });
+            }
+        });
+    }
     
-    document.getElementById('cliente').addEventListener('change', function() {
-        const tieneSeguro = this.options[this.selectedIndex]?.dataset?.tieneSeguro === '1';
-        if (!tieneSeguro || !this.value) {
-            document.getElementById('cardSeguro').style.display = 'none';
-            document.getElementById('seguroInfo').style.display = 'none';
-            datosSeguroCliente = null;
-        }
-        recalcularTodo();
-        actualizarCondicionCredito();
-        if (deliveryAsignado) quitarDelivery();
-    });
+    const clienteSelect = document.getElementById('cliente');
+    if (clienteSelect) {
+        clienteSelect.addEventListener('change', function() {
+            const tieneSeguro = this.options[this.selectedIndex]?.dataset?.tieneSeguro === '1';
+            if (!tieneSeguro || !this.value) {
+                document.getElementById('cardSeguro').style.display = 'none';
+                document.getElementById('seguroInfo').style.display = 'none';
+                datosSeguroCliente = null;
+            }
+            recalcularTodo();
+            actualizarCondicionCredito();
+            if (deliveryActivo) quitarDelivery();
+        });
+    }
     
-    document.getElementById('condicionPago').addEventListener('change', function() {
-        const alertCredito = document.getElementById('alertCredito');
-        const divMetodo = document.getElementById('divMetodoPago');
-        if (this.value === '2' || this.value === '3') {
-            alertCredito.style.display = 'block';
-            divMetodo.style.display = 'none';
-        } else {
-            alertCredito.style.display = 'none';
-            divMetodo.style.display = 'block';
-        }
-    });
+    const condicionSelect = document.getElementById('condicionPago');
+    if (condicionSelect) condicionSelect.addEventListener('change', actualizarCondicionCredito);
     
-    document.getElementById('filtroNombreProducto')?.addEventListener('input', filtrarProductos);
-    document.getElementById('selectDescuento').addEventListener('change', () => recalcularTodo());
+    const filtroInput = document.getElementById('filtroNombreProducto');
+    if (filtroInput) filtroInput.addEventListener('input', filtrarProductos);
+    
+    const descuentoSelect = document.getElementById('selectDescuento');
+    if (descuentoSelect) descuentoSelect.addEventListener('change', () => recalcularTodo());
     
     if (elModalProductos) {
         elModalProductos.addEventListener('show.bs.modal', function(event) {
@@ -1359,21 +1757,8 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    document.getElementById('deliveryState').style.display = 'none';
-    document.getElementById('btnAsignarDelivery').style.display = 'block';
     sucursalActual = null;
+    actualizarCondicionCredito();
+    actualizarBotonQuitarDelivery();
 });
-
-function actualizarCondicionCredito() {
-    const clienteSelect = document.getElementById('cliente');
-    const selectedOption = clienteSelect.options[clienteSelect.selectedIndex];
-    const permiteCredito = selectedOption?.dataset?.permiteCredito === '1';
-    const condicionSelect = document.getElementById('condicionPago');
-    if (!permiteCredito && (condicionSelect.value === '2' || condicionSelect.value === '3')) {
-        condicionSelect.value = '1';
-        Swal.fire('Aviso', 'Este cliente no tiene crédito habilitado', 'info');
-        document.getElementById('alertCredito').style.display = 'none';
-        document.getElementById('divMetodoPago').style.display = 'block';
-    }
-}
 </script>

@@ -7,13 +7,33 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
+ob_start();
+
 include(__DIR__ . "/../../backend/conexion.php");
 
 error_reporting(E_ALL);
-//ini_set('display_errors', 1);
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 error_log("Errores activos");
+
+// --- FUNCIÓN PARA COMPRIMIR NÚMEROS (K, M) ---
+function comprimirNumero($n) {
+    if ($n >= 1000000) {
+        return round($n / 1000000, 2) . 'M';
+    } elseif ($n >= 1000) {
+        return round($n / 1000, 1) . 'K';
+    }
+    return number_format($n);
+}
+
+function comprimirMoneda($n) {
+    if ($n >= 1000000) {
+        return '$' . round($n / 1000000, 2) . 'M';
+    } elseif ($n >= 1000) {
+        return '$' . round($n / 1000, 1) . 'K';
+    }
+    return '$' . number_format($n, 2);
+}
 
 // ========================
 // PROCESAR FORMULARIO (CRUD)
@@ -28,7 +48,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $precio = isset($_POST['precio']) ? floatval($_POST['precio']) : 0;
     $exento_itbis = isset($_POST['exento_itbis']) ? (intval($_POST['exento_itbis']) === 1) : false;
     $estado = isset($_POST['estado']) ? (intval($_POST['estado']) === 1) : true;
-
 
     // Datos específicos de ropa
     $talla = isset($_POST['talla']) ? trim($_POST['talla']) : null;
@@ -107,68 +126,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $exito = true;
             }
         } elseif ($accion === 'editar') {
-            // 1. Actualizar productos (mantener imagen actual si no se sube nueva)
-            // Si no se subió nueva imagen y $imagen_final está vacío, mantener la actual
-            if (empty($imagen_final) || $imagen_final == $url_default) {
-                // Obtener la imagen actual de la base de datos
-                $stmtImg = $conexion->prepare("SELECT imagen_url FROM productos WHERE id_producto = ?");
-                $stmtImg->execute([$id_producto]);
-                $imagen_guardada = $stmtImg->fetchColumn();
-                $imagen_final = !empty($imagen_guardada) ? $imagen_guardada : $url_default;
-            }
-
-            $sql = "UPDATE productos SET nombre=?, precio=?, estado=?, exento_itbis=?, imagen_url=? WHERE id_producto=?";
-            $stmt = $conexion->prepare($sql);
-            $stmt->execute([$nombre, $precio, $estado ? 't' : 'f', $exento_itbis ? 't' : 'f', $imagen_final, $id_producto]);
-
-            // 2. Actualizar ropa_detalle
-            $sql = "UPDATE ropa_detalle SET talla=?, color=?, marca=?, id_tipo=?, id_marca=?, id_fabricante=?, id_color=?, id_talla=? 
-            WHERE id_producto=?";
-            $stmt = $conexion->prepare($sql);
-            $stmt->execute([$talla, $color, $marca, $id_tipo, $id_marca, $id_fabricante, $id_color, $id_talla, $id_producto]);
-
-            // 3. Actualizar stock y sucursal en inventario_productos
-            // Primero verificar si existe el registro
-            $checkInv = $conexion->prepare("SELECT COUNT(*) FROM inventario_productos WHERE id_producto = ? AND id_sucursal = ?");
-            $checkInv->execute([$id_producto, $id_sucursal]);
-
-            if ($checkInv->fetchColumn() > 0) {
-                // Actualizar existente
-                $sql = "UPDATE inventario_productos SET cantidad = ? WHERE id_producto = ? AND id_sucursal = ?";
-                $stmt = $conexion->prepare($sql);
-                $stmt->execute([$stock, $id_producto, $id_sucursal]);
+            // Verificar duplicado EXCLUYENDO el producto actual
+            $check = $conexion->prepare("SELECT COUNT(*) FROM productos WHERE nombre = ? AND tipo_producto = 'ROPA' AND id_producto != ?");
+            $check->execute([$nombre, $id_producto]);
+            if ($check->fetchColumn() > 0) {
+                $mensaje_error = 'Ya existe otro producto de ropa con ese nombre.';
             } else {
-                // Eliminar registros viejos y crear nuevo
-                $conexion->prepare("DELETE FROM inventario_productos WHERE id_producto = ?")->execute([$id_producto]);
-                $sql = "INSERT INTO inventario_productos (id_producto, id_sucursal, cantidad) VALUES (?, ?, ?)";
+                // 1. Actualizar productos (mantener imagen actual si no se sube nueva)
+                if (empty($imagen_final) || $imagen_final == $url_default) {
+                    // Obtener la imagen actual de la base de datos
+                    $stmtImg = $conexion->prepare("SELECT imagen_url FROM productos WHERE id_producto = ?");
+                    $stmtImg->execute([$id_producto]);
+                    $imagen_guardada = $stmtImg->fetchColumn();
+                    $imagen_final = !empty($imagen_guardada) ? $imagen_guardada : $url_default;
+                }
+
+                $sql = "UPDATE productos SET nombre=?, precio=?, estado=?, exento_itbis=?, imagen_url=? WHERE id_producto=?";
                 $stmt = $conexion->prepare($sql);
-                $stmt->execute([$id_producto, $id_sucursal, $stock]);
-            }
+                $stmt->execute([$nombre, $precio, $estado ? 't' : 'f', $exento_itbis ? 't' : 'f', $imagen_final, $id_producto]);
 
-            $exito = true;
-        } elseif ($accion === 'eliminar') {
-            // Verificar si el producto tiene ventas asociadas
-            $check = $conexion->prepare("
-                SELECT COUNT(*) FROM detalle_venta dv 
-                WHERE dv.id_producto = ?
-            ");
-            $check->execute([$id_producto]);
-            $count = $check->fetchColumn();
+                // 2. Verificar si existe ropa_detalle
+                $checkRopa = $conexion->prepare("SELECT COUNT(*) FROM ropa_detalle WHERE id_producto = ?");
+                $checkRopa->execute([$id_producto]);
+                
+                if ($checkRopa->fetchColumn() > 0) {
+                    // Actualizar ropa_detalle existente
+                    $sql = "UPDATE ropa_detalle SET talla=?, color=?, marca=?, id_tipo=?, id_marca=?, id_fabricante=?, id_color=?, id_talla=? 
+                            WHERE id_producto=?";
+                    $stmt = $conexion->prepare($sql);
+                    $stmt->execute([$talla, $color, $marca, $id_tipo, $id_marca, $id_fabricante, $id_color, $id_talla, $id_producto]);
+                } else {
+                    // Insertar nuevo ropa_detalle
+                    $sql = "INSERT INTO ropa_detalle (id_producto, talla, color, marca, id_tipo, id_marca, id_fabricante, id_color, id_talla) 
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    $stmt = $conexion->prepare($sql);
+                    $stmt->execute([$id_producto, $talla, $color, $marca, $id_tipo, $id_marca, $id_fabricante, $id_color, $id_talla]);
+                }
 
-            if ($count > 0) {
-                $mensaje_error = "No se puede eliminar el producto porque tiene $count venta(s) asociada(s).";
-            } else {
-                // Eliminar primero de inventario_productos
-                $stmt = $conexion->prepare("DELETE FROM inventario_productos WHERE id_producto = ?");
-                $stmt->execute([$id_producto]);
+                // 3. Actualizar stock en inventario_productos
+                $checkInv = $conexion->prepare("SELECT COUNT(*) FROM inventario_productos WHERE id_producto = ? AND id_sucursal = ?");
+                $checkInv->execute([$id_producto, $id_sucursal]);
 
-                // Eliminar de ropa_detalle
-                $stmt = $conexion->prepare("DELETE FROM ropa_detalle WHERE id_producto = ?");
-                $stmt->execute([$id_producto]);
-
-                // Eliminar de productos
-                $stmt = $conexion->prepare("DELETE FROM productos WHERE id_producto = ?");
-                $stmt->execute([$id_producto]);
+                if ($checkInv->fetchColumn() > 0) {
+                    $sql = "UPDATE inventario_productos SET cantidad = ? WHERE id_producto = ? AND id_sucursal = ?";
+                    $stmt = $conexion->prepare($sql);
+                    $stmt->execute([$stock, $id_producto, $id_sucursal]);
+                } else {
+                    $sql = "INSERT INTO inventario_productos (id_producto, id_sucursal, cantidad) VALUES (?, ?, ?)";
+                    $stmt = $conexion->prepare($sql);
+                    $stmt->execute([$id_producto, $id_sucursal, $stock]);
+                }
 
                 $exito = true;
             }
@@ -182,8 +189,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $conexion->rollBack();
         }
     } catch (PDOException $e) {
-        $conexion->rollBack();
+        if ($conexion->inTransaction()) {
+            $conexion->rollBack();
+        }
         $mensaje_error = 'Error técnico: ' . $e->getMessage();
+        error_log("ERROR PDO: " . $e->getMessage());
+    } catch (Exception $e) {
+        if ($conexion->inTransaction()) {
+            $conexion->rollBack();
+        }
+        $mensaje_error = 'Error: ' . $e->getMessage();
+        error_log("ERROR General: " . $e->getMessage());
     }
 
     // Devolver respuesta JSON para SweetAlert
@@ -206,7 +222,7 @@ $buscar = isset($_GET['buscar']) ? $_GET['buscar'] : '';
 $filtro_categoria = isset($_GET['categoria']) ? $_GET['categoria'] : '';
 $filtro_talla = isset($_GET['talla']) ? $_GET['talla'] : '';
 
-// Construir consulta con filtros
+// Construir consulta SQL con filtros
 $sql = "
     SELECT 
         p.id_producto,
@@ -215,44 +231,35 @@ $sql = "
         p.estado,
         p.exento_itbis,
         p.imagen_url,
-        COALESCE(ip.cantidad, 0) as stock,
-        r.id_ropa,
-        r.talla,
-        r.color,
-        r.marca,
-        t.id_tipo,
-        t.nombre as tipo_nombre,
-        m.id_marca,
-        m.nombre as marca_nombre,
-        f.id_fabricante,
-        f.nombre as fabricante_nombre,
-        c.id_color,
-        c.nombre as color_nombre,
-        ta.id_talla as talla_id,
-        ta.nombre as talla_nombre,
-        ip.id_sucursal
+        COALESCE(SUM(ip.cantidad), 0) as stock_total,
+        COUNT(DISTINCT r.id_ropa) as num_variantes,
+        STRING_AGG(DISTINCT COALESCE(ta.nombre, r.talla), ', ' ORDER BY COALESCE(ta.nombre, r.talla)) as tallas_disponibles,
+        STRING_AGG(DISTINCT COALESCE(c.nombre, r.color), ', ' ORDER BY COALESCE(c.nombre, r.color)) as colores_disponibles,
+        STRING_AGG(DISTINCT COALESCE(m.nombre, r.marca), ', ' ORDER BY COALESCE(m.nombre, r.marca)) as marcas_disponibles,
+        t.nombre as tipo_nombre
     FROM productos p
     LEFT JOIN ropa_detalle r ON p.id_producto = r.id_producto
     LEFT JOIN tipo_ropa t ON r.id_tipo = t.id_tipo
     LEFT JOIN marcas m ON r.id_marca = m.id_marca
-    LEFT JOIN fabricantes f ON r.id_fabricante = f.id_fabricante
     LEFT JOIN colores c ON r.id_color = c.id_color
     LEFT JOIN tallas ta ON r.id_talla = ta.id_talla
     LEFT JOIN inventario_productos ip ON p.id_producto = ip.id_producto
     WHERE p.tipo_producto = 'ROPA'
 ";
 
+// Aplicar filtros
 if (!empty($buscar)) {
-    $sql .= " AND (p.nombre ILIKE :buscar OR r.marca ILIKE :buscar)";
+    $sql .= " AND (p.nombre ILIKE :buscar OR r.marca ILIKE :buscar OR COALESCE(m.nombre, r.marca) ILIKE :buscar)";
 }
 if (!empty($filtro_categoria)) {
-    $sql .= " AND t.nombre ILIKE :categoria";
+    $sql .= " AND t.nombre = :categoria";
 }
 if (!empty($filtro_talla)) {
-    $sql .= " AND (r.talla = :talla OR ta.nombre = :talla)";
+    $sql .= " AND (COALESCE(ta.nombre, r.talla) = :talla)";
 }
 
-$sql .= " ORDER BY p.id_producto DESC";
+$sql .= " GROUP BY p.id_producto, p.nombre, p.precio, p.estado, p.exento_itbis, p.imagen_url, t.nombre
+          ORDER BY p.id_producto DESC";
 
 $stmt = $conexion->prepare($sql);
 
@@ -260,7 +267,7 @@ if (!empty($buscar)) {
     $stmt->bindValue(':buscar', '%' . $buscar . '%');
 }
 if (!empty($filtro_categoria)) {
-    $stmt->bindValue(':categoria', '%' . $filtro_categoria . '%');
+    $stmt->bindValue(':categoria', $filtro_categoria);
 }
 if (!empty($filtro_talla)) {
     $stmt->bindValue(':talla', $filtro_talla);
@@ -268,6 +275,30 @@ if (!empty($filtro_talla)) {
 
 $stmt->execute();
 $productos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Obtener todas las variantes para cada producto
+$variantes_por_producto = [];
+foreach ($productos as $p) {
+    $stmtVar = $conexion->prepare("
+        SELECT 
+            r.id_ropa,
+            r.id_producto,
+            COALESCE(ta.nombre, r.talla) as talla,
+            COALESCE(c.nombre, r.color) as color,
+            COALESCE(m.nombre, r.marca) as marca,
+            COALESCE(SUM(ip.cantidad), 0) as stock,
+            ip.id_sucursal
+        FROM ropa_detalle r
+        LEFT JOIN tallas ta ON r.id_talla = ta.id_talla
+        LEFT JOIN colores c ON r.id_color = c.id_color
+        LEFT JOIN marcas m ON r.id_marca = m.id_marca
+        LEFT JOIN inventario_productos ip ON r.id_producto = ip.id_producto
+        WHERE r.id_producto = ?
+        GROUP BY r.id_ropa, r.id_producto, ta.nombre, r.talla, c.nombre, r.color, m.nombre, r.marca, ip.id_sucursal
+    ");
+    $stmtVar->execute([$p['id_producto']]);
+    $variantes_por_producto[$p['id_producto']] = $stmtVar->fetchAll(PDO::FETCH_ASSOC);
+}
 
 // ========================
 // OBTENER DATOS PARA SELECTORES (CATÁLOGOS) - SOLO REGISTROS ACTIVOS
@@ -307,11 +338,11 @@ $total_con_stock_bajo = 0;
 $valor_inventario = 0;
 
 foreach ($productos as $p) {
-    $total_stock += $p['stock'];
-    if ($p['stock'] <= 5) {
+    $total_stock += $p['stock_total'];
+    if ($p['stock_total'] <= 5) {
         $total_con_stock_bajo++;
     }
-    $valor_inventario += $p['precio'] * $p['stock'];
+    $valor_inventario += $p['precio'] * $p['stock_total'];
 }
 ?>
 
@@ -356,7 +387,6 @@ foreach ($productos as $p) {
         .header-title h2 {
             font-size: 28px;
             font-weight: 700;
-            background: #0284c7;
             background: linear-gradient(135deg, #1e293b, #2d3a4e);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
@@ -422,6 +452,16 @@ foreach ($productos as $p) {
             background: #1067b9;
             color: white;
             transform: translateY(-2px);
+        }
+
+        /* Agregamos una mejora visual para los números comprimidos */
+        .stat-info h3 {
+            font-size: 24px; /* Un poco más pequeño para que no rompa el card */
+            white-space: nowrap;
+        }
+        .tooltip-value {
+            cursor: help;
+            border-bottom: 1px dotted #ccc;
         }
 
         /* Filtros */
@@ -511,7 +551,6 @@ foreach ($productos as $p) {
             font-size: 28px;
             font-weight: 700;
             color: #1e293b;
-            font-family: 'Poppins', sans-serif;
         }
 
         .stat-info p {
@@ -685,17 +724,15 @@ foreach ($productos as $p) {
         .modal-contenido {
             background: white;
             border-radius: 16px;
-            padding: 16px 16px 8px 16px; /* ⬅ menos espacio abajo */
-            width: 900px; /* ⬅ MÁS ANCHO */
+            padding: 16px 16px 8px 16px;
+            width: 900px;
             max-width: 95%;
             color: #222;
             position: relative;
             box-shadow: 0 15px 40px rgba(0, 0, 0, 0.25);
             animation: fadeIn 0.25s ease-out;
-
             max-height: 95vh;
-            overflow: hidden;
-
+            overflow-y: auto;
         }
 
         @keyframes fadeIn {
@@ -703,7 +740,6 @@ foreach ($productos as $p) {
                 opacity: 0;
                 transform: translateY(-20px);
             }
-
             to {
                 opacity: 1;
                 transform: translateY(0);
@@ -729,27 +765,27 @@ foreach ($productos as $p) {
             text-align: center;
             margin-bottom: 18px;
             font-weight: 700;
-            font-size: 20px; /* ⬅ más claro */
+            font-size: 20px;
         }
 
         .formulario-gestion {
-            padding: 0 20px 10px; /* ⬅ elimina espacio inferior */
+            padding: 0 20px 10px;
         }
 
         /* FORMULARIO EN 2 COLUMNAS */
         .grid-inputs {
             display: grid;
-            grid-template-columns: repeat(3, 1fr); /* ⬅ 3 columnas */
+            grid-template-columns: repeat(3, 1fr);
             gap: 12px;
         }
 
         .grid-inputs-full {
-            grid-column: span 3; /* ⬅ ahora ocupa toda la fila */
+            grid-column: span 3;
         }
 
         .grid-inputs label {
             font-weight: 600;
-            font-size: 11px; /* ⬅ antes 10px */
+            font-size: 11px;
             color: #334155;
             margin-bottom: 4px;
             display: block;
@@ -761,10 +797,10 @@ foreach ($productos as $p) {
         .grid-inputs select,
         .grid-inputs textarea {
             width: 100%;
-            padding: 8px 10px; /* ⬅ más espacio */
+            padding: 8px 10px;
             border: 1.5px solid #e2e8f0;
             border-radius: 50px;
-            font-size: 13px; /* ⬅ CLAVE */
+            font-size: 13px;
             font-family: 'Poppins', sans-serif;
             background: #f8fafc;
         }
@@ -796,14 +832,16 @@ foreach ($productos as $p) {
 
         .form-actions {
             display: flex;
+            justify-content: center;
             gap: 10px;
             margin-top: 10px;
             padding-bottom: 10px;
         }
 
         .btn-guardar {
-            flex: 1;
-            padding: 10px;
+            width: auto;
+            min-width: 180px;
+            padding: 10px 24px;
             background: linear-gradient(135deg, #28a745, #1e7e34);
             color: white;
             border: none;
@@ -820,32 +858,6 @@ foreach ($productos as $p) {
             box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
         }
 
-        .btn-eliminar-modal {
-            flex: 1;
-            padding: 10px;
-            background: linear-gradient(135deg, #dc2626, #b91c1c);
-            color: white;
-            border: none;
-            border-radius: 30px;
-            font-weight: 600;
-            font-size: 12px;
-            cursor: pointer;
-            transition: all 0.3s;
-            font-family: 'Poppins', sans-serif;
-        }
-
-        .btn-eliminar-modal:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
-        }
-
-        .btn-guardar,
-        .btn-eliminar-modal {
-            padding: 8px;
-            font-size: 13px; /* ⬅ antes 12px */
-            border-radius: 50px;
-        }
-
         input[type="file"] {
             font-size: 13px;
             padding: 6px;
@@ -855,7 +867,6 @@ foreach ($productos as $p) {
             .grid-inputs {
                 grid-template-columns: repeat(2, 1fr);
             }
-
             .grid-inputs-full {
                 grid-column: span 2;
             }
@@ -865,7 +876,6 @@ foreach ($productos as $p) {
             .grid-inputs {
                 grid-template-columns: 1fr;
             }
-
             .grid-inputs-full {
                 grid-column: span 1;
             }
@@ -899,7 +909,9 @@ foreach ($productos as $p) {
                     <span class="material-symbols-rounded">apparel</span>
                 </div>
                 <div class="stat-info">
-                    <h3><?php echo $total_productos; ?></h3>
+                    <h3 title="<?php echo number_format($total_productos); ?>">
+                        <?php echo comprimirNumero($total_productos); ?>
+                    </h3>
                     <p>Total Productos</p>
                 </div>
             </div>
@@ -908,7 +920,9 @@ foreach ($productos as $p) {
                     <span class="material-symbols-rounded">inventory</span>
                 </div>
                 <div class="stat-info">
-                    <h3><?php echo $total_stock; ?></h3>
+                    <h3 title="<?php echo number_format($total_stock); ?>">
+                        <?php echo comprimirNumero($total_stock); ?>
+                    </h3>
                     <p>Unidades en Stock</p>
                 </div>
             </div>
@@ -926,7 +940,9 @@ foreach ($productos as $p) {
                     <span class="material-symbols-rounded">attach_money</span>
                 </div>
                 <div class="stat-info">
-                    <h3>$<?php echo number_format($valor_inventario, 2); ?></h3>
+                    <h3 title="<?php echo number_format($valor_inventario, 2); ?>">
+                        <?php echo comprimirMoneda($valor_inventario); ?>
+                    </h3>
                     <p>Valor Inventario</p>
                 </div>
             </div>
@@ -934,10 +950,8 @@ foreach ($productos as $p) {
 
         <!-- Filtros -->
         <div class="filtros-card">
-            <form id="formFiltros" method="GET" action="/sistema-gestor-de-farmacias/frontend/menuprincipal.php">
-
+            <form id="formFiltros" method="GET" action="">
                 <input type="hidden" name="mod" value="gestion_ropa">
-
                 <div class="filtros-grid">
                     <div class="filtro-group">
                         <label>BUSCAR</label>
@@ -981,10 +995,10 @@ foreach ($productos as $p) {
         <div class="productos-wrapper">
             <div class="productos-grid">
                 <?php if (empty($productos)): ?>
-                    <div class="no-productos">
-                        <span class="material-symbols-rounded">shopping_bag_off</span>
-                        <p>No hay productos registrados</p>
-                        <p style="font-size: 12px; margin-top: 8px;">Haz clic en "Nuevo Producto" para comenzar</p>
+                    <div style="text-align: center; padding: 60px;">
+                        <span class="material-symbols-rounded" style="font-size: 64px; color: #cbd5e1;">shopping_bag_off</span>
+                        <p style="margin-top: 16px; color: #64748b;">No hay productos registrados</p>
+                        <p style="font-size: 12px; margin-top: 8px; color: #94a3b8;">Haz clic en "Nuevo Producto" para comenzar</p>
                     </div>
                 <?php endif; ?>
 
@@ -998,43 +1012,40 @@ foreach ($productos as $p) {
                         $categoria_clase = 'categoria-ortopedia';
                     }
 
-                    // Clase de stock
                     $stock_clase = 'normal';
                     $stock_texto = 'Stock OK';
-                    if ($p['stock'] <= 0) {
+                    if ($p['stock_total'] <= 0) {
                         $stock_clase = 'critico';
                         $stock_texto = 'AGOTADO';
-                    } elseif ($p['stock'] <= 5) {
+                    } elseif ($p['stock_total'] <= 5) {
                         $stock_clase = 'critico';
                         $stock_texto = 'CRÍTICO';
-                    } elseif ($p['stock'] <= 10) {
+                    } elseif ($p['stock_total'] <= 10) {
                         $stock_clase = 'bajo';
                         $stock_texto = 'BAJO';
                     }
+
+                    $variantes = $variantes_por_producto[$p['id_producto']] ?? [];
+                    $primera_variante = !empty($variantes) ? $variantes[0] : [];
                 ?>
                     <div class="producto-card"
                         data-id_producto="<?php echo $p['id_producto']; ?>"
-                        data-id_ropa="<?php echo $p['id_ropa']; ?>"
+                        data-id_ropa="<?php echo $primera_variante['id_ropa'] ?? ''; ?>"
                         data-nombre="<?php echo htmlspecialchars($p['nombre']); ?>"
                         data-precio="<?php echo $p['precio']; ?>"
                         data-estado="<?php echo $p['estado']; ?>"
                         data-exento_itbis="<?php echo $p['exento_itbis']; ?>"
                         data-imagen_url="<?php echo !empty($p['imagen_url']) ? htmlspecialchars($p['imagen_url']) : ''; ?>"
-                        data-stock="<?php echo $p['stock']; ?>"
-                        data-talla="<?php echo htmlspecialchars($p['talla'] ?? ''); ?>"
-                        data-color="<?php echo htmlspecialchars($p['color'] ?? ''); ?>"
-                        data-marca="<?php echo htmlspecialchars($p['marca'] ?? ''); ?>"
-                        data-id_tipo="<?php echo $p['id_tipo'] ?? ''; ?>"
-                        data-id_marca="<?php echo $p['id_marca'] ?? ''; ?>"
-                        data-id_fabricante="<?php echo $p['id_fabricante'] ?? ''; ?>"
-                        data-id_color="<?php echo $p['id_color'] ?? ''; ?>"
-                        data-id_talla="<?php echo $p['talla_id'] ?? ''; ?>"
-                        data-id_sucursal="<?php echo $p['id_sucursal'] ?? 1; ?>"
-                        data-tipo_nombre="<?php echo htmlspecialchars($p['tipo_nombre'] ?? ''); ?>"
-                        data-marca_nombre="<?php echo htmlspecialchars($p['marca_nombre'] ?? ''); ?>"
-                        data-fabricante_nombre="<?php echo htmlspecialchars($p['fabricante_nombre'] ?? ''); ?>"
-                        data-color_nombre="<?php echo htmlspecialchars($p['color_nombre'] ?? ''); ?>"
-                        data-talla_nombre="<?php echo htmlspecialchars($p['talla_nombre'] ?? ''); ?>">
+                        data-stock="<?php echo $p['stock_total']; ?>"
+                        data-talla="<?php echo htmlspecialchars($primera_variante['talla'] ?? ''); ?>"
+                        data-color="<?php echo htmlspecialchars($primera_variante['color'] ?? ''); ?>"
+                        data-marca="<?php echo htmlspecialchars($primera_variante['marca'] ?? ''); ?>"
+                        data-id_tipo=""
+                        data-id_marca=""
+                        data-id_fabricante=""
+                        data-id_color=""
+                        data-id_talla=""
+                        data-id_sucursal="<?php echo $primera_variante['id_sucursal'] ?? 1; ?>">
 
                         <div class="card-imagen">
                             <img src="<?php echo !empty($p['imagen_url']) ? htmlspecialchars($p['imagen_url']) : '/sistema-gestor-de-farmacias/assets/img/ropa/default.png'; ?>"
@@ -1048,19 +1059,33 @@ foreach ($productos as $p) {
                             <h3 class="nombre-producto"><?php echo htmlspecialchars($p['nombre']); ?></h3>
 
                             <div class="card-detalles">
-                                <?php if (!empty($p['marca_nombre']) || !empty($p['marca'])): ?>
-                                    <span><span class="material-symbols-rounded">brand_awareness</span> <?php echo htmlspecialchars($p['marca_nombre'] ?? $p['marca']); ?></span>
+                                <?php if (!empty($p['marcas_disponibles'])): ?>
+                                    <span><span class="material-symbols-rounded">brand_awareness</span> <?php echo htmlspecialchars($p['marcas_disponibles']); ?></span>
                                 <?php endif; ?>
-                                <?php if (!empty($p['talla_nombre']) || !empty($p['talla'])): ?>
-                                    <span><span class="material-symbols-rounded">straighten</span> Talla <?php echo htmlspecialchars($p['talla_nombre'] ?? $p['talla']); ?></span>
+                                <?php if (!empty($p['tallas_disponibles'])): ?>
+                                    <span><span class="material-symbols-rounded">straighten</span> Tallas: <?php echo htmlspecialchars($p['tallas_disponibles']); ?></span>
                                 <?php endif; ?>
-                                <?php if (!empty($p['color_nombre']) || !empty($p['color'])): ?>
-                                    <span><span class="material-symbols-rounded">palette</span> <?php echo htmlspecialchars($p['color_nombre'] ?? $p['color']); ?></span>
+                                <?php if (!empty($p['colores_disponibles'])): ?>
+                                    <span><span class="material-symbols-rounded">palette</span> Colores: <?php echo htmlspecialchars($p['colores_disponibles']); ?></span>
                                 <?php endif; ?>
                             </div>
 
+                            <?php if ($p['num_variantes'] > 0): ?>
+                                <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #e9ecef; display: flex; flex-wrap: wrap; gap: 6px;">
+                                    <span style="background: #f1f5f9; padding: 4px 10px; border-radius: 20px; font-size: 11px; color: #334155; display: inline-flex; align-items: center; gap: 4px;">
+                                        <span class="material-symbols-rounded" style="font-size: 12px;">device_hub</span>
+                                        <?php echo $p['num_variantes']; ?> variante(s)
+                                    </span>
+                                </div>
+                            <?php endif; ?>
+
                             <div class="precio">$<?php echo number_format($p['precio'], 2); ?></div>
-                            <div class="stock">Stock: <?php echo $p['stock']; ?> unidades</div>
+                            <div class="stock">
+                                Stock total: 
+                                <span title="<?php echo number_format($p['stock_total']); ?>">
+                                    <?php echo comprimirNumero($p['stock_total']); ?>
+                                </span> unidades
+                            </div>
                         </div>
                     </div>
                 <?php endforeach; ?>
@@ -1221,10 +1246,10 @@ foreach ($productos as $p) {
             });
 
             try {
-                const response = await fetch('/sistema-gestor-de-farmacias/frontend/ropa/gestion_ropa.php', {
-                    method: 'POST',
-                    body: formData
-                });
+                const response = await fetch('/Sistema-Gestor-de-Farmacias/frontend/ropa/gestion_ropa.php', {
+                method: 'POST',
+                body: formData
+            });
 
                 const text = await response.text();
                 console.log("RESPUESTA RAW:", text);
@@ -1318,69 +1343,11 @@ foreach ($productos as $p) {
 
             const actionsDiv = document.getElementById('form-actions');
             actionsDiv.innerHTML = `
-                <button type="button" class="btn-eliminar-modal" onclick="eliminarProducto(${producto.id_producto}, '${producto.nombre.replace(/'/g, "\\'")}')">Eliminar</button>
                 <button type="submit" class="btn-guardar">Actualizar</button>
             `;
 
             modal.classList.add('modal-show');
             document.body.style.overflow = 'auto';
-        }
-
-        function eliminarProducto(id, nombre) {
-            Swal.fire({
-                title: '¿Eliminar producto?',
-                html: `Estás a punto de eliminar <strong>${nombre}</strong>.<br><br>
-                   <span style="color: #dc2626;">⚠️ Esta acción eliminará el producto si no tiene ventas asociadas.</span>`,
-                icon: 'warning',
-                showCancelButton: true,
-                confirmButtonColor: '#dc2626',
-                cancelButtonColor: '#37383b',
-                confirmButtonText: 'Sí, eliminar',
-                cancelButtonText: 'Cancelar'
-            }).then(async (result) => {
-                if (result.isConfirmed) {
-                    const formData = new FormData();
-                    formData.append('accion', 'eliminar');
-                    formData.append('id_producto', id);
-
-                    try {
-                        const response = await fetch(window.location.href, {
-                            method: 'POST',
-                            body: formData
-                        });
-                        const resultData = await response.json();
-
-                        if (resultData.success) {
-                            Swal.fire({
-                                icon: 'success',
-                                title: '¡Eliminado!',
-                                text: resultData.message,
-                                confirmButtonColor: '#28a745',
-                                timer: 2000,
-                                showConfirmButton: true
-                            }).then(() => {
-                                setTimeout(() => {
-                                    location.reload();
-                                }, 500);
-                            });
-                        } else {
-                            Swal.fire({
-                                icon: 'error',
-                                title: 'Error',
-                                text: resultData.message,
-                                confirmButtonColor: '#dc2626'
-                            });
-                        }
-                    } catch (error) {
-                        Swal.fire({
-                            icon: 'error',
-                            title: 'Error',
-                            text: 'Ocurrió un error al eliminar.',
-                            confirmButtonColor: '#dc2626'
-                        });
-                    }
-                }
-            });
         }
 
         function cerrarModal() {
@@ -1392,9 +1359,6 @@ foreach ($productos as $p) {
         // Evento para las cards (click para editar)
         document.querySelectorAll('.producto-card').forEach(card => {
             card.addEventListener('click', function(e) {
-                // Evitar que el click en el botón de eliminar dispare la edición
-                if (e.target.closest('.btn-eliminar-modal')) return;
-
                 const producto = {
                     id_producto: this.dataset.id_producto,
                     id_ropa: this.dataset.id_ropa,
@@ -1411,7 +1375,8 @@ foreach ($productos as $p) {
                     id_fabricante: this.dataset.id_fabricante,
                     id_color: this.dataset.id_color,
                     id_talla: this.dataset.id_talla,
-                    id_sucursal: this.dataset.id_sucursal
+                    id_sucursal: this.dataset.id_sucursal,
+                    imagen_url: this.dataset.imagen_url
                 };
                 abrirModalEditar(producto);
             });

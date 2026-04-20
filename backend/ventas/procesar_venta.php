@@ -48,22 +48,87 @@ try {
     $stmt->execute();
     $id_venta = $stmt->fetchColumn();
 
-    // Detalle de venta
+    // ==================== RECORRER PRODUCTOS ====================
     foreach ($data['productos'] as $prod) {
         $itemSubtotal = (float)$prod['cantidad'] * (float)$prod['precio_unitario'];
-        $itemItbis = $prod['aplica_itbis'] ? $itemSubtotal * 0.18 : 0;
-        $sqlDet = "INSERT INTO detalle_venta (id_venta, id_lote, id_producto, cantidad, precio_unitario, descuento_unitario, itbis_unitario, subtotal)
-                   VALUES (:id_venta, :id_lote, :id_producto, :cant, :precio, :dto, :itbis, :subtotal)";
+        $itemItbis = ($prod['aplica_itbis'] ?? false) ? $itemSubtotal * 0.18 : 0;
+        $tipo = $prod['tipo'] ?? 'MEDICAMENTO';
+        
+        // Insertar en detalle_venta (tanto medicamentos como ropa)
+        $sqlDet = "INSERT INTO detalle_venta 
+            (id_venta, id_lote, id_producto, id_talla, id_color, cantidad, precio_unitario, descuento_unitario, itbis_unitario, subtotal)
+            VALUES 
+            (:id_venta, :id_lote, :id_producto, :id_talla, :id_color, :cant, :precio, :dto, :itbis, :subtotal)";
+        
         $stmtDet = $conexion->prepare($sqlDet);
         $stmtDet->bindValue(':id_venta', $id_venta, PDO::PARAM_INT);
-        $stmtDet->bindValue(':id_lote', $prod['id_lote'], PDO::PARAM_INT);
+        $stmtDet->bindValue(':id_lote', $prod['id_lote'] ?? null, PDO::PARAM_INT);
         $stmtDet->bindValue(':id_producto', $prod['id_producto'], PDO::PARAM_INT);
+        $stmtDet->bindValue(':id_talla', $prod['id_talla'] ?? null, PDO::PARAM_INT);
+        $stmtDet->bindValue(':id_color', $prod['id_color'] ?? null, PDO::PARAM_INT);
         $stmtDet->bindValue(':cant', $prod['cantidad'], PDO::PARAM_INT);
         $stmtDet->bindValue(':precio', $prod['precio_unitario'], PDO::PARAM_STR);
         $stmtDet->bindValue(':dto', 0, PDO::PARAM_STR);
         $stmtDet->bindValue(':itbis', $itemItbis, PDO::PARAM_STR);
         $stmtDet->bindValue(':subtotal', $itemSubtotal + $itemItbis, PDO::PARAM_STR);
         $stmtDet->execute();
+
+        // ==================== ACTUALIZAR INVENTARIO ====================
+        if ($tipo === 'ROPA') {
+            // Actualizar inventario de ropa (inventario_productos)
+            $sqlInv = "UPDATE inventario_productos 
+                    SET cantidad = cantidad - :cantidad
+                    WHERE id_producto = :id_producto 
+                        AND id_sucursal = :id_sucursal
+                        AND (id_talla = :id_talla OR (id_talla IS NULL AND :id_talla IS NULL))
+                        AND (id_color = :id_color OR (id_color IS NULL AND :id_color IS NULL))";
+            $stmtInv = $conexion->prepare($sqlInv);
+            $stmtInv->bindValue(':cantidad', $prod['cantidad'], PDO::PARAM_INT);
+            $stmtInv->bindValue(':id_producto', $prod['id_producto'], PDO::PARAM_INT);
+            $stmtInv->bindValue(':id_sucursal', $data['id_sucursal'], PDO::PARAM_INT);
+            $stmtInv->bindValue(':id_talla', $prod['id_talla'] ?? null, PDO::PARAM_INT);
+            $stmtInv->bindValue(':id_color', $prod['id_color'] ?? null, PDO::PARAM_INT);
+            $stmtInv->execute();
+            
+            // Registrar movimiento
+            $sqlMov = "INSERT INTO movimiento_inventario_productos 
+                (id_producto, id_sucursal, id_talla, id_color, tipo, cantidad, motivo, referencia, id_usuario)
+                VALUES 
+                (:id_producto, :id_sucursal, :id_talla, :id_color, 'SALIDA', :cantidad, 'Venta', :referencia, :id_usuario)";
+            $stmtMov = $conexion->prepare($sqlMov);
+            $stmtMov->bindValue(':id_producto', $prod['id_producto'], PDO::PARAM_INT);
+            $stmtMov->bindValue(':id_sucursal', $data['id_sucursal'], PDO::PARAM_INT);
+            $stmtMov->bindValue(':id_talla', $prod['id_talla'] ?? null, PDO::PARAM_INT);
+            $stmtMov->bindValue(':id_color', $prod['id_color'] ?? null, PDO::PARAM_INT);
+            $stmtMov->bindValue(':cantidad', $prod['cantidad'], PDO::PARAM_INT);
+            $stmtMov->bindValue(':referencia', $data['numero_documento'], PDO::PARAM_STR);
+            $stmtMov->bindValue(':id_usuario', $data['id_usuario'], PDO::PARAM_INT);
+            $stmtMov->execute();
+            
+        } else {
+            // Actualizar inventario de medicamentos (por lote)
+            $sqlInv = "UPDATE inventario 
+                    SET cantidad = cantidad - :cantidad
+                    WHERE id_lote = :id_lote AND id_sucursal = :id_sucursal";
+            $stmtInv = $conexion->prepare($sqlInv);
+            $stmtInv->bindValue(':cantidad', $prod['cantidad'], PDO::PARAM_INT);
+            $stmtInv->bindValue(':id_lote', $prod['id_lote'], PDO::PARAM_INT);
+            $stmtInv->bindValue(':id_sucursal', $data['id_sucursal'], PDO::PARAM_INT);
+            $stmtInv->execute();
+            
+            // Registrar movimiento
+            $sqlMov = "INSERT INTO movimiento_inventario 
+                (id_lote, id_sucursal, tipo, cantidad, motivo, referencia, id_usuario)
+                VALUES 
+                (:id_lote, :id_sucursal, 'SALIDA', :cantidad, 'Venta', :referencia, :id_usuario)";
+            $stmtMov = $conexion->prepare($sqlMov);
+            $stmtMov->bindValue(':id_lote', $prod['id_lote'], PDO::PARAM_INT);
+            $stmtMov->bindValue(':id_sucursal', $data['id_sucursal'], PDO::PARAM_INT);
+            $stmtMov->bindValue(':cantidad', $prod['cantidad'], PDO::PARAM_INT);
+            $stmtMov->bindValue(':referencia', $data['numero_documento'], PDO::PARAM_STR);
+            $stmtMov->bindValue(':id_usuario', $data['id_usuario'], PDO::PARAM_INT);
+            $stmtMov->execute();
+        }
     }
 
     // Pago al contado
@@ -76,7 +141,7 @@ try {
         $stmtPago->execute();
     }
 
-    // ==================== ENTREGA CORREGIDA ====================
+    // ==================== ENTREGA (DELIVERY) ====================
     if (!empty($data['delivery_activo']) && filter_var($data['delivery_activo'], FILTER_VALIDATE_BOOLEAN)) {
         // Obtener el id_estado correspondiente a 'PENDIENTE'
         $stmtEstado = $conexion->prepare("SELECT id_estado FROM estado_entrega WHERE nombre = 'PENDIENTE'");
@@ -96,10 +161,6 @@ try {
             $cliente_nombre = 'Consumidor Final';
         }
 
-        // Usar las columnas correctas según tu esquema:
-        // - fecha_asignada (con 'd') en lugar de fecha_asignacion
-        // - id_estado en lugar de estado (string)
-        // - No se usa estado booleano, se usa id_estado
         $sqlEnt = "INSERT INTO entregas 
             (id_venta, id_cliente, id_sucursal, id_repartidor, numero_seguimiento, direccion_entrega, costo_entrega, creado_por, cliente_nombre, id_estado, fecha_asignada)
             VALUES (:id_venta, :id_cliente, :id_sucursal, :id_repartidor, :numero_seg, :direccion, :costo, :creado_por, :cliente_nombre, :id_estado, NOW())";

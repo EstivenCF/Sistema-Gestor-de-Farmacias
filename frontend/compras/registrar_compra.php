@@ -44,8 +44,10 @@ $itbis_porcentaje = 18;
 $base_url = '/sistema-gestor-de-farmacias';
 ?>
 
+<!-- FontAwesome -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
 <style>
-    /* ===== ESTILOS ===== */
     .modal-backdrop { display: none !important; }
     .modal { background-color: rgba(0, 0, 0, 0.5) !important; z-index: 1050; }
     .modal-dialog-centered { display: flex; align-items: center; min-height: calc(100% - 1rem); }
@@ -120,13 +122,7 @@ $base_url = '/sistema-gestor-de-farmacias';
         color: #2c3e50;
         font-size: 0.95rem;
     }
-    .badge-itbis {
-        font-size: 0.7rem;
-        padding: 2px 8px;
-        border-radius: 20px;
-    }
-    .badge-itbis.aplica { background-color: #28a745; color: white; }
-    .badge-itbis.exento { background-color: #6c757d; color: white; }
+    
     .filtro-busqueda {
         position: sticky;
         top: 0;
@@ -138,20 +134,70 @@ $base_url = '/sistema-gestor-de-farmacias';
         max-height: 500px;
         overflow-y: auto;
     }
-    .badge-stock {
-        background-color: #6c757d;
-        color: white;
+    
+    .badge-itbis {
+        font-size: 0.7rem;
         padding: 2px 8px;
         border-radius: 20px;
-        font-size: 0.7rem;
-        margin-left: 8px;
+    }
+    .badge-itbis.aplica { background-color: #28a745; color: white; }
+    .badge-itbis.exento { background-color: #6c757d; color: white; }
+    
+    /* Badges para tipos de producto */
+    .badge-tipo-medicamento {
+        background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+        color: white;
+        font-size: 0.65rem;
+        padding: 3px 10px;
+        border-radius: 20px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
+    .badge-tipo-ropa {
+        background: linear-gradient(135deg, #17a2b8 0%, #0f6b7a 100%);
+        color: white;
+        font-size: 0.65rem;
+        padding: 3px 10px;
+        border-radius: 20px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
+    
+    /* Pestañas manuales */
+    .tab-btn {
+        background: none;
+        border: none;
+        padding: 10px 24px;
+        font-size: 1rem;
+        font-weight: 600;
+        color: #6c757d;
+        border-radius: 12px;
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+    .tab-btn:hover {
+        background-color: #e9ecef;
+        color: #28a745;
+    }
+    .tab-btn.active {
+        background-color: #28a745;
+        color: white;
+        box-shadow: 0 2px 8px rgba(40,167,69,0.3);
+    }
+    .tab-pane {
+        display: none;
+    }
+    .tab-pane.active {
+        display: block;
     }
 </style>
 
 <div class="dashboard-container">
     <div class="mb-4">
         <h2 class="mb-0 text-success">
-            <span class="material-symbols-rounded align-middle me-2">shopping_cart_checkout</span>
+            <i class="fas fa-shopping-cart me-2"></i>
             Registrar Compra
         </h2>
         <p class="text-muted mb-0">Ingrese los datos de la compra a proveedores</p>
@@ -163,7 +209,7 @@ $base_url = '/sistema-gestor-de-farmacias';
             <div class="card shadow-sm border-0 mb-4">
                 <div class="card-body p-4">
                     <h5 class="card-title mb-3 d-flex align-items-center">
-                        <span class="material-symbols-rounded me-2 text-success">receipt</span>
+                        <i class="fas fa-file-invoice me-2 text-success"></i>
                         Datos de la Compra
                     </h5>
                     <div class="row g-3">
@@ -213,10 +259,10 @@ $base_url = '/sistema-gestor-de-farmacias';
             <div class="card shadow-sm border-0 mb-4">
                 <div class="card-body p-4 text-center">
                     <button type="button" class="btn btn-success btn-lg px-5" id="btnAgregarProducto">
-                        <span class="material-symbols-rounded align-middle me-2">add_shopping_cart</span>
+                        <i class="fas fa-plus-circle me-2"></i>
                         Agregar Producto
                     </button>
-                    <p class="text-muted mt-2 mb-0 small">Seleccione medicamentos para esta compra</p>
+                    <p class="text-muted mt-2 mb-0 small">Seleccione productos para esta compra</p>
                 </div>
             </div>
 
@@ -230,8 +276,9 @@ $base_url = '/sistema-gestor-de-farmacias';
                                     <th>PRODUCTO</th>
                                     <th>LOTE</th>
                                     <th>VENCE</th>
+                                    <th>TALLA/COLOR</th>
                                     <th>CANT.</th>
-                                    <th>PRECIO UNIT.</th>
+                                    <th>COSTO UNIT.</th>
                                     <th>DTO.</th>
                                     <th>ITBIS</th>
                                     <th>SUBTOTAL</th>
@@ -240,7 +287,7 @@ $base_url = '/sistema-gestor-de-farmacias';
                             </thead>
                             <tbody id="carritoBody">
                                 <tr>
-                                    <td colspan="9" class="text-center text-muted py-4">
+                                    <td colspan="10" class="text-center text-muted py-4">
                                         <i class="fas fa-shopping-cart" style="font-size: 2rem; opacity: 0.3;"></i>
                                         <p class="mt-2">No hay productos agregados</p>
                                     </td>
@@ -255,7 +302,7 @@ $base_url = '/sistema-gestor-de-farmacias';
         <div class="col-lg-4">
             <div class="resumen-card">
                 <h5 class="mb-3 d-flex align-items-center">
-                    <span class="material-symbols-rounded me-2 text-success">summary</span>
+                    <i class="fas fa-chart-line me-2 text-success"></i>
                     Resumen de Compra
                 </h5>
                 <div class="resumen-linea"><span>Subtotal:</span><span id="resumenSubtotal">RD$ 0.00</span></div>
@@ -265,10 +312,10 @@ $base_url = '/sistema-gestor-de-farmacias';
                 <hr>
                 <div class="d-grid gap-2 mt-3">
                     <button class="btn btn-success btn-lg" onclick="procesarCompra()">
-                        <span class="material-symbols-rounded align-middle me-1">check_circle</span> Registrar Compra
+                        <i class="fas fa-check-circle me-1"></i> Registrar Compra
                     </button>
                     <button class="btn btn-outline-secondary" onclick="cancelarCompra()">
-                        <span class="material-symbols-rounded align-middle me-1">cancel</span> Cancelar
+                        <i class="fas fa-times-circle me-1"></i> Cancelar
                     </button>
                 </div>
             </div>
@@ -276,25 +323,53 @@ $base_url = '/sistema-gestor-de-farmacias';
     </div>
 </div>
 
-<!-- MODAL PARA SELECCIONAR PRODUCTOS -->
+<!-- MODAL PARA SELECCIONAR PRODUCTOS CON PESTAÑAS -->
 <div class="modal fade" id="modalProductos" tabindex="-1">
     <div class="modal-dialog modal-xl modal-dialog-centered">
         <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
             <div class="modal-header bg-success text-white p-4">
                 <h5 class="modal-title d-flex align-items-center">
-                    <span class="material-symbols-rounded me-2">medication</span>
+                    <i class="fas fa-boxes me-2"></i>
                     Seleccionar Producto
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4">
-                <div class="filtro-busqueda">
-                    <input type="text" class="form-control form-control-lg" id="filtroNombreProducto" placeholder="🔍 Buscar por nombre...">
+                <!-- Pestañas manuales -->
+                <div class="d-flex gap-2 border-bottom pb-2 mb-4">
+                    <button class="tab-btn active" data-tab="medicamentos">
+                        <i class="fas fa-capsules me-2"></i> Medicamentos
+                    </button>
+                    <button class="tab-btn" data-tab="ropa">
+                        <i class="fas fa-tshirt me-2"></i> Ropa y Accesorios
+                    </button>
                 </div>
-                <div class="lista-productos mt-3" id="listaProductosModal">
-                    <div class="text-center py-5">
-                        <div class="spinner-border text-success" role="status"></div>
-                        <p class="mt-2">Cargando productos...</p>
+                
+                <!-- Barra de búsqueda -->
+                <div class="filtro-busqueda mb-3">
+                    <div class="position-relative d-flex align-items-center">
+                        <i class="fas fa-search position-absolute" style="left: 18px; color: #28a745; font-size: 1.2rem;"></i>
+                        <input type="text" class="form-control form-control-lg" id="filtroNombreProducto" placeholder="Buscar por nombre..." style="padding-left: 48px; border-radius: 50px;">
+                    </div>
+                </div>
+                
+                <!-- Contenido de pestañas -->
+                <div>
+                    <div class="tab-pane active" id="tab-medicamentos">
+                        <div class="lista-productos" id="listaMedicamentos">
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-success"></div>
+                                <p class="mt-2">Cargando medicamentos...</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tab-pane" id="tab-ropa">
+                        <div class="lista-productos" id="listaRopa">
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-success"></div>
+                                <p class="mt-2">Cargando ropa...</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -305,38 +380,38 @@ $base_url = '/sistema-gestor-de-farmacias';
     </div>
 </div>
 
-<!-- MODAL PARA REGISTRAR LOTE Y CANTIDAD -->
-<div class="modal fade" id="modalLote" tabindex="-1">
+<!-- MODAL PARA DATOS DEL PRODUCTO (MEDICAMENTO) -->
+<div class="modal fade" id="modalDatosMedicamento" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
             <div class="modal-header bg-success text-white p-4">
                 <h5 class="modal-title d-flex align-items-center">
-                    <span class="material-symbols-rounded me-2">inventory</span>
-                    Datos del Lote
+                    <i class="fas fa-pills me-2"></i>
+                    Datos del Medicamento
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4">
                 <div class="text-center mb-3">
-                    <i class="fas fa-pills" style="font-size: 3rem; color: #28a745;"></i>
+                    <i class="fas fa-capsules" style="font-size: 3rem; color: #28a745;"></i>
                 </div>
-                <h5 class="text-center" id="productoNombreModal"></h5>
+                <h5 class="text-center" id="productoNombreModalMed"></h5>
                 <div class="row g-3 mt-2">
                     <div class="col-12">
                         <label class="form-label fw-bold">Número de Lote</label>
-                        <input type="text" class="form-control" id="numeroLote" placeholder="Ej: LOTE-001">
+                        <input type="text" class="form-control" id="numeroLote" placeholder="Ej: LOTE-001" required>
                     </div>
                     <div class="col-12">
                         <label class="form-label fw-bold">Fecha de Vencimiento</label>
-                        <input type="date" class="form-control" id="fechaVencimiento">
+                        <input type="date" class="form-control" id="fechaVencimiento" required>
                     </div>
                     <div class="col-12">
                         <label class="form-label fw-bold">Cantidad</label>
-                        <input type="number" class="form-control" id="cantidadLote" value="1" min="1">
+                        <input type="number" class="form-control" id="cantidadProducto" value="1" min="1" required>
                     </div>
                     <div class="col-12">
                         <label class="form-label fw-bold">Costo Unitario (RD$)</label>
-                        <input type="number" step="0.01" class="form-control" id="costoUnitario" placeholder="0.00">
+                        <input type="number" step="0.01" class="form-control" id="costoUnitario" placeholder="0.00" required>
                     </div>
                     <div class="col-12">
                         <label class="form-label fw-bold">Descuento Unitario (RD$)</label>
@@ -345,16 +420,74 @@ $base_url = '/sistema-gestor-de-farmacias';
                     <div class="col-12">
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="aplicaItbis" checked>
-                            <label class="form-check-label" for="aplicaItbis">Aplica ITBIS (18%)</label>
+                            <label class="form-check-label" for="aplicaItbis">Aplica ITBIS (<?php echo $itbis_porcentaje; ?>%)</label>
                         </div>
                     </div>
                 </div>
             </div>
             <div class="modal-footer border-0 p-4 pt-0 d-flex justify-content-end gap-3">
                 <button type="button" class="btn btn-cancelar" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-success px-4" id="btnAgregarLote">
-                    <span class="material-symbols-rounded align-middle me-1">add</span>
-                    Agregar
+                <button type="button" class="btn btn-success px-4" id="btnAgregarMedicamento">
+                    <i class="fas fa-plus me-1"></i> Agregar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL PARA DATOS DE ROPA -->
+<div class="modal fade" id="modalDatosRopa" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
+            <div class="modal-header bg-success text-white p-4">
+                <h5 class="modal-title d-flex align-items-center">
+                    <i class="fas fa-tshirt me-2"></i>
+                    Datos de la Ropa
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="text-center mb-3">
+                    <i class="fas fa-tshirt" style="font-size: 3rem; color: #17a2b8;"></i>
+                </div>
+                <h5 class="text-center" id="productoNombreModalRopa"></h5>
+                <div class="row g-3 mt-2">
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Talla</label>
+                        <select class="form-select" id="tallaRopa" required>
+                            <option value="">Seleccionar talla...</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Color</label>
+                        <select class="form-select" id="colorRopa" required>
+                            <option value="">Seleccionar color...</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Cantidad</label>
+                        <input type="number" class="form-control" id="cantidadRopa" value="1" min="1" required>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Costo Unitario (RD$)</label>
+                        <input type="number" step="0.01" class="form-control" id="costoUnitarioRopa" placeholder="0.00" required>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Descuento Unitario (RD$)</label>
+                        <input type="number" step="0.01" class="form-control" id="descuentoUnitarioRopa" value="0">
+                    </div>
+                    <div class="col-12">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="aplicaItbisRopa" checked>
+                            <label class="form-check-label" for="aplicaItbisRopa">Aplica ITBIS (<?php echo $itbis_porcentaje; ?>%)</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-0 p-4 pt-0 d-flex justify-content-end gap-3">
+                <button type="button" class="btn btn-cancelar" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-success px-4" id="btnAgregarRopa">
+                    <i class="fas fa-plus me-1"></i> Agregar
                 </button>
             </div>
         </div>
@@ -367,90 +500,150 @@ const BASE_URL = '<?php echo $base_url; ?>';
 const ID_USUARIO_ACTUAL = <?php echo $usuario_actual; ?>;
 const ITBIS_PORCENTAJE = <?php echo $itbis_porcentaje; ?>;
 
+// ==================== VARIABLES GLOBALES ====================
 let carrito = [];
 let productoSeleccionado = null;
 let modalProductos = null;
-let modalLote = null;
-let productosData = [];
+let modalDatosMedicamento = null;
+let modalDatosRopa = null;
+let medicamentosData = [];
+let ropaData = [];
 
-// ==================== INICIALIZACIÓN ====================
-document.addEventListener('DOMContentLoaded', function() {
-    // Inicializar modales
-    const elModalProductos = document.getElementById('modalProductos');
-    const elModalLote = document.getElementById('modalLote');
+let sucursalActual = null;
+let proveedorActual = null;
+
+// ==================== MANEJO DE PESTAÑAS ====================
+function initTabs() {
+    const tabButtons = document.querySelectorAll('.tab-btn');
+    const tabPanes = document.querySelectorAll('.tab-pane');
     
-    if (elModalProductos) {
-        modalProductos = new bootstrap.Modal(elModalProductos, { backdrop: false });
-    }
-    if (elModalLote) {
-        modalLote = new bootstrap.Modal(elModalLote, { backdrop: false });
-    }
-    
-    // Evento para el botón "Agregar Producto"
-    const btnAgregarProducto = document.getElementById('btnAgregarProducto');
-    if (btnAgregarProducto) {
-        btnAgregarProducto.addEventListener('click', function() {
-            if (modalProductos) modalProductos.show();
+    tabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const tabId = button.getAttribute('data-tab');
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            tabPanes.forEach(pane => pane.classList.remove('active'));
+            button.classList.add('active');
+            const activePane = document.getElementById(`tab-${tabId}`);
+            if (activePane) activePane.classList.add('active');
         });
-    }
-    
-    // Evento para el botón "Agregar" dentro del modal de lote
-    const btnAgregarLote = document.getElementById('btnAgregarLote');
-    if (btnAgregarLote) {
-        btnAgregarLote.addEventListener('click', agregarProductoCompra);
-    }
-    
-    // Filtro de búsqueda en el modal de productos
-    const filtroNombre = document.getElementById('filtroNombreProducto');
-    if (filtroNombre) {
-        filtroNombre.addEventListener('input', filtrarProductos);
-    }
-    
-    // Cargar productos cuando se abre el modal
-    if (elModalProductos) {
-        elModalProductos.addEventListener('show.bs.modal', cargarProductosModal);
-    }
-});
-
-// ==================== CARGAR PRODUCTOS (MODO COMPRA) ====================
-function cargarProductosModal() {
-    const listaDiv = document.getElementById('listaProductosModal');
-    listaDiv.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-success"></div><p>Cargando...</p></div>';
-    
-    fetch(BASE_URL + '/backend/ventas/listar_productos_venta.php?tipo=compra')
-        .then(r => r.json())
-        .then(data => {
-            if (data.success && data.productos) {
-                productosData = data.productos;
-                renderizarProductosModal(productosData);
-            } else {
-                listaDiv.innerHTML = '<div class="text-center py-5 text-danger">Error al cargar productos</div>';
-            }
-        })
-        .catch(() => listaDiv.innerHTML = '<div class="text-center py-5 text-danger">Error de conexión</div>');
+    });
 }
 
-function renderizarProductosModal(productos) {
-    const listaDiv = document.getElementById('listaProductosModal');
-    if (!productos.length) {
-        listaDiv.innerHTML = '<div class="text-center py-5 text-muted">No hay productos disponibles</div>';
+// ==================== FUNCIONES COLOR HEX ====================
+function getColorHex(colorNombre) {
+    const colores = {
+        'rojo': '#dc3545', 'azul': '#007bff', 'verde': '#28a745',
+        'negro': '#212529', 'blanco': '#f8f9fa', 'amarillo': '#ffc107',
+        'gris': '#6c757d', 'morado': '#6f42c1', 'naranja': '#fd7e14',
+        'rosa': '#e83e8c', 'celeste': '#17a2b8', 'marrón': '#795548'
+    };
+    return colores[colorNombre?.toLowerCase()] || '#6c757d';
+}
+
+// ==================== CARGAR PRODUCTOS ====================
+function cargarProductosModal() {
+    if (!sucursalActual) return;
+    
+    const listaMed = document.getElementById('listaMedicamentos');
+    const listaRopa = document.getElementById('listaRopa');
+    
+    if (listaMed) listaMed.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-success"></div><p>Cargando medicamentos...</p></div>';
+    if (listaRopa) listaRopa.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-success"></div><p>Cargando ropa...</p></div>';
+    
+    fetch(BASE_URL + `/backend/ventas/listar_productos_unificado.php?id_sucursal=${sucursalActual}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.productos) {
+                medicamentosData = data.productos.filter(p => p.tipo === 'MEDICAMENTO');
+                ropaData = data.productos.filter(p => p.tipo === 'ROPA');
+                renderizarMedicamentos(medicamentosData);
+                renderizarRopa(ropaData);
+            } else {
+                if (listaMed) listaMed.innerHTML = '<div class="text-center py-5 text-danger">Error al cargar medicamentos</div>';
+                if (listaRopa) listaRopa.innerHTML = '<div class="text-center py-5 text-danger">Error al cargar ropa</div>';
+            }
+        })
+        .catch(error => {
+            console.error(error);
+            if (listaMed) listaMed.innerHTML = '<div class="text-center py-5 text-danger">Error de conexión</div>';
+            if (listaRopa) listaRopa.innerHTML = '<div class="text-center py-5 text-danger">Error de conexión</div>';
+        });
+}
+
+function renderizarMedicamentos(medicamentos) {
+    const listaDiv = document.getElementById('listaMedicamentos');
+    if (!listaDiv) return;
+    
+    if (!medicamentos || medicamentos.length === 0) {
+        listaDiv.innerHTML = `
+            <div class="text-center py-5">
+                <i class="fas fa-capsules" style="font-size: 48px; opacity: 0.3;"></i>
+                <p class="text-muted mt-2">No hay medicamentos disponibles</p>
+            </div>
+        `;
         return;
     }
-    let html = '<div class="row">';
-    productos.forEach(p => {
-        const itbisBadge = p.exento_itbis ? 
-            '<span class="badge-itbis exento">Exento ITBIS</span>' : 
-            '<span class="badge-itbis aplica">Aplica ITBIS</span>';
-        // Mostrar stock total si existe
-        const stockBadge = (p.stock_total !== undefined) ? `<span class="badge-stock">Stock: ${p.stock_total}</span>` : '';
+    
+    let html = '<div class="row g-3">';
+    medicamentos.forEach(m => {
+        const itbisBadge = m.exento_itbis 
+            ? '<span class="badge-itbis exento">✓ Exento ITBIS</span>' 
+            : '<span class="badge-itbis aplica">📄 Aplica ITBIS</span>';
+        
+        const productoJson = JSON.stringify(m).replace(/'/g, "\\'");
+        
         html += `
             <div class="col-md-6 col-lg-4">
-                <div class="producto-card" onclick="seleccionarProducto(${p.id_medicamento}, '${escapeHtml(p.nombre)}', ${p.exento_itbis ? 0 : 1})">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div class="nombre">${escapeHtml(p.nombre)}</div>
-                        ${stockBadge}
+                <div class="producto-card" onclick='seleccionarProducto(${productoJson})'>
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="nombre fw-bold">
+                            <span class="badge-tipo-medicamento me-1">💊 MED</span>
+                            ${escapeHtml(m.nombre)}
+                        </div>
                     </div>
-                    <div class="small text-muted mt-1">${escapeHtml(p.presentacion || '')} - ${escapeHtml(p.categoria || '')}</div>
+                    <div class="small text-secondary mt-2">
+                        <i class="fas fa-tag me-1"></i> Presentación: ${escapeHtml(m.presentacion || 'Tabletas')}
+                    </div>
+                    <div class="mt-2">${itbisBadge}</div>
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+    listaDiv.innerHTML = html;
+}
+
+function renderizarRopa(ropa) {
+    const listaDiv = document.getElementById('listaRopa');
+    if (!listaDiv) return;
+    
+    if (!ropa || ropa.length === 0) {
+        listaDiv.innerHTML = `
+            <div class="text-center py-5">
+                <i class="fas fa-tshirt" style="font-size: 48px; opacity: 0.3;"></i>
+                <p class="text-muted mt-2">No hay ropa disponible</p>
+            </div>
+        `;
+        return;
+    }
+    
+    let html = '<div class="row g-3">';
+    ropa.forEach(r => {
+        const itbisBadge = r.exento_itbis 
+            ? '<span class="badge-itbis exento">✓ Exento ITBIS</span>' 
+            : '<span class="badge-itbis aplica">📄 Aplica ITBIS</span>';
+        
+        const productoJson = JSON.stringify(r).replace(/'/g, "\\'");
+        
+        html += `
+            <div class="col-md-6 col-lg-4">
+                <div class="producto-card" onclick='seleccionarProducto(${productoJson})'>
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="nombre fw-bold">
+                            <span class="badge-tipo-ropa me-1">👕 ROPA</span>
+                            ${escapeHtml(r.nombre)}
+                        </div>
+                    </div>
                     <div class="mt-2">${itbisBadge}</div>
                 </div>
             </div>
@@ -461,29 +654,103 @@ function renderizarProductosModal(productos) {
 }
 
 function filtrarProductos() {
-    const filtro = document.getElementById('filtroNombreProducto').value.toLowerCase();
-    const filtrados = productosData.filter(p => p.nombre.toLowerCase().includes(filtro));
-    renderizarProductosModal(filtrados);
+    const filtro = document.getElementById('filtroNombreProducto')?.value.toLowerCase() || '';
+    const medFiltrados = medicamentosData.filter(m => m.nombre.toLowerCase().includes(filtro));
+    const ropaFiltrados = ropaData.filter(r => r.nombre.toLowerCase().includes(filtro));
+    renderizarMedicamentos(medFiltrados);
+    renderizarRopa(ropaFiltrados);
 }
 
-function seleccionarProducto(idMedicamento, nombre, aplicaItbisDefault) {
-    productoSeleccionado = { id_medicamento: idMedicamento, nombre: nombre, aplica_itbis_default: aplicaItbisDefault };
-    document.getElementById('productoNombreModal').innerText = nombre;
-    document.getElementById('numeroLote').value = '';
-    document.getElementById('fechaVencimiento').value = '';
-    document.getElementById('cantidadLote').value = 1;
-    document.getElementById('costoUnitario').value = '';
-    document.getElementById('descuentoUnitario').value = 0;
-    document.getElementById('aplicaItbis').checked = aplicaItbisDefault === 1;
-    if (modalProductos) modalProductos.hide();
-    if (modalLote) modalLote.show();
+// ==================== SELECCIONAR PRODUCTO ====================
+function seleccionarProducto(producto) {
+    productoSeleccionado = producto;
+    
+    if (producto.tipo === 'MEDICAMENTO') {
+        document.getElementById('productoNombreModalMed').innerText = producto.nombre;
+        document.getElementById('numeroLote').value = '';
+        document.getElementById('fechaVencimiento').value = '';
+        document.getElementById('cantidadProducto').value = 1;
+        document.getElementById('costoUnitario').value = '';
+        document.getElementById('descuentoUnitario').value = 0;
+        document.getElementById('aplicaItbis').checked = !producto.exento_itbis;
+        
+        if (modalProductos) modalProductos.hide();
+        if (modalDatosMedicamento) modalDatosMedicamento.show();
+    } else {
+        // Cargar tallas y colores para ropa
+        cargarTallas();
+        cargarColores();
+        
+        document.getElementById('productoNombreModalRopa').innerText = producto.nombre;
+        document.getElementById('cantidadRopa').value = 1;
+        document.getElementById('costoUnitarioRopa').value = '';
+        document.getElementById('descuentoUnitarioRopa').value = 0;
+        document.getElementById('aplicaItbisRopa').checked = !producto.exento_itbis;
+        
+        if (modalProductos) modalProductos.hide();
+        if (modalDatosRopa) modalDatosRopa.show();
+    }
+}
+
+function cargarTallas() {
+    const select = document.getElementById('tallaRopa');
+    if (!select) return;
+    
+    select.innerHTML = '<option value="">Cargando tallas...</option>';
+    fetch(BASE_URL + '/backend/ropa/listar_tallas.php')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.tallas && data.tallas.length > 0) {
+                select.innerHTML = '<option value="">Seleccionar talla...</option>';
+                data.tallas.forEach(t => {
+                    const option = document.createElement('option');
+                    option.value = t.id_talla;
+                    option.textContent = t.nombre;
+                    select.appendChild(option);
+                });
+            } else {
+                select.innerHTML = '<option value="">No hay tallas disponibles</option>';
+                console.warn('No se encontraron tallas');
+            }
+        })
+        .catch(error => {
+            console.error('Error al cargar tallas:', error);
+            select.innerHTML = '<option value="">Error al cargar tallas</option>';
+        });
+}
+
+function cargarColores() {
+    const select = document.getElementById('colorRopa');
+    if (!select) return;
+    
+    select.innerHTML = '<option value="">Cargando colores...</option>';
+    fetch(BASE_URL + '/backend/ropa/listar_colores.php')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.colores && data.colores.length > 0) {
+                select.innerHTML = '<option value="">Seleccionar color...</option>';
+                data.colores.forEach(c => {
+                    const option = document.createElement('option');
+                    option.value = c.id_color;
+                    option.textContent = c.nombre;
+                    select.appendChild(option);
+                });
+            } else {
+                select.innerHTML = '<option value="">No hay colores disponibles</option>';
+                console.warn('No se encontraron colores');
+            }
+        })
+        .catch(error => {
+            console.error('Error al cargar colores:', error);
+            select.innerHTML = '<option value="">Error al cargar colores</option>';
+        });
 }
 
 // ==================== AGREGAR AL CARRITO ====================
-function agregarProductoCompra() {
+function agregarMedicamento() {
     const numeroLote = document.getElementById('numeroLote').value.trim();
     const fechaVencimiento = document.getElementById('fechaVencimiento').value;
-    const cantidad = parseInt(document.getElementById('cantidadLote').value);
+    const cantidad = parseInt(document.getElementById('cantidadProducto').value);
     const costoUnitario = parseFloat(document.getElementById('costoUnitario').value);
     const descuentoUnitario = parseFloat(document.getElementById('descuentoUnitario').value);
     const aplicaItbis = document.getElementById('aplicaItbis').checked;
@@ -494,7 +761,8 @@ function agregarProductoCompra() {
     if (isNaN(costoUnitario) || costoUnitario <= 0) { Swal.fire('Error', 'Costo unitario inválido', 'error'); return; }
     
     const item = {
-        id_medicamento: productoSeleccionado.id_medicamento,
+        tipo: 'MEDICAMENTO',
+        id_producto: productoSeleccionado.id_medicamento,
         nombre: productoSeleccionado.nombre,
         numero_lote: numeroLote,
         fecha_vencimiento: fechaVencimiento,
@@ -505,16 +773,46 @@ function agregarProductoCompra() {
     };
     carrito.push(item);
     actualizarCarrito();
-    if (modalLote) modalLote.hide();
+    if (modalDatosMedicamento) modalDatosMedicamento.hide();
+}
+
+function agregarRopa() {
+    const idTalla = document.getElementById('tallaRopa').value;
+    const idColor = document.getElementById('colorRopa').value;
+    const cantidad = parseInt(document.getElementById('cantidadRopa').value);
+    const costoUnitario = parseFloat(document.getElementById('costoUnitarioRopa').value);
+    const descuentoUnitario = parseFloat(document.getElementById('descuentoUnitarioRopa').value);
+    const aplicaItbis = document.getElementById('aplicaItbisRopa').checked;
+    
+    if (!idTalla) { Swal.fire('Error', 'Seleccione una talla', 'error'); return; }
+    if (!idColor) { Swal.fire('Error', 'Seleccione un color', 'error'); return; }
+    if (cantidad <= 0) { Swal.fire('Error', 'Cantidad inválida', 'error'); return; }
+    if (isNaN(costoUnitario) || costoUnitario <= 0) { Swal.fire('Error', 'Costo unitario inválido', 'error'); return; }
+    
+    const item = {
+        tipo: 'ROPA',
+        id_producto: productoSeleccionado.id_medicamento,
+        nombre: productoSeleccionado.nombre,
+        id_talla: parseInt(idTalla),
+        id_color: parseInt(idColor),
+        cantidad: cantidad,
+        costo_unitario: costoUnitario,
+        descuento_unitario: descuentoUnitario,
+        aplica_itbis: aplicaItbis
+    };
+    carrito.push(item);
+    actualizarCarrito();
+    if (modalDatosRopa) modalDatosRopa.hide();
 }
 
 function actualizarCarrito() {
     const tbody = document.getElementById('carritoBody');
     if (carrito.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4"><i class="fas fa-shopping-cart" style="font-size:2rem; opacity:0.3"></i><p>No hay productos agregados</p></td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted py-4"><i class="fas fa-shopping-cart" style="font-size:2rem; opacity:0.3"></i><p>No hay productos agregados</p></td></tr>`;
         actualizarResumen();
         return;
     }
+    
     let html = '';
     carrito.forEach((item, idx) => {
         const subtotal = item.cantidad * item.costo_unitario;
@@ -522,17 +820,35 @@ function actualizarCarrito() {
         const base = subtotal - descuento;
         const itbis = item.aplica_itbis ? base * (ITBIS_PORCENTAJE / 100) : 0;
         const totalItem = base + itbis;
+        
+        let badgeTipo = '';
+        let infoAdicional = '';
+        
+        if (item.tipo === 'ROPA') {
+            badgeTipo = '<span class="badge-tipo-ropa me-1">👕 ROPA</span>';
+            infoAdicional = `<small class="text-muted">Talla: ${item.id_talla || 'N/A'} | Color: ${item.id_color || 'N/A'}</small>`;
+        } else {
+            badgeTipo = '<span class="badge-tipo-medicamento me-1">💊 MED</span>';
+            infoAdicional = `<small class="text-muted">Lote: ${escapeHtml(item.numero_lote)}</small><br>
+                             <small class="text-muted">Vence: ${item.fecha_vencimiento}</small>`;
+        }
+        
         html += `
             <tr>
-                <td><strong>${escapeHtml(item.nombre)}</strong></td>
-                <td>${escapeHtml(item.numero_lote)}</small></td>
-                <td>${item.fecha_vencimiento}</small></td>
+                <td>
+                    ${badgeTipo}
+                    <strong>${escapeHtml(item.nombre)}</strong>
+                    ${infoAdicional}
+                </td>
+                <td>${item.tipo === 'MEDICAMENTO' ? escapeHtml(item.numero_lote) : 'N/A'}</small></td>
+                <td>${item.tipo === 'MEDICAMENTO' ? item.fecha_vencimiento : 'N/A'}</small></td>
+                <td>${item.tipo === 'ROPA' ? 'Talla/Color' : '—'}</small></td>
                 <td><input type="number" class="cantidad-input" value="${item.cantidad}" min="1" onchange="actualizarCantidad(${idx}, this.value)"></td>
-                <td>RD$ ${item.costo_unitario.toFixed(2)}</small></td>
-                <td>RD$ ${item.descuento_unitario.toFixed(2)}</small></td>
-                <td>${item.aplica_itbis ? `Sí (${ITBIS_PORCENTAJE}%)` : 'No'}</td>
-                <td class="fw-bold text-success">RD$ ${totalItem.toFixed(2)}</td>
-                <td class="text-center"><button class="btn-eliminar-item" onclick="eliminarProducto(${idx})"><span class="material-symbols-rounded">delete</span></button></td>
+                <td class="text-end">RD$ ${item.costo_unitario.toFixed(2)}</small></td>
+                <td class="text-end">RD$ ${item.descuento_unitario.toFixed(2)}</small></td>
+                <td class="text-end">${item.aplica_itbis ? `Sí (${ITBIS_PORCENTAJE}%)` : 'No'}</td>
+                <td class="fw-bold text-success text-end">RD$ ${totalItem.toFixed(2)}</td>
+                <td class="text-center"><button class="btn-eliminar-item" onclick="eliminarProducto(${idx})"><i class="fas fa-trash-alt"></i></button></td>
             </tr>
         `;
     });
@@ -598,14 +914,17 @@ function procesarCompra() {
         id_sucursal: parseInt(idSucursal),
         observaciones: observaciones,
         fecha_esperada: fechaEsperada || null,
-        productos: carrito.map(p => ({
-            id_medicamento: p.id_medicamento,
-            numero_lote: p.numero_lote,
-            fecha_vencimiento: p.fecha_vencimiento,
-            cantidad: p.cantidad,
-            costo_unitario: p.costo_unitario,
-            descuento_unitario: p.descuento_unitario,
-            aplica_itbis: p.aplica_itbis
+        productos: carrito.map(item => ({
+            tipo: item.tipo,
+            id_producto: item.id_producto,
+            numero_lote: item.numero_lote,
+            fecha_vencimiento: item.fecha_vencimiento,
+            id_talla: item.id_talla,
+            id_color: item.id_color,
+            cantidad: item.cantidad,
+            costo_unitario: item.costo_unitario,
+            descuento_unitario: item.descuento_unitario,
+            aplica_itbis: item.aplica_itbis
         })),
         subtotal: subtotal,
         descuento: descuentoTotal,
@@ -613,15 +932,22 @@ function procesarCompra() {
         total: total
     };
     
+    console.log('Enviando datos:', data);
+    
     Swal.fire({ title: 'Procesando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    
     fetch(BASE_URL + '/backend/compras/procesar_compra.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
     })
-    .then(r => r.json())
+    .then(response => {
+        console.log('Response status:', response.status);
+        return response.json();
+    })
     .then(res => {
         Swal.close();
+        console.log('Response data:', res);
         if (res.success) {
             Swal.fire('Éxito', `Compra ${res.numero_documento} registrada`, 'success')
                 .then(() => location.reload());
@@ -629,7 +955,11 @@ function procesarCompra() {
             Swal.fire('Error', res.message || 'Error al registrar compra', 'error');
         }
     })
-    .catch(() => Swal.fire('Error', 'Error de conexión', 'error'));
+    .catch(err => { 
+        Swal.close(); 
+        console.error('Fetch error:', err);
+        Swal.fire('Error', 'Error de conexión: ' + err.message, 'error'); 
+    });
 }
 
 function cancelarCompra() {
@@ -655,4 +985,59 @@ function escapeHtml(str) {
         return m;
     });
 }
+
+// ==================== INICIALIZACIÓN ====================
+document.addEventListener('DOMContentLoaded', function() {
+    initTabs();
+    
+    const elModalProductos = document.getElementById('modalProductos');
+    const elModalMed = document.getElementById('modalDatosMedicamento');
+    const elModalRopa = document.getElementById('modalDatosRopa');
+    
+    if (elModalProductos) modalProductos = new bootstrap.Modal(elModalProductos, { backdrop: false, keyboard: true });
+    if (elModalMed) modalDatosMedicamento = new bootstrap.Modal(elModalMed, { backdrop: false, keyboard: true });
+    if (elModalRopa) modalDatosRopa = new bootstrap.Modal(elModalRopa, { backdrop: false, keyboard: true });
+    
+    document.getElementById('btnAgregarProducto').addEventListener('click', () => {
+        if (!sucursalActual) {
+            Swal.fire('Error', 'Primero debe seleccionar una sucursal', 'error');
+            return;
+        }
+        if (modalProductos) modalProductos.show();
+    });
+    
+    document.getElementById('btnAgregarMedicamento').addEventListener('click', agregarMedicamento);
+    document.getElementById('btnAgregarRopa').addEventListener('click', agregarRopa);
+    
+    document.getElementById('sucursal').addEventListener('change', function() {
+        sucursalActual = this.value;
+        if (carrito.length > 0) {
+            Swal.fire({
+                title: 'Cambio de sucursal',
+                text: 'Los productos del carrito pertenecen a otra sucursal. ¿Desea vaciar el carrito?',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, vaciar',
+                cancelButtonText: 'No'
+            }).then(result => {
+                if (result.isConfirmed) { carrito = []; actualizarCarrito(); }
+            });
+        }
+    });
+    
+    document.getElementById('filtroNombreProducto').addEventListener('input', filtrarProductos);
+    
+    if (elModalProductos) {
+        elModalProductos.addEventListener('show.bs.modal', function(event) {
+            if (!sucursalActual) {
+                event.preventDefault();
+                Swal.fire('Error', 'Primero debe seleccionar una sucursal', 'error');
+            } else {
+                cargarProductosModal();
+            }
+        });
+    }
+    
+    sucursalActual = null;
+});
 </script>
