@@ -16,6 +16,7 @@ $filtro_cliente = $_GET['cliente'] ?? '';
 $filtro_usuario = $_GET['usuario'] ?? '';
 $filtro_estado = $_GET['estado'] ?? '';
 $busqueda = $_GET['busqueda'] ?? '';
+$filtro_estado_entrega = $_GET['estado_entrega'] ?? '';
 
 $clientes = $usuarios = $metodos_pago = $repartidores = $estados_entrega = [];
 try {
@@ -78,6 +79,10 @@ if ($busqueda) {
     $query .= " AND (v.numero_documento ILIKE :busqueda OR c.nombre ILIKE :busqueda OR v.ncf ILIKE :busqueda)";
     $params[':busqueda'] = "%$busqueda%";
 }
+if ($filtro_estado_entrega) {
+    $query .= " AND e.id_estado = :estado_entrega";
+    $params[':estado_entrega'] = $filtro_estado_entrega;
+}
 $query .= " ORDER BY v.fecha DESC LIMIT 500";
 
 $ventas = [];
@@ -100,12 +105,16 @@ foreach ($ventas as $v) {
 $base_url = '/sistema-gestor-de-farmacias';
 ?>
 <style>
-    /* Estilos base (igual que antes) */
+    /* Estilos base */
     .badge-delivery-pendiente { background-color: #ffc107; color: #000; }
     .badge-delivery-asignada { background-color: #17a2b8; color: #fff; }
     .badge-delivery-en_camino { background-color: #fd7e14; color: #fff; }
     .badge-delivery-entregado { background-color: #28a745; color: #fff; }
     .badge-delivery-cancelado { background-color: #dc3545; color: #fff; }
+    .badge-delivery-reprogramada { background-color: #6f42c1; color: #fff; }
+    .badge-delivery-fallida { background-color: #c82333; color: #fff; }
+    .badge-delivery-accidente { background-color: #a71d2a; color: #fff; }
+    
     .delivery-icon { font-size: 1.2rem; vertical-align: middle; margin-right: 4px; }
     .modal-backdrop { display: none !important; }
     .modal { background-color: rgba(0, 0, 0, 0.5) !important; z-index: 1050; }
@@ -390,8 +399,9 @@ $base_url = '/sistema-gestor-de-farmacias';
             <div class="col-md-2"><label class="form-label fw-semibold small text-muted">HASTA</label><input type="date" class="form-control" id="filtroFechaHasta" value="<?php echo $filtro_fecha_hasta; ?>"></div>
             <div class="col-md-2"><label class="form-label fw-semibold small text-muted">CLIENTE</label><select class="form-select" id="filtroCliente"><option value="">Todos</option><?php foreach ($clientes as $cli): ?><option value="<?php echo $cli['id_cliente']; ?>" <?php echo $filtro_cliente == $cli['id_cliente'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($cli['nombre']); ?></option><?php endforeach; ?></select></div>
             <div class="col-md-2"><label class="form-label fw-semibold small text-muted">VENDEDOR</label><select class="form-select" id="filtroUsuario"><option value="">Todos</option><?php foreach ($usuarios as $user): ?><option value="<?php echo $user['id_usuario']; ?>" <?php echo $filtro_usuario == $user['id_usuario'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($user['nombre']); ?></option><?php endforeach; ?></select></div>
-            <div class="col-md-2"><label class="form-label fw-semibold small text-muted">ESTADO</label><select class="form-select" id="filtroEstado"><option value="">Todos</option><option value="CONTADO" <?php echo $filtro_estado == 'CONTADO' ? 'selected' : ''; ?>>Contado</option><option value="CREDITO_PENDIENTE" <?php echo $filtro_estado == 'CREDITO_PENDIENTE' ? 'selected' : ''; ?>>Crédito Pendiente</option><option value="CREDITO_PARCIAL" <?php echo $filtro_estado == 'CREDITO_PARCIAL' ? 'selected' : ''; ?>>Crédito Parcial</option><option value="CREDITO_PAGADO" <?php echo $filtro_estado == 'CREDITO_PAGADO' ? 'selected' : ''; ?>>Crédito Pagado</option><option value="ANULADA" <?php echo $filtro_estado == 'ANULADA' ? 'selected' : ''; ?>>Anulada</option></select></div>
-            <div class="col-md-2"><label class="form-label fw-semibold small text-muted">BUSCAR</label><input type="text" class="form-control" id="busquedaInput" placeholder="Documento, cliente..." value="<?php echo htmlspecialchars($busqueda); ?>"></div>
+            <div class="col-md-2"><label class="form-label fw-semibold small text-muted">ESTADO VENTA</label><select class="form-select" id="filtroEstado"><option value="">Todos</option><option value="CONTADO" <?php echo $filtro_estado == 'CONTADO' ? 'selected' : ''; ?>>Contado</option><option value="CREDITO_PENDIENTE" <?php echo $filtro_estado == 'CREDITO_PENDIENTE' ? 'selected' : ''; ?>>Crédito Pendiente</option><option value="CREDITO_PARCIAL" <?php echo $filtro_estado == 'CREDITO_PARCIAL' ? 'selected' : ''; ?>>Crédito Parcial</option><option value="CREDITO_PAGADO" <?php echo $filtro_estado == 'CREDITO_PAGADO' ? 'selected' : ''; ?>>Crédito Pagado</option><option value="ANULADA" <?php echo $filtro_estado == 'ANULADA' ? 'selected' : ''; ?>>Anulada</option></select></div>
+            <div class="col-md-2"><label class="form-label fw-semibold small text-muted">ESTADO DELIVERY</label><select class="form-select" id="filtroEstadoEntrega"><option value="">Todos</option><?php foreach ($estados_entrega as $ee): ?><option value="<?php echo $ee['id_estado']; ?>" <?php echo $filtro_estado_entrega == $ee['id_estado'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($ee['nombre']); ?></option><?php endforeach; ?></select></div>
+            <div class="col-md-12"><label class="form-label fw-semibold small text-muted">BUSCAR</label><input type="text" class="form-control" id="busquedaInput" placeholder="Documento, cliente..." value="<?php echo htmlspecialchars($busqueda); ?>"></div>
             <div class="col-md-12"><div class="d-flex justify-content-end"><button type="button" class="btn btn-quitar-filtros" onclick="quitarFiltros()"><span class="material-symbols-rounded me-1">filter_list_off</span> Quitar filtros</button></div></div>
         </div>
     </div>
@@ -426,12 +436,41 @@ $base_url = '/sistema-gestor-de-farmacias';
                             $delivery_icono = '';
                             if ($delivery_estado) {
                                 switch ($delivery_estado) {
-                                    case 'PENDIENTE': $delivery_badge = 'badge-delivery-pendiente'; $delivery_icono = 'schedule'; break;
-                                    case 'ASIGNADA': $delivery_badge = 'badge-delivery-asignada'; $delivery_icono = 'assignment_ind'; break;
-                                    case 'EN_CAMINO': $delivery_badge = 'badge-delivery-en_camino'; $delivery_icono = 'local_shipping'; break;
-                                    case 'ENTREGADA': $delivery_badge = 'badge-delivery-entregado'; $delivery_icono = 'check_circle'; break;
-                                    case 'CANCELADA': $delivery_badge = 'badge-delivery-cancelado'; $delivery_icono = 'cancel'; break;
-                                    default: $delivery_badge = 'badge-delivery-pendiente'; $delivery_icono = 'schedule';
+                                    case 'PENDIENTE':
+                                        $delivery_badge = 'badge-delivery-pendiente';
+                                        $delivery_icono = 'schedule';
+                                        break;
+                                    case 'ASIGNADA':
+                                        $delivery_badge = 'badge-delivery-asignada';
+                                        $delivery_icono = 'assignment_ind';
+                                        break;
+                                    case 'EN_CAMINO':
+                                        $delivery_badge = 'badge-delivery-en_camino';
+                                        $delivery_icono = 'local_shipping';
+                                        break;
+                                    case 'ENTREGADA':
+                                        $delivery_badge = 'badge-delivery-entregado';
+                                        $delivery_icono = 'check_circle';
+                                        break;
+                                    case 'CANCELADA':
+                                        $delivery_badge = 'badge-delivery-cancelado';
+                                        $delivery_icono = 'cancel';
+                                        break;
+                                    case 'REPROGRAMADA':
+                                        $delivery_badge = 'badge-delivery-reprogramada';
+                                        $delivery_icono = 'update';
+                                        break;
+                                    case 'FALLIDA':
+                                        $delivery_badge = 'badge-delivery-fallida';
+                                        $delivery_icono = 'error_outline';
+                                        break;
+                                    case 'ACCIDENTE':
+                                        $delivery_badge = 'badge-delivery-accidente';
+                                        $delivery_icono = 'car_crash';
+                                        break;
+                                    default:
+                                        $delivery_badge = 'badge-delivery-pendiente';
+                                        $delivery_icono = 'schedule';
                                 }
                             }
                         ?>
@@ -624,6 +663,40 @@ const BASE_URL = '<?php echo $base_url; ?>';
 let ventaActualId = null;
 let productosVentaActual = [];
 
+// ==================== FUNCIÓN PARA CENTRAR MODAL ====================
+function centrarModal(modalElement) {
+    if (!modalElement) return;
+    const modalDialog = modalElement.querySelector('.modal-dialog');
+    if (modalDialog) {
+        const windowHeight = window.innerHeight;
+        const modalHeight = modalDialog.offsetHeight;
+        const top = (windowHeight - modalHeight) / 2;
+        if (top > 0) {
+            modalDialog.style.marginTop = top + 'px';
+            modalDialog.style.marginBottom = 'auto';
+        } else {
+            modalDialog.style.marginTop = '1rem';
+            modalDialog.style.marginBottom = '1rem';
+        }
+        // Scroll suave hasta el modal
+        modalElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+}
+
+// Registrar evento para todos los modales al mostrarse
+document.addEventListener('DOMContentLoaded', function() {
+    const modales = ['#modalDetalleVenta', '#modalAbono', '#modalEditarEntrega', '#modalDevolucion'];
+    modales.forEach(selector => {
+        const modalEl = document.querySelector(selector);
+        if (modalEl) {
+            modalEl.addEventListener('shown.bs.modal', function() {
+                centrarModal(this);
+            });
+        }
+    });
+});
+
+// ==================== FILTROS ====================
 function aplicarFiltros() {
     let url = BASE_URL + '/frontend/menuprincipal.php?mod=historial_ventas';
     const fd = document.getElementById('filtroFechaDesde').value;
@@ -632,16 +705,19 @@ function aplicarFiltros() {
     const usr = document.getElementById('filtroUsuario').value;
     const est = document.getElementById('filtroEstado').value;
     const bus = document.getElementById('busquedaInput').value;
+    const estadoEntrega = document.getElementById('filtroEstadoEntrega').value;
     if (fd) url += `&fecha_desde=${fd}`;
     if (fh) url += `&fecha_hasta=${fh}`;
     if (cli) url += `&cliente=${cli}`;
     if (usr) url += `&usuario=${usr}`;
     if (est) url += `&estado=${est}`;
     if (bus) url += `&busqueda=${encodeURIComponent(bus)}`;
+    if (estadoEntrega) url += `&estado_entrega=${estadoEntrega}`;
     window.location.href = url;
 }
 function quitarFiltros() { window.location.href = BASE_URL + '/frontend/menuprincipal.php?mod=historial_ventas'; }
 
+// ==================== DETALLE VENTA ====================
 function verDetalleVenta(idVenta) {
     ventaActualId = idVenta;
     const modalBody = document.getElementById('detalleVentaContenido');
@@ -650,20 +726,6 @@ function verDetalleVenta(idVenta) {
     const modal = new bootstrap.Modal(modalElement, { backdrop: 'static', keyboard: true });
     modal.show();
     document.getElementById('btnDevolverDesdeModal').style.display = 'none';
-    
-    setTimeout(() => {
-        modalElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        const modalDialog = modalElement.querySelector('.modal-dialog');
-        if (modalDialog) {
-            const windowHeight = window.innerHeight;
-            const modalHeight = modalDialog.offsetHeight;
-            const top = (windowHeight - modalHeight) / 2;
-            if (top > 0) {
-                modalDialog.style.marginTop = top + 'px';
-                modalDialog.style.marginBottom = 'auto';
-            }
-        }
-    }, 200);
     
     fetch(BASE_URL + `/backend/ventas/get_detalle_venta_completo.php?id_venta=${idVenta}`)
         .then(r => r.json())
@@ -710,13 +772,43 @@ function verDetalleVenta(idVenta) {
                 if (data.entrega) {
                     const entrega = data.entrega;
                     let estadoEntregaBadge = '';
+                    let estadoEntregaIcono = '';
                     switch (entrega.estado_entrega) {
-                        case 'PENDIENTE': estadoEntregaBadge = 'badge-delivery-pendiente'; break;
-                        case 'ASIGNADA': estadoEntregaBadge = 'badge-delivery-asignada'; break;
-                        case 'EN_CAMINO': estadoEntregaBadge = 'badge-delivery-en_camino'; break;
-                        case 'ENTREGADA': estadoEntregaBadge = 'badge-delivery-entregado'; break;
-                        case 'CANCELADA': estadoEntregaBadge = 'badge-delivery-cancelado'; break;
-                        default: estadoEntregaBadge = 'badge-delivery-pendiente';
+                        case 'PENDIENTE':
+                            estadoEntregaBadge = 'badge-delivery-pendiente';
+                            estadoEntregaIcono = 'schedule';
+                            break;
+                        case 'ASIGNADA':
+                            estadoEntregaBadge = 'badge-delivery-asignada';
+                            estadoEntregaIcono = 'assignment_ind';
+                            break;
+                        case 'EN_CAMINO':
+                            estadoEntregaBadge = 'badge-delivery-en_camino';
+                            estadoEntregaIcono = 'local_shipping';
+                            break;
+                        case 'ENTREGADA':
+                            estadoEntregaBadge = 'badge-delivery-entregado';
+                            estadoEntregaIcono = 'check_circle';
+                            break;
+                        case 'CANCELADA':
+                            estadoEntregaBadge = 'badge-delivery-cancelado';
+                            estadoEntregaIcono = 'cancel';
+                            break;
+                        case 'REPROGRAMADA':
+                            estadoEntregaBadge = 'badge-delivery-reprogramada';
+                            estadoEntregaIcono = 'update';
+                            break;
+                        case 'FALLIDA':
+                            estadoEntregaBadge = 'badge-delivery-fallida';
+                            estadoEntregaIcono = 'error_outline';
+                            break;
+                        case 'ACCIDENTE':
+                            estadoEntregaBadge = 'badge-delivery-accidente';
+                            estadoEntregaIcono = 'car_crash';
+                            break;
+                        default:
+                            estadoEntregaBadge = 'badge-delivery-pendiente';
+                            estadoEntregaIcono = 'schedule';
                     }
                     deliveryHtml = `
                         <div class="col-12">
@@ -724,7 +816,10 @@ function verDetalleVenta(idVenta) {
                                 <div class="d-flex align-items-center gap-2 mb-2">
                                     <span class="material-symbols-rounded text-info">local_shipping</span>
                                     <strong>INFORMACIÓN DE ENVÍO</strong>
-                                    <span class="badge-estado ${estadoEntregaBadge} ms-2">${entrega.estado_entrega}</span>
+                                    <span class="badge-estado ${estadoEntregaBadge} ms-2">
+                                        <span class="material-symbols-rounded" style="font-size: 0.8rem;">${estadoEntregaIcono}</span>
+                                        ${entrega.estado_entrega}
+                                    </span>
                                 </div>
                                 <div class="row g-2">
                                     <div class="col-md-6"><small class="text-muted">Nº Seguimiento:</small><br><strong>${escapeHtml(entrega.numero_seguimiento)}</strong></div>
@@ -795,7 +890,6 @@ function abrirModalAbonoDesdeDetalle(idVenta, documento, totalReal, abonosAcumul
     const modalAbonoElement = document.getElementById('modalAbono');
     const modalAbono = new bootstrap.Modal(modalAbonoElement, { backdrop: 'static', keyboard: true });
     modalAbono.show();
-    setTimeout(() => { modalAbonoElement.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 200);
 }
 
 function abrirModalAbono(idVenta, documento, totalDB, abonosAcumulados) {
@@ -1079,7 +1173,7 @@ function escapeHtml(str) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    ['filtroFechaDesde','filtroFechaHasta','filtroCliente','filtroUsuario','filtroEstado','busquedaInput'].forEach(id => {
+    ['filtroFechaDesde','filtroFechaHasta','filtroCliente','filtroUsuario','filtroEstado','busquedaInput','filtroEstadoEntrega'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.addEventListener('change', aplicarFiltros);
         if (id === 'busquedaInput') {

@@ -18,10 +18,10 @@ $filtro_estado = $_GET['estado'] ?? '';
 $fecha_desde = $_GET['fecha_desde'] ?? '';
 $fecha_hasta = $_GET['fecha_hasta'] ?? '';
 
-// Obtener tipos únicos de vehículos para el filtro
+// Obtener tipos únicos de vehículos para el filtro (excluyendo Bicicleta y Moto)
 $tipos = [];
 try {
-    $stmtTipos = $conexion->query("SELECT DISTINCT tipo FROM vehiculos WHERE tipo IS NOT NULL AND tipo != '' ORDER BY tipo");
+    $stmtTipos = $conexion->query("SELECT DISTINCT tipo FROM vehiculos WHERE tipo IS NOT NULL AND tipo != '' AND LOWER(tipo) NOT IN ('bicicleta', 'moto') ORDER BY tipo");
     $tipos = $stmtTipos->fetchAll(PDO::FETCH_COLUMN);
 } catch(PDOException $e) {}
 
@@ -72,7 +72,6 @@ if ($filtro_estado === 'activo') {
 } elseif ($filtro_estado === 'inactivo') {
     $query .= " AND v.activo = FALSE";
 }
-// Filtro por fecha de vencimiento del seguro (opcional)
 if ($fecha_desde && $fecha_hasta) {
     $query .= " AND v.fecha_vencimiento_seguro BETWEEN :fecha_desde AND :fecha_hasta";
     $params[':fecha_desde'] = $fecha_desde;
@@ -192,6 +191,33 @@ $base_url = '/sistema-gestor-de-farmacias';
         .no-print, .btn-export-pdf, .btn-quitar-filtros, .modal {
             display: none !important;
         }
+    }
+    /* Estilos para la paleta de colores */
+    .color-swatch {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        cursor: pointer;
+        border: 1px solid #ccc;
+        transition: transform 0.1s ease, box-shadow 0.1s ease;
+    }
+    .color-swatch:hover {
+        transform: scale(1.1);
+        box-shadow: 0 0 0 2px #fff, 0 0 0 3px #28a745;
+    }
+    .form-control-color {
+        width: 60px;
+        height: 38px;
+        padding: 2px;
+    }
+    /* Estilo para el círculo de color en la tabla */
+    .color-preview {
+        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        transition: transform 0.1s ease;
+        vertical-align: middle;
+    }
+    .color-preview:hover {
+        transform: scale(1.15);
     }
 </style>
 
@@ -320,7 +346,13 @@ $base_url = '/sistema-gestor-de-farmacias';
                                 <td><?php echo htmlspecialchars($veh['marca'] ?: '—'); ?></td>
                                 <td><?php echo htmlspecialchars($veh['modelo'] ?: '—'); ?></td>
                                 <td><?php echo htmlspecialchars($veh['tipo']); ?></td>
-                                <td><?php echo htmlspecialchars($veh['color'] ?: '—'); ?></td>
+                                <td>
+                                    <?php if ($veh['color']): ?>
+                                        <span class="color-preview d-inline-block" style="background-color: <?php echo htmlspecialchars($veh['color']); ?>; width: 28px; height: 28px; border-radius: 50%; border: 1px solid #ddd; cursor: help;" title="<?php echo htmlspecialchars($veh['color']); ?>"></span>
+                                    <?php else: ?>
+                                        —
+                                    <?php endif; ?>
+                                </td>
                                 <td><?php echo $repartidor_nombre; ?></td>
                                 <td><?php echo $seguro_empresa; ?></td>
                                 <td><?php echo $fecha_venc_seguro; ?></td>
@@ -377,30 +409,64 @@ $base_url = '/sistema-gestor-de-farmacias';
                     <div class="row g-3">
                         <div class="col-md-6">
                             <label class="form-label fw-bold">Tipo *</label>
-                            <input type="text" class="form-control" id="vehiculo_tipo" required list="tiposList">
-                            <datalist id="tiposList">
-                                <?php foreach ($tipos as $t): ?>
-                                    <option value="<?php echo htmlspecialchars($t); ?>">
-                                <?php endforeach; ?>
-                            </datalist>
+                            <select class="form-select" id="vehiculo_tipo" required>
+                                <option value="">Seleccione tipo</option>
+                                <option value="Motocicleta">Motocicleta</option>
+                                <option value="Automóvil">Automóvil</option>
+                                <option value="Camioneta">Camioneta</option>
+                                <?php 
+                                // Tipos adicionales de la BD (excluyendo Bicicleta y Moto)
+                                foreach ($tipos as $t): 
+                                    if (!in_array($t, ['Motocicleta','Automóvil','Camioneta'])): ?>
+                                        <option value="<?php echo htmlspecialchars($t); ?>"><?php echo htmlspecialchars($t); ?></option>
+                                <?php 
+                                    endif; 
+                                endforeach; 
+                                ?>
+                            </select>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label fw-bold">Placa</label>
                             <input type="text" class="form-control" id="vehiculo_placa" placeholder="Ej: M001-ABC">
                         </div>
-                        <div class="col-md-4">
-                            <label class="form-label fw-bold">Marca</label>
-                            <input type="text" class="form-control" id="vehiculo_marca">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Marca *</label>
+                            <select class="form-select" id="vehiculo_marca" required>
+                                <option value="">Primero seleccione tipo</option>
+                            </select>
+                            <div id="marca_otro_container" style="display:none; margin-top:5px;">
+                                <input type="text" class="form-control" id="vehiculo_marca_otro" placeholder="Escriba la marca">
+                            </div>
                         </div>
-                        <div class="col-md-4">
-                            <label class="form-label fw-bold">Modelo</label>
-                            <input type="text" class="form-control" id="vehiculo_modelo">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Modelo *</label>
+                            <select class="form-select" id="vehiculo_modelo" required>
+                                <option value="">Primero seleccione marca</option>
+                            </select>
+                            <div id="modelo_otro_container" style="display:none; margin-top:5px;">
+                                <input type="text" class="form-control" id="vehiculo_modelo_otro" placeholder="Escriba el modelo">
+                            </div>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label fw-bold">Color</label>
-                            <input type="text" class="form-control" id="vehiculo_color">
+                            <div class="d-flex align-items-center gap-2 flex-wrap">
+                                <input type="color" class="form-control form-control-color" id="vehiculo_color_picker" value="#000000" style="width: 60px; height: 38px;">
+                                <input type="text" class="form-control" id="vehiculo_color" placeholder="Código o nombre del color" style="flex:1;">
+                            </div>
+                            <div class="color-palette d-flex gap-1 mt-2 flex-wrap">
+                                <div class="color-swatch" style="background-color: #ff0000;" data-color="#ff0000" title="Rojo"></div>
+                                <div class="color-swatch" style="background-color: #00ff00;" data-color="#00ff00" title="Verde"></div>
+                                <div class="color-swatch" style="background-color: #0000ff;" data-color="#0000ff" title="Azul"></div>
+                                <div class="color-swatch" style="background-color: #ffff00;" data-color="#ffff00" title="Amarillo"></div>
+                                <div class="color-swatch" style="background-color: #ffa500;" data-color="#ffa500" title="Naranja"></div>
+                                <div class="color-swatch" style="background-color: #800080;" data-color="#800080" title="Morado"></div>
+                                <div class="color-swatch" style="background-color: #ffc0cb;" data-color="#ffc0cb" title="Rosa"></div>
+                                <div class="color-swatch" style="background-color: #000000;" data-color="#000000" title="Negro"></div>
+                                <div class="color-swatch" style="background-color: #ffffff;" data-color="#ffffff" title="Blanco" style="border:1px solid #ccc;"></div>
+                                <div class="color-swatch" style="background-color: #808080;" data-color="#808080" title="Gris"></div>
+                            </div>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <label class="form-label fw-bold">Repartidor asignado</label>
                             <select class="form-select" id="vehiculo_repartidor">
                                 <option value="">Sin asignar</option>
@@ -409,7 +475,7 @@ $base_url = '/sistema-gestor-de-farmacias';
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <label class="form-label fw-bold">Seguro empresa</label>
                             <input type="text" class="form-control" id="vehiculo_seguro_empresa">
                         </div>
@@ -441,6 +507,192 @@ $base_url = '/sistema-gestor-de-farmacias';
 const BASE_URL = '<?php echo $base_url; ?>';
 let editMode = false;
 
+// ==================== DATOS DE MARCAS Y MODELOS POR TIPO ====================
+const datosVehiculos = {
+    "Motocicleta": {
+        "Yamaha": ["FZ16", "NMAX", "MT-09", "YZF-R3", "Crypton"],
+        "Honda": ["CBR 600", "CB 190", "XRE 300", "Wave", "Biz"],
+        "Suzuki": ["GSX-R1000", "V-Strom", "GN 125", "AX100"],
+        "Kawasaki": ["Ninja 400", "Z900", "Versys", "KLR650"],
+        "KTM": ["Duke 390", "RC 390", "Adventure 790"]
+    },
+    "Automóvil": {
+        "Toyota": ["Corolla", "Camry", "Yaris", "Hilux", "Rav4"],
+        "Honda": ["Civic", "Accord", "CR-V", "HR-V"],
+        "Nissan": ["Sentra", "Versa", "March", "X-Trail"],
+        "Hyundai": ["Elantra", "Accent", "Tucson", "Santa Fe"],
+        "Kia": ["Rio", "Soul", "Sportage", "Sorento"],
+        "Chevrolet": ["Spark", "Onix", "Cruze", "Tracker"],
+        "Mazda": ["Mazda 2", "Mazda 3", "Mazda 6", "CX-5"],
+        "Ford": ["Fiesta", "Focus", "Escape", "Explorer"]
+    },
+    "Camioneta": {
+        "Toyota": ["Hilux", "Tacoma", "Tundra", "Land Cruiser"],
+        "Ford": ["Ranger", "F-150", "F-250", "Explorer"],
+        "Nissan": ["Frontier", "Navara", "Patrol"],
+        "Chevrolet": ["Silverado", "Colorado", "S-10"],
+        "Mitsubishi": ["L200", "Montero"]
+    }
+};
+
+// Función para cargar marcas según el tipo seleccionado
+function cargarMarcas() {
+    const tipo = document.getElementById('vehiculo_tipo').value;
+    const marcaSelect = document.getElementById('vehiculo_marca');
+    const marcaOtroContainer = document.getElementById('marca_otro_container');
+    const marcaOtroInput = document.getElementById('vehiculo_marca_otro');
+    
+    // Limpiar selects
+    marcaSelect.innerHTML = '<option value="">Seleccione marca</option>';
+    document.getElementById('vehiculo_modelo').innerHTML = '<option value="">Primero seleccione marca</option>';
+    document.getElementById('modelo_otro_container').style.display = 'none';
+    marcaOtroContainer.style.display = 'none';
+    
+    if (!tipo || !datosVehiculos[tipo]) {
+        marcaSelect.disabled = true;
+        return;
+    }
+    
+    marcaSelect.disabled = false;
+    const marcas = Object.keys(datosVehiculos[tipo]);
+    marcas.forEach(marca => {
+        const option = document.createElement('option');
+        option.value = marca;
+        option.textContent = marca;
+        marcaSelect.appendChild(option);
+    });
+    // Opción "Otro" (solo una vez)
+    const optionOtro = document.createElement('option');
+    optionOtro.value = "__otro__";
+    optionOtro.textContent = "Otro (escribir)";
+    marcaSelect.appendChild(optionOtro);
+}
+
+function cargarModelos() {
+    const tipo = document.getElementById('vehiculo_tipo').value;
+    const marca = document.getElementById('vehiculo_marca').value;
+    const modeloSelect = document.getElementById('vehiculo_modelo');
+    const modeloOtroContainer = document.getElementById('modelo_otro_container');
+    const modeloOtroInput = document.getElementById('vehiculo_modelo_otro');
+    
+    modeloSelect.innerHTML = '<option value="">Seleccione modelo</option>';
+    modeloOtroContainer.style.display = 'none';
+    
+    if (!tipo || !marca || !datosVehiculos[tipo]) {
+        modeloSelect.disabled = true;
+        return;
+    }
+    
+    if (marca === "__otro__") {
+        document.getElementById('marca_otro_container').style.display = 'block';
+        modeloSelect.disabled = true;
+        return;
+    }
+    
+    document.getElementById('marca_otro_container').style.display = 'none';
+    const modelos = datosVehiculos[tipo][marca] || [];
+    modeloSelect.disabled = false;
+    modelos.forEach(modelo => {
+        const option = document.createElement('option');
+        option.value = modelo;
+        option.textContent = modelo;
+        modeloSelect.appendChild(option);
+    });
+    const optionOtro = document.createElement('option');
+    optionOtro.value = "__otro__";
+    optionOtro.textContent = "Otro (escribir)";
+    modeloSelect.appendChild(optionOtro);
+}
+
+function onMarcaChange() {
+    const marcaSelect = document.getElementById('vehiculo_marca');
+    if (marcaSelect.value === "__otro__") {
+        document.getElementById('marca_otro_container').style.display = 'block';
+        document.getElementById('vehiculo_modelo').disabled = true;
+        document.getElementById('modelo_otro_container').style.display = 'none';
+    } else {
+        document.getElementById('marca_otro_container').style.display = 'none';
+        cargarModelos();
+    }
+}
+
+function onModeloChange() {
+    const modeloSelect = document.getElementById('vehiculo_modelo');
+    if (modeloSelect.value === "__otro__") {
+        document.getElementById('modelo_otro_container').style.display = 'block';
+    } else {
+        document.getElementById('modelo_otro_container').style.display = 'none';
+    }
+}
+
+// Obtener valor final de marca (del select o del input "otro")
+function getMarcaValue() {
+    const marcaSelect = document.getElementById('vehiculo_marca');
+    if (marcaSelect.value === "__otro__") {
+        return document.getElementById('vehiculo_marca_otro').value.trim();
+    }
+    return marcaSelect.value;
+}
+
+function getModeloValue() {
+    const modeloSelect = document.getElementById('vehiculo_modelo');
+    if (modeloSelect.value === "__otro__") {
+        return document.getElementById('vehiculo_modelo_otro').value.trim();
+    }
+    return modeloSelect.value;
+}
+
+// Asignar valores iniciales en edición (cargar tipo -> marcas -> seleccionar marca -> cargar modelos -> seleccionar modelo)
+async function setVehiculoDataForEdit(data) {
+    // 1. Establecer tipo
+    const tipoSelect = document.getElementById('vehiculo_tipo');
+    tipoSelect.value = data.tipo || '';
+    // 2. Cargar marcas según tipo
+    cargarMarcas();
+    // Esperar un poco a que se carguen las opciones
+    setTimeout(() => {
+        // 3. Seleccionar marca (si existe en la lista, si no usar "Otro")
+        const marcaSelect = document.getElementById('vehiculo_marca');
+        const marcaValue = data.marca || '';
+        const optionExists = Array.from(marcaSelect.options).some(opt => opt.value === marcaValue);
+        if (optionExists) {
+            marcaSelect.value = marcaValue;
+        } else if (marcaValue) {
+            // Usar "Otro" y guardar en el input
+            marcaSelect.value = "__otro__";
+            document.getElementById('marca_otro_container').style.display = 'block';
+            document.getElementById('vehiculo_marca_otro').value = marcaValue;
+        }
+        // 4. Disparar cambio de marca para cargar modelos
+        onMarcaChange();
+        setTimeout(() => {
+            // 5. Seleccionar modelo
+            const modeloSelect = document.getElementById('vehiculo_modelo');
+            const modeloValue = data.modelo || '';
+            const modeloOptionExists = Array.from(modeloSelect.options).some(opt => opt.value === modeloValue);
+            if (modeloOptionExists) {
+                modeloSelect.value = modeloValue;
+            } else if (modeloValue) {
+                modeloSelect.value = "__otro__";
+                document.getElementById('modelo_otro_container').style.display = 'block';
+                document.getElementById('vehiculo_modelo_otro').value = modeloValue;
+            }
+            onModeloChange();
+        }, 100);
+    }, 50);
+    
+    // 6. Establecer color (sincronizar color picker y campo de texto)
+    const colorValue = data.color || '';
+    document.getElementById('vehiculo_color').value = colorValue;
+    // Si el color es un código hexadecimal válido (formato #RRGGBB), actualizar el picker
+    if (/^#[0-9A-Fa-f]{6}$/.test(colorValue)) {
+        document.getElementById('vehiculo_color_picker').value = colorValue;
+    } else {
+        // Si no es hex, dejar el picker por defecto (negro) pero mantener el texto
+        document.getElementById('vehiculo_color_picker').value = '#000000';
+    }
+}
+
 // ==================== FILTROS ====================
 document.addEventListener('DOMContentLoaded', function() {
     const filtros = ['busquedaInput', 'filtroTipo', 'filtroRepartidor', 'filtroEstado', 'fechaDesde', 'fechaHasta'];
@@ -456,6 +708,43 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
             }
         }
+    });
+    
+    // Eventos para cascada
+    const tipoSelect = document.getElementById('vehiculo_tipo');
+    if (tipoSelect) tipoSelect.addEventListener('change', function() {
+        cargarMarcas();
+        document.getElementById('vehiculo_modelo').innerHTML = '<option value="">Primero seleccione marca</option>';
+    });
+    const marcaSelect = document.getElementById('vehiculo_marca');
+    if (marcaSelect) marcaSelect.addEventListener('change', onMarcaChange);
+    const modeloSelect = document.getElementById('vehiculo_modelo');
+    if (modeloSelect) modeloSelect.addEventListener('change', onModeloChange);
+    
+    // Sincronización del color: cuando el picker cambie, actualizar el campo de texto
+    const colorPicker = document.getElementById('vehiculo_color_picker');
+    const colorText = document.getElementById('vehiculo_color');
+    if (colorPicker && colorText) {
+        colorPicker.addEventListener('input', function() {
+            colorText.value = this.value;
+        });
+        colorText.addEventListener('input', function() {
+            // Si el texto ingresado es un hex válido, actualizar el picker
+            if (/^#[0-9A-Fa-f]{6}$/.test(this.value)) {
+                colorPicker.value = this.value;
+            }
+        });
+    }
+    
+    // Eventos para los círculos de color (paleta)
+    document.querySelectorAll('.color-swatch').forEach(swatch => {
+        swatch.addEventListener('click', function() {
+            const color = this.getAttribute('data-color');
+            if (colorPicker && colorText) {
+                colorPicker.value = color;
+                colorText.value = color;
+            }
+        });
     });
 });
 
@@ -519,6 +808,15 @@ function abrirModalAgregarVehiculo() {
     document.getElementById('formVehiculo').reset();
     document.getElementById('vehiculo_id').value = '';
     document.getElementById('vehiculo_activo').value = '1';
+    // Limpiar selects dependientes
+    document.getElementById('vehiculo_tipo').value = '';
+    cargarMarcas();
+    document.getElementById('vehiculo_modelo').innerHTML = '<option value="">Primero seleccione marca</option>';
+    document.getElementById('marca_otro_container').style.display = 'none';
+    document.getElementById('modelo_otro_container').style.display = 'none';
+    // Resetear color
+    document.getElementById('vehiculo_color').value = '';
+    document.getElementById('vehiculo_color_picker').value = '#000000';
     new bootstrap.Modal(document.getElementById('modalFormVehiculo'), { backdrop: false }).show();
 }
 
@@ -530,15 +828,13 @@ function editarVehiculo(id) {
         .then(data => {
             if (data.success) {
                 document.getElementById('vehiculo_id').value = id;
-                document.getElementById('vehiculo_tipo').value = data.tipo || '';
                 document.getElementById('vehiculo_placa').value = data.placa || '';
-                document.getElementById('vehiculo_marca').value = data.marca || '';
-                document.getElementById('vehiculo_modelo').value = data.modelo || '';
-                document.getElementById('vehiculo_color').value = data.color || '';
                 document.getElementById('vehiculo_repartidor').value = data.id_repartidor || '';
                 document.getElementById('vehiculo_seguro_empresa').value = data.seguro_empresa || '';
                 document.getElementById('vehiculo_fecha_vencimiento_seguro').value = data.fecha_vencimiento_seguro_raw || '';
                 document.getElementById('vehiculo_activo').value = data.activo ? '1' : '0';
+                // Cargar dependencias (tipo, marca, modelo)
+                setVehiculoDataForEdit(data);
                 new bootstrap.Modal(document.getElementById('modalFormVehiculo'), { backdrop: false }).show();
             } else {
                 Swal.fire('Error', 'No se pudo cargar el vehículo', 'error');
@@ -548,19 +844,33 @@ function editarVehiculo(id) {
 }
 
 function guardarVehiculo() {
-    const tipo = document.getElementById('vehiculo_tipo').value.trim();
+    const tipo = document.getElementById('vehiculo_tipo').value;
     if (!tipo) {
         Swal.fire('Error', 'El tipo de vehículo es obligatorio', 'error');
         return;
     }
     
+    const marca = getMarcaValue();
+    if (!marca) {
+        Swal.fire('Error', 'La marca es obligatoria', 'error');
+        return;
+    }
+    
+    const modelo = getModeloValue();
+    if (!modelo) {
+        Swal.fire('Error', 'El modelo es obligatorio', 'error');
+        return;
+    }
+    
+    const color = document.getElementById('vehiculo_color').value.trim();
+    
     const data = {
         id_vehiculo: document.getElementById('vehiculo_id').value || null,
         tipo: tipo,
         placa: document.getElementById('vehiculo_placa').value.trim(),
-        marca: document.getElementById('vehiculo_marca').value.trim(),
-        modelo: document.getElementById('vehiculo_modelo').value.trim(),
-        color: document.getElementById('vehiculo_color').value.trim(),
+        marca: marca,
+        modelo: modelo,
+        color: color,
         id_repartidor: document.getElementById('vehiculo_repartidor').value || null,
         seguro_empresa: document.getElementById('vehiculo_seguro_empresa').value.trim(),
         fecha_vencimiento_seguro: document.getElementById('vehiculo_fecha_vencimiento_seguro').value || null,
@@ -658,7 +968,7 @@ function exportarPDF() {
                 Búsqueda: ${escapeHtml(busqueda)} | Tipo: ${escapeHtml(tipo)} | Repartidor: ${escapeHtml(repartidor)} | Estado: ${escapeHtml(estado)} | Venc. seguro: ${periodo || 'Todos'}
             </div>
             <table>
-                <thead><tr><th>Placa</th><th>Marca</th><th>Modelo</th><th>Tipo</th><th>Color</th><th>Repartidor</th><th>Seguro empresa</th><th>Venc. seguro</th><th>Estado</th></tr></thead>
+                <thead><tr><th>Placa</th><th>Marca</th><th>Modelo</th><th>Tipo</th><th>Color</th><th>Repartidor</th><th>Seguro empresa</th><th>Venc. seguro</th><th>Estado</th></td></thead>
                 <tbody>
     `;
     

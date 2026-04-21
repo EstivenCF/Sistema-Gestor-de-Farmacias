@@ -54,13 +54,13 @@ $menu_por_rol = [
         'dashboard' => true,
         'ventas' => ['registrar_venta', 'historial_ventas', 'pagos'],
         'inventario' => ['medicamentos', 'categorias', 'presentaciones', 'laboratorios', 'principios_activos', 'lotes', 'stock', 'movimientos_inventario', 'vencimientos', 'alertas_stock', 'devoluciones', 'recall'],
-        'compras' => ['registrar_compra', 'historial_compras', 'proveedores', 'recepcion'],
+        'compras' => ['registrar_compra', 'historial_compras', 'proveedores'], // ← ELIMINADO 'recepcion'
         'clientes' => ['clientes'],
-        'delivery' => ['repartidores', 'entregas', 'vehiculos', 'tracking', 'incidencias_delivery'],
+        'delivery' => ['repartidores', 'vehiculos', 'tracking'],
         'caja' => ['apertura_caja', 'cierre_caja', 'movimientos_caja'],
         'ropa' => ['gestion_ropa', 'tipo_ropa', 'marcas', 'fabricantes', 'colores', 'tallas'],
         'administracion' => ['sucursales', 'empresa', 'usuarios', 'consulta_usuarios', 'roles', 'permisos_usuarios', 'desbloquear_usuarios', 'configuracion', 'ofertas', 'seguros_medicos'],
-        'seguridad' => ['sesiones', 'auditoria'], // ← Eliminado 'logs'
+        'seguridad' => ['sesiones', 'auditoria'],
         'reportes' => ['reporte_ventas', 'reporte_inventario', 'reporte_vencimientos', 'rentabilidad_medicamentos', 'rotacion_productos']
     ],
 
@@ -86,7 +86,7 @@ $menu_por_rol = [
 
     'Gestor Compras' => [
         'dashboard' => true,
-        'compras' => ['registrar_compra', 'historial_compras', 'proveedores', 'recepcion'],
+        'compras' => ['registrar_compra', 'historial_compras', 'proveedores'], // ← ELIMINADO 'recepcion'
         'inventario' => ['medicamentos', 'lotes', 'stock'],
         'reportes' => ['reporte_inventario'],
     ]
@@ -479,10 +479,7 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                                 <?php if (in_array('proveedores', $menu_por_rol[$rol_usuario]['compras'])): ?>
                                     <li><a href="menuprincipal.php?mod=proveedores" class="nav-link dropdown-link"><span class="material-symbols-rounded">badge</span> Proveedores</a></li>
                                 <?php endif; ?>
-                                <!-- ✅ NUEVO: Recepcion -->
-                                <?php if (in_array('recepcion', $menu_por_rol[$rol_usuario]['compras'])): ?>
-                                    <li><a href="menuprincipal.php?mod=recepcion" class="nav-link dropdown-link"><span class="material-symbols-rounded">inbox</span> Recepción</a></li>
-                                <?php endif; ?>
+                                <!-- ✅ ELIMINADA LA OPCIÓN "RECEPCIÓN" -->
                             </ul>
                         </li>
                     <?php endif; ?>
@@ -499,7 +496,6 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                                 <?php if (in_array('clientes', $menu_por_rol[$rol_usuario]['clientes'])): ?>
                                     <li><a href="menuprincipal.php?mod=clientes" class="nav-link dropdown-link"><span class="material-symbols-rounded">person</span> Lista de Clientes</a></li>
                                 <?php endif; ?>
-                                <!-- Opción "Historial" eliminada -->
                             </ul>
                         </li>
                     <?php endif; ?>
@@ -516,17 +512,11 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                                 <?php if (in_array('repartidores', $menu_por_rol[$rol_usuario]['delivery'])): ?>
                                     <li><a href="menuprincipal.php?mod=repartidores" class="nav-link dropdown-link"><span class="material-symbols-rounded">person</span> Repartidores</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('entregas', $menu_por_rol[$rol_usuario]['delivery'])): ?>
-                                    <li><a href="menuprincipal.php?mod=entregas" class="nav-link dropdown-link"><span class="material-symbols-rounded">inventory_2</span> Entregas</a></li>
-                                <?php endif; ?>
                                 <?php if (in_array('vehiculos', $menu_por_rol[$rol_usuario]['delivery'])): ?>
                                     <li><a href="menuprincipal.php?mod=vehiculos" class="nav-link dropdown-link"><span class="material-symbols-rounded">directions_car</span> Vehículos</a></li>
                                 <?php endif; ?>
                                 <?php if (in_array('tracking', $menu_por_rol[$rol_usuario]['delivery'])): ?>
                                     <li><a href="menuprincipal.php?mod=tracking" class="nav-link dropdown-link"><span class="material-symbols-rounded">location_on</span> Tracking</a></li>
-                                <?php endif; ?>
-                                <?php if (in_array('incidencias_delivery', $menu_por_rol[$rol_usuario]['delivery'])): ?>
-                                    <li><a href="menuprincipal.php?mod=incidencias_delivery" class="nav-link dropdown-link"><span class="material-symbols-rounded">report_problem</span> Incidencias</a></li>
                                 <?php endif; ?>
                             </ul>
                         </li>
@@ -640,7 +630,6 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                                 <?php if (in_array('auditoria', $menu_por_rol[$rol_usuario]['seguridad'])): ?>
                                     <li><a href="menuprincipal.php?mod=auditoria" class="nav-link dropdown-link"><span class="material-symbols-rounded">policy</span> Auditoría</a></li>
                                 <?php endif; ?>
-                                <!-- El enlace a Logs ha sido eliminado -->
                             </ul>
                         </li>
                     <?php endif; ?>
@@ -821,10 +810,8 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
             const sidebar = document.querySelector('.sidebar');
             const mainContent = document.querySelector('.main-content');
             if (sidebar && mainContent) {
-                // Remover clase collapsed
                 sidebar.classList.remove('collapsed');
                 mainContent.classList.remove('sidebar-collapsed');
-                // Guardar estado expandido en localStorage
                 localStorage.setItem('sidebarStatus', 'expanded');
             }
         })();

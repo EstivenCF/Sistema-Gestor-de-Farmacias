@@ -15,7 +15,7 @@ require_once $base_path . '/backend/queries/index.php';
 
 $base_url = '/Sistema-Gestor-de-Farmacias';
 
-// Obtener sucursales para el select
+// Obtener sucursales para el select (solo para edición)
 $sucursales = [];
 try {
     $stmt = $conexion->query("SELECT id_sucursal, nombre FROM sucursales WHERE estado = true ORDER BY nombre");
@@ -55,11 +55,8 @@ try {
             <p class="text-muted mb-0">Administre los lotes de medicamentos y controle fechas de vencimiento</p>
         </div>
         <div>
-            <button type="button" class="btn btn-success shadow-sm" onclick="abrirModalNuevo()">
-                <span class="material-symbols-rounded align-middle me-1">add</span>
-                Nuevo Lote
-            </button>
-            <button type="button" class="btn btn-outline-success ms-2" onclick="exportarPDF()">
+            <!-- Botón "Nuevo Lote" eliminado -->
+            <button type="button" class="btn btn-outline-success shadow-sm" onclick="exportarPDF()">
                 <span class="material-symbols-rounded align-middle me-1">picture_as_pdf</span>
                 Exportar PDF
             </button>
@@ -203,14 +200,14 @@ try {
     </div>
 </div>
 
-<!-- MODAL PARA NUEVO/EDITAR LOTE -->
+<!-- MODAL PARA EDITAR LOTE (ya no se permite crear nuevo) -->
 <div class="modal fade" id="modalLote" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
             <div class="modal-header bg-success text-white p-4">
                 <h5 class="modal-title d-flex align-items-center" id="modalTitulo">
-                    <span class="material-symbols-rounded me-2">add_circle</span>
-                    Nuevo Lote
+                    <span class="material-symbols-rounded me-2">edit_square</span>
+                    Editar Lote
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
@@ -221,7 +218,7 @@ try {
                     <div class="row g-3">
                         <div class="col-md-12">
                             <label class="form-label fw-bold text-muted">MEDICAMENTO *</label>
-                            <select class="form-select form-control-lg border" id="medicamentoLote" required>
+                            <select class="form-select form-control-lg border" id="medicamentoLote" required disabled>
                                 <option value="">Seleccionar medicamento...</option>
                             </select>
                             <div class="invalid-feedback">Debe seleccionar un medicamento</div>
@@ -229,7 +226,7 @@ try {
                         
                         <div class="col-md-6">
                             <label class="form-label fw-bold text-muted">NÚMERO DE LOTE *</label>
-                            <input type="text" class="form-control border" id="numeroLote" required placeholder="Ej: L-001-2024">
+                            <input type="text" class="form-control border" id="numeroLote" required placeholder="Ej: L-001-2024" readonly>
                             <div class="invalid-feedback">El número de lote es obligatorio</div>
                         </div>
                         
@@ -241,30 +238,30 @@ try {
                         
                         <div class="col-md-4">
                             <label class="form-label fw-bold text-muted">CANTIDAD INICIAL *</label>
-                            <input type="number" class="form-control border" id="cantidadInicial" required min="1" placeholder="0">
+                            <input type="number" class="form-control border" id="cantidadInicial" required min="1" placeholder="0" readonly>
                             <div class="invalid-feedback">La cantidad inicial es obligatoria y debe ser mayor a 0</div>
-                            <small class="text-muted">Unidades que ingresan a inventario</small>
+                            <small class="text-muted">Unidades que ingresaron al inventario</small>
                         </div>
                         
                         <div class="col-md-4">
                             <label class="form-label fw-bold text-muted">COSTO DEL LOTE *</label>
                             <div class="input-group">
                                 <span class="input-group-text bg-success text-white">RD$</span>
-                                <input type="number" step="0.01" class="form-control border" id="costoLote" required placeholder="0.00">
+                                <input type="number" step="0.01" class="form-control border" id="costoLote" required placeholder="0.00" readonly>
                             </div>
                             <div class="invalid-feedback">El costo del lote es obligatorio</div>
                             <small class="text-muted">Costo total de compra de este lote</small>
                         </div>
                         
                         <div class="col-md-4">
-                            <label class="form-label fw-bold text-muted">SUCURSAL DESTINO *</label>
-                            <select class="form-select border" id="sucursalLote" required>
+                            <label class="form-label fw-bold text-muted">SUCURSAL DESTINO</label>
+                            <select class="form-select border" id="sucursalLote" disabled>
                                 <option value="">Seleccionar sucursal...</option>
                                 <?php foreach ($sucursales as $suc): ?>
                                     <option value="<?php echo $suc['id_sucursal']; ?>"><?php echo htmlspecialchars($suc['nombre']); ?></option>
                                 <?php endforeach; ?>
                             </select>
-                            <div class="invalid-feedback">Debe seleccionar una sucursal</div>
+                            <small class="text-muted">Sucursal donde se recibió el lote</small>
                         </div>
                         
                         <div class="col-md-6">
@@ -305,7 +302,7 @@ try {
             </div>
             <div class="modal-footer border-0 p-4 pt-0 d-flex justify-content-end gap-3">
                 <button type="button" class="btn btn-cancelar" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-success px-5 fw-bold shadow-sm" onclick="guardarLote()">Guardar Lote</button>
+                <button type="button" class="btn btn-success px-5 fw-bold shadow-sm" onclick="guardarLote()">Guardar Cambios</button>
             </div>
         </div>
     </div>
@@ -387,19 +384,15 @@ document.addEventListener('DOMContentLoaded', function() {
             keyboard: true
         });
         
-        // Limpiar campo loteId cuando se cierra el modal (importante)
+        // Limpiar campo loteId cuando se cierra el modal
         elLote.addEventListener('hidden.bs.modal', function() {
             document.getElementById('loteId').value = '';
             document.getElementById('formLote').reset();
-            // También resetear estado visual
             document.getElementById('estadoLote').value = 'ACTIVO';
             document.getElementById('estadoLote').setAttribute('data-estado-anterior', 'ACTIVO');
             document.getElementById('divMotivoCambio').style.display = 'none';
             document.getElementById('motivoCambio').value = '';
             document.getElementById('motivoCambio').required = false;
-            document.getElementById('cantidadInicial').disabled = false;
-            document.getElementById('costoLote').disabled = false;
-            document.getElementById('sucursalLote').disabled = false;
         });
     }
     if (elDetalles) {
@@ -441,6 +434,7 @@ document.addEventListener('DOMContentLoaded', function() {
         cargarLotes();
     });
     
+    // Cargar medicamentos solo para mostrar en edición (select deshabilitado)
     cargarMedicamentosSelect();
     cargarLotes();
     actualizarEstadisticas();
@@ -457,10 +451,6 @@ function scrollAlModal() {
             });
         }
     }, 200);
-}
-
-function abrirModalCentrado(modal) {
-    modal.show();
 }
 
 function cargarMedicamentosSelect() {
@@ -570,7 +560,7 @@ function renderizarTabla(lotes) {
             <td class="${fechaVen < hoy ? 'text-danger fw-bold' : (fechaVen <= new Date(hoy.getTime() + 30 * 24 * 60 * 60 * 1000) ? 'text-warning fw-bold' : '')}">
                 ${formatDate(l.fecha_vencimiento)}
                 ${fechaVen < hoy ? '<br><small class="text-danger">VENCIDO</small>' : ''}
-            </td>
+             </td>
             <td>${estadoBadge}</td>
             <td>${stockBadge}</td>
             <td>${l.costo_lote ? `RD$ ${formatNum(l.costo_lote)}` : '-'}</td>
@@ -587,7 +577,7 @@ function renderizarTabla(lotes) {
                         <span class="material-symbols-rounded">delete</span>
                     </button>
                 </div>
-            </td>
+             </td>
         </tr>`;
     });
     tbody.innerHTML = html;
@@ -668,37 +658,7 @@ function marcarVencidos() {
     });
 }
 
-function abrirModalNuevo() {
-    // Limpiar completamente el campo oculto y el formulario
-    document.getElementById('modalTitulo').innerHTML = '<span class="material-symbols-rounded me-2">add_circle</span> Nuevo Lote';
-    document.getElementById('formLote').reset();
-    
-    // Forzar limpieza del ID del lote
-    const loteIdField = document.getElementById('loteId');
-    loteIdField.value = '';
-    loteIdField.removeAttribute('value');
-    delete loteIdField.dataset.id;
-    
-    // Resetear campos específicos
-    document.getElementById('estadoLote').value = 'ACTIVO';
-    document.getElementById('estadoLote').setAttribute('data-estado-anterior', 'ACTIVO');
-    document.getElementById('cantidadInicial').value = '';
-    document.getElementById('cantidadInicial').disabled = false;
-    document.getElementById('costoLote').value = '';
-    document.getElementById('costoLote').disabled = false;
-    document.getElementById('costoLote').readOnly = false;
-    document.getElementById('sucursalLote').disabled = false;
-    document.getElementById('divMotivoCambio').style.display = 'none';
-    document.getElementById('motivoCambio').value = '';
-    document.getElementById('motivoCambio').required = false;
-    
-    // Limpiar validaciones
-    const camposInvalidos = document.querySelectorAll('.is-invalid');
-    camposInvalidos.forEach(campo => campo.classList.remove('is-invalid'));
-    
-    abrirModalCentrado(modalLote);
-}
-
+// Función para editar lote (solo se usa para edición, no para crear nuevo)
 function editarLote(id) {
     Swal.fire({ title: 'Cargando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
     
@@ -714,16 +674,18 @@ function editarLote(id) {
                 document.getElementById('numeroLote').value = l.numero_lote;
                 document.getElementById('fechaVencimiento').value = l.fecha_vencimiento;
                 document.getElementById('cantidadInicial').value = l.cantidad_inicial || '';
-                document.getElementById('cantidadInicial').disabled = true;
                 document.getElementById('costoLote').value = l.costo_lote || '';
-                document.getElementById('costoLote').disabled = true;
-                document.getElementById('costoLote').readOnly = true;
                 document.getElementById('codigoBarras').value = l.codigo_barras || '';
                 document.getElementById('ubicacion').value = l.ubicacion || '';
                 document.getElementById('estadoLote').value = l.estado;
                 document.getElementById('estadoLote').setAttribute('data-estado-anterior', l.estado);
                 document.getElementById('observacionesLote').value = l.observaciones || '';
-                document.getElementById('sucursalLote').disabled = true;
+                // La sucursal se muestra pero no se puede editar (solo informativa)
+                if (l.id_sucursal_principal) {
+                    document.getElementById('sucursalLote').value = l.id_sucursal_principal;
+                } else {
+                    document.getElementById('sucursalLote').value = '';
+                }
                 document.getElementById('divMotivoCambio').style.display = 'none';
                 document.getElementById('motivoCambio').value = '';
                 document.getElementById('motivoCambio').required = false;
@@ -740,24 +702,14 @@ function editarLote(id) {
 }
 
 function guardarLote() {
+    const loteId = document.getElementById('loteId').value;
+    if (!loteId) {
+        Swal.fire('Error', 'No se permite crear nuevos lotes manualmente. Los lotes se crean automáticamente al recibir compras.', 'error');
+        return;
+    }
+    
     const camposInvalidos = document.querySelectorAll('.is-invalid');
     camposInvalidos.forEach(campo => campo.classList.remove('is-invalid'));
-    
-    const idMedicamento = document.getElementById('medicamentoLote').value;
-    if (!idMedicamento) {
-        document.getElementById('medicamentoLote').classList.add('is-invalid');
-        Swal.fire('Error', 'Debe seleccionar un medicamento', 'error');
-        document.getElementById('medicamentoLote').focus();
-        return;
-    }
-    
-    const numeroLote = document.getElementById('numeroLote').value.trim();
-    if (!numeroLote) {
-        document.getElementById('numeroLote').classList.add('is-invalid');
-        Swal.fire('Error', 'El número de lote es obligatorio', 'error');
-        document.getElementById('numeroLote').focus();
-        return;
-    }
     
     const fechaVencimiento = document.getElementById('fechaVencimiento').value;
     if (!fechaVencimiento) {
@@ -767,36 +719,11 @@ function guardarLote() {
         return;
     }
     
-    const cantidadInicial = document.getElementById('cantidadInicial').value;
-    if (!cantidadInicial || parseInt(cantidadInicial) <= 0) {
-        document.getElementById('cantidadInicial').classList.add('is-invalid');
-        Swal.fire('Error', 'La cantidad inicial debe ser mayor a 0', 'error');
-        document.getElementById('cantidadInicial').focus();
-        return;
-    }
-    
-    const costoLote = document.getElementById('costoLote').value;
-    if (!costoLote || parseFloat(costoLote) <= 0) {
-        document.getElementById('costoLote').classList.add('is-invalid');
-        Swal.fire('Error', 'El costo del lote debe ser mayor a 0', 'error');
-        document.getElementById('costoLote').focus();
-        return;
-    }
-    
-    const sucursal = document.getElementById('sucursalLote').value;
-    if (!sucursal && !document.getElementById('loteId').value) {
-        document.getElementById('sucursalLote').classList.add('is-invalid');
-        Swal.fire('Error', 'Debe seleccionar una sucursal destino', 'error');
-        document.getElementById('sucursalLote').focus();
-        return;
-    }
-    
-    const loteId = document.getElementById('loteId').value;
     const estadoAnterior = document.getElementById('estadoLote').getAttribute('data-estado-anterior');
     const estadoNuevo = document.getElementById('estadoLote').value;
     const motivoCambio = document.getElementById('motivoCambio').value;
     
-    if (loteId && estadoAnterior && estadoAnterior !== estadoNuevo && !motivoCambio) {
+    if (estadoAnterior && estadoAnterior !== estadoNuevo && !motivoCambio) {
         document.getElementById('motivoCambio').classList.add('is-invalid');
         Swal.fire('Error', 'Debe especificar un motivo para cambiar el estado del lote', 'error');
         document.getElementById('motivoCambio').focus();
@@ -804,22 +731,14 @@ function guardarLote() {
     }
     
     const datos = {
-        id_lote: loteId ? parseInt(loteId) : null,
-        id_medicamento: parseInt(idMedicamento),
-        numero_lote: numeroLote,
+        id_lote: parseInt(loteId),
         fecha_vencimiento: fechaVencimiento,
-        cantidad_inicial: parseInt(cantidadInicial),
-        costo_lote: parseFloat(costoLote),
         codigo_barras: document.getElementById('codigoBarras').value,
         ubicacion: document.getElementById('ubicacion').value,
         observaciones: document.getElementById('observacionesLote').value,
         estado: estadoNuevo,
-        motivo_cambio: motivoCambio,
-        id_sucursal: sucursal ? parseInt(sucursal) : null
+        motivo_cambio: motivoCambio
     };
-    
-    // Opcional: depuración
-    console.log("Enviando datos:", datos);
     
     Swal.fire({ title: 'Guardando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
     
@@ -832,7 +751,7 @@ function guardarLote() {
     .then(data => {
         Swal.close();
         if (data.success) {
-            Swal.fire({ icon: 'success', title: datos.id_lote ? '¡Actualizado!' : '¡Creado!', text: data.message, timer: 1500, showConfirmButton: false })
+            Swal.fire({ icon: 'success', title: '¡Actualizado!', text: data.message, timer: 1500, showConfirmButton: false })
             .then(() => {
                 modalLote.hide();
                 cargarLotes();
@@ -873,7 +792,7 @@ function verDetalles(id) {
                                     <tbody>
                                         ${l.stock_por_sucursal.map(s => `<tr><td><strong>${escapeHtml(s.sucursal_nombre)}</strong></td><td><small>${escapeHtml(s.direccion || '-')}</small></td><td class="text-center"><span class="badge ${s.cantidad > 0 ? 'bg-success' : 'bg-secondary'}">${s.cantidad} unidades</span></td><td class="text-center">${escapeHtml(s.telefono || '-')}</td></tr>`).join('')}
                                     </tbody>
-                                    <tfoot class="bg-light"><tr><td colspan="2"><strong>TOTAL GENERAL</strong></td><td class="text-center"><strong class="text-success">${l.stock_total || 0} unidades</strong></td><td></td></tr>
+                                    <tfoot class="bg-light"><tr><td colspan="2"><strong>TOTAL GENERAL</strong></td><td class="text-center"><strong class="text-success">${l.stock_total || 0} unidades</strong></td><td></td></tr></tfoot>
                                 </table>
                             </div>
                         </div>
@@ -1039,7 +958,7 @@ function exportarIndividualPDF() {
                 <td style="border:1px solid #dee2e6; padding:6px;">${escapeHtml(s.direccion || '-')}</td>
                 <td style="border:1px solid #dee2e6; padding:6px; text-align:center;">${s.cantidad}</td>
                 <td style="border:1px solid #dee2e6; padding:6px;">${escapeHtml(s.telefono || '-')}</td>
-            </table>`;
+            </tr>`;
         });
     } else {
         stockRows = `<tr><td colspan="4" style="border:1px solid #dee2e6; padding:6px; text-align:center;">Sin stock registrado</td></tr>`;
@@ -1202,6 +1121,11 @@ function eliminarLote(id, numeroLote) {
             .catch(() => { Swal.close(); Swal.fire('Error de conexión', '', 'error'); });
         }
     });
+}
+
+function abrirModalCentrado(modal) {
+    modal.show();
+    scrollAlModal();
 }
 
 function formatDate(dateStr) {
