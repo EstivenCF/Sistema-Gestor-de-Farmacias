@@ -204,6 +204,58 @@ CREATE TABLE IF NOT EXISTS ropa_detalle (
     id_talla INT REFERENCES tallas(id_talla)
 );
 
+select * from tipo_ropa
+
+-- Verificar columnas de detalle_venta
+SELECT column_name, data_type 
+FROM information_schema.columns 
+WHERE table_name = 'detalle_venta' 
+ORDER BY ordinal_position;
+
+-- =============================================
+-- 2. INSERCIÓN DE DATOS (ENFOQUE MÉDICO)
+-- =============================================
+
+TRUNCATE TABLE tipo_ropa RESTART IDENTITY CASCADE;
+
+-- Tipos de prendas clínicas
+INSERT INTO tipo_ropa (nombre, descripcion) VALUES
+('Uniforme Médico', 'Batas, pijamas y uniformes para personal médico'),
+('Maternidad', 'Ropa para embarazadas y lactancia'),
+('Ortopedia', 'Fajas, soportes y prendas ortopédicas'),
+('Calzado', 'Zapatos clínicos y ortopédicos'),
+('Accesorios', 'Gorros, mascarillas y otros accesorios');
+
+-- Marcas reconocidas en el sector salud
+INSERT INTO marcas (nombre, descripcion) VALUES
+('Figs', 'Línea premium de scrubs con diseño técnico.'),
+('Cherokee', 'Estándar mundial en uniformes de alta durabilidad.'),
+('Dickies Medical', 'Ropa de trabajo médica funcional y resistente.'),
+('Grey’s Anatomy', 'Uniformes de tela suave y diseño elegante para profesionales.'),
+('Healing Hands', 'Marca enfocada en comodidad y telas elásticas.');
+
+-- Fabricantes de textiles médicos
+INSERT INTO fabricantes (nombre, pais, contacto) VALUES
+('Medline Industries', 'Estados Unidos', 'sales@medline.com'),
+('Barco Uniforms', 'Estados Unidos', 'info@barcouniforms.com'),
+('Textiles Médicos S.A.', 'Colombia', 'ventas@textilesmedicos.co'),
+('Global Scrub Corp', 'México', 'contacto@globalscrub.mx'),
+('EuroUniforms', 'España', 'atencion@eurouniforms.es');
+
+-- Colores institucionales y de especialidad
+INSERT INTO colores (nombre) VALUES
+('Azul Navy'),
+('Azul Quirúrgico'),
+('Verde Caribe'),
+('Blanco Clínico'),
+('Gris Oxford'),
+('Vino (Burgundy)'),
+('Verde Quirúrgico');
+
+-- Tallas estándar
+INSERT INTO tallas (nombre) VALUES
+('XXS'), ('XS'), ('S'), ('M'), ('L'), ('XL'), ('XXL');
+
 CREATE TABLE IF NOT EXISTS clientes (
     id_cliente SERIAL PRIMARY KEY,
     nombre VARCHAR(150) NOT NULL,
@@ -455,14 +507,6 @@ CREATE TABLE IF NOT EXISTS inventario (
     UNIQUE(id_lote, id_sucursal)
 );
 
-CREATE TABLE IF NOT EXISTS inventario_productos (
-    id_inventario SERIAL PRIMARY KEY,
-    id_producto INT REFERENCES productos(id_producto),
-    id_sucursal INT REFERENCES sucursales(id_sucursal),
-    cantidad INT DEFAULT 0,
-    UNIQUE(id_producto, id_sucursal)
-);
-
 CREATE TABLE IF NOT EXISTS movimiento_inventario (
     id_movimiento SERIAL PRIMARY KEY,
     id_lote INT REFERENCES lotes(id_lote),
@@ -475,6 +519,315 @@ CREATE TABLE IF NOT EXISTS movimiento_inventario (
     id_usuario INT REFERENCES usuarios(id_usuario),
     observaciones TEXT
 );
+
+CREATE TABLE IF NOT EXISTS inventario_productos (
+    id_inventario SERIAL PRIMARY KEY,
+    id_producto INT REFERENCES productos(id_producto),
+    id_sucursal INT REFERENCES sucursales(id_sucursal),
+    cantidad INT DEFAULT 0,
+    UNIQUE(id_producto, id_sucursal)
+);
+
+-- =============================================================================
+-- MEJORA DE inventario_productos PARA SOPORTAR ROPA CON TALLAS Y COLORES
+-- =============================================================================
+
+-- 1. Extender inventario_productos con campos para talla, color y controles de stock
+ALTER TABLE inventario_productos 
+ADD COLUMN IF NOT EXISTS id_talla INT REFERENCES tallas(id_talla),
+ADD COLUMN IF NOT EXISTS id_color INT REFERENCES colores(id_color),
+ADD COLUMN IF NOT EXISTS stock_minimo INT DEFAULT 2,
+ADD COLUMN IF NOT EXISTS stock_maximo INT DEFAULT 50,
+ADD COLUMN IF NOT EXISTS punto_reorden INT DEFAULT 5;
+
+-- 2. Modificar la UNIQUE constraint para incluir talla y color
+-- (Primero eliminar la existente, luego crear una nueva)
+ALTER TABLE inventario_productos DROP CONSTRAINT IF EXISTS inventario_productos_id_producto_id_sucursal_key;
+ALTER TABLE inventario_productos ADD CONSTRAINT inventario_productos_unique 
+UNIQUE (id_producto, id_sucursal, id_talla, id_color);
+
+-- 3. Crear tabla de movimientos para inventario_productos (auditoría)
+CREATE TABLE IF NOT EXISTS movimiento_inventario_productos (
+    id_movimiento SERIAL PRIMARY KEY,
+    id_producto INT REFERENCES productos(id_producto),
+    id_sucursal INT REFERENCES sucursales(id_sucursal),
+    id_talla INT REFERENCES tallas(id_talla),
+    id_color INT REFERENCES colores(id_color),
+    tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('ENTRADA', 'SALIDA', 'AJUSTE', 'TRANSFERENCIA')),
+    cantidad INT NOT NULL,
+    fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    motivo TEXT,
+    referencia VARCHAR(100),
+    id_usuario INT REFERENCES usuarios(id_usuario),
+    observaciones TEXT
+);
+
+-- 4. Función para actualizar stock de productos al recibir una compra
+-- . Trigger para ROPA (solo cuando hay id_producto y NO hay lote)
+CREATE OR REPLACE FUNCTION trg_compra_actualiza_inventario_productos()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_sucursal INT;
+    v_usuario INT;
+BEGIN
+    -- Validar que es ropa (tiene producto y NO tiene lote)
+    IF NEW.id_producto IS NULL OR NEW.id_lote IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+    
+    -- Validar cantidad
+    IF NEW.cantidad_recibida <= 0 THEN
+        RETURN NEW;
+    END IF;
+    
+    -- Obtener sucursal y usuario
+    SELECT id_sucursal, id_usuario INTO v_sucursal, v_usuario
+    FROM compras WHERE id_compra = NEW.id_compra;
+    
+    -- Solo registrar auditoría (NO actualizar inventario)
+    INSERT INTO movimiento_inventario_productos (
+        id_producto, id_sucursal, id_talla, id_color, tipo, 
+        cantidad, motivo, referencia, id_usuario
+    ) VALUES (
+        NEW.id_producto, v_sucursal, NEW.id_talla, NEW.id_color, 'ENTRADA',
+        NEW.cantidad_recibida, 'Compra de proveedor', NEW.id_compra::VARCHAR, v_usuario
+    );
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Recrear trigger SOLO para ropa
+DROP TRIGGER IF EXISTS tg_detalle_compra_productos_ai ON detalle_compra;
+CREATE TRIGGER tg_detalle_compra_productos_ai 
+AFTER INSERT OR UPDATE OF cantidad_recibida ON detalle_compra
+FOR EACH ROW
+WHEN (NEW.id_producto IS NOT NULL AND NEW.id_lote IS NULL AND NEW.cantidad_recibida > 0)
+EXECUTE FUNCTION trg_compra_actualiza_inventario_productos();
+
+
+-- 1. Encuentra los duplicados
+SELECT id_producto, id_sucursal, COUNT(*), SUM(cantidad)
+FROM inventario_productos
+GROUP BY id_producto, id_sucursal
+HAVING COUNT(*) > 1;
+
+-- 2. Elimina los duplicados (deja solo uno por producto/sucursal)
+DELETE FROM inventario_productos a
+USING inventario_productos b
+WHERE a.id_inventario < b.id_inventario
+  AND a.id_producto = b.id_producto
+  AND a.id_sucursal = b.id_sucursal;
+  
+
+-- 5. Extender detalle_compra para soportar productos (ropa)
+ALTER TABLE detalle_compra 
+ADD COLUMN IF NOT EXISTS id_producto INT REFERENCES productos(id_producto),
+ADD COLUMN IF NOT EXISTS id_talla INT REFERENCES tallas(id_talla),
+ADD COLUMN IF NOT EXISTS id_color INT REFERENCES colores(id_color);
+
+
+
+-- 7. Función para actualizar stock de productos al vender
+-- =====================================================
+-- CORRECCIÓN PARA ROPA (SOLO VALIDAR, NO ACTUALIZAR)
+-- =====================================================
+
+-- 1. Reemplazar la función para que solo valide stock
+CREATE OR REPLACE FUNCTION trg_venta_actualiza_inventario_productos()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_usuario INTEGER;
+    v_sucursal INTEGER;
+    v_cantidad_actual INTEGER;
+BEGIN
+    -- Validar cantidad
+    IF NEW.cantidad IS NULL OR NEW.cantidad <= 0 THEN
+        RAISE EXCEPTION 'Cantidad inválida: %', NEW.cantidad;
+    END IF;
+
+    -- Obtener usuario y sucursal desde la venta
+    SELECT id_usuario, id_sucursal
+    INTO v_usuario, v_sucursal
+    FROM ventas
+    WHERE id_venta = NEW.id_venta;
+
+    IF v_sucursal IS NULL THEN
+        RAISE EXCEPTION 'Venta no encontrada o sin sucursal';
+    END IF;
+
+    -- ✅ Buscar stock SIN considerar talla y color (solo producto y sucursal)
+    SELECT COALESCE(SUM(cantidad), 0) INTO v_cantidad_actual
+    FROM inventario_productos
+    WHERE id_producto = NEW.id_producto 
+      AND id_sucursal = v_sucursal;
+
+    IF v_cantidad_actual = 0 THEN
+        RAISE EXCEPTION 'No existe inventario para el producto % en sucursal %', NEW.id_producto, v_sucursal;
+    END IF;
+
+    -- Validar stock suficiente
+    IF v_cantidad_actual < NEW.cantidad THEN
+        RAISE EXCEPTION 'Stock insuficiente. Disponible: %, requerido: %',
+            v_cantidad_actual, NEW.cantidad;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+
+
+-- 8. Extender detalle_venta para soportar productos (ropa)
+ALTER TABLE detalle_venta 
+ADD COLUMN IF NOT EXISTS id_talla INT REFERENCES tallas(id_talla),
+ADD COLUMN IF NOT EXISTS id_color INT REFERENCES colores(id_color);
+
+-- 9. Trigger para ventas de productos (ropa)
+DROP TRIGGER IF EXISTS tg_detalle_venta_productos_ai ON detalle_venta;
+CREATE TRIGGER tg_detalle_venta_productos_ai
+AFTER INSERT ON detalle_venta
+FOR EACH ROW
+WHEN (NEW.id_producto IS NOT NULL AND NEW.id_lote IS NULL)
+EXECUTE FUNCTION trg_venta_actualiza_inventario_productos();
+
+-- 10. Vista unificada de inventario (medicamentos + productos)
+CREATE OR REPLACE VIEW vista_inventario_unificado AS
+-- Medicamentos (con lotes)
+SELECT 
+    'MEDICAMENTO' AS tipo,
+    m.id_medicamento AS id_item,
+    m.nombre_completo AS nombre,
+    l.numero_lote,
+    l.fecha_vencimiento,
+    NULL AS talla,
+    NULL AS color,
+    i.cantidad,
+    m.stock_minimo,
+    i.id_sucursal,
+    s.nombre AS sucursal,
+    CASE 
+        WHEN l.fecha_vencimiento < CURRENT_DATE THEN 'VENCIDO'
+        WHEN l.fecha_vencimiento <= CURRENT_DATE + INTERVAL '30 days' THEN 'PROXIMO A VENCER'
+        WHEN i.cantidad <= m.stock_minimo THEN 'STOCK_CRITICO'
+        ELSE 'NORMAL'
+    END AS estado_alerta
+FROM inventario i
+JOIN lotes l ON i.id_lote = l.id_lote
+JOIN medicamentos m ON l.id_medicamento = m.id_medicamento
+JOIN sucursales s ON i.id_sucursal = s.id_sucursal
+
+UNION ALL
+
+-- Productos (ropa, etc.)
+SELECT 
+    'PRODUCTO' AS tipo,
+    p.id_producto AS id_item,
+    p.nombre AS nombre,
+    NULL AS numero_lote,
+    NULL AS fecha_vencimiento,
+    t.nombre AS talla,
+    c.nombre AS color,
+    ip.cantidad,
+    COALESCE(ip.stock_minimo, 2) AS stock_minimo,
+    ip.id_sucursal,
+    s.nombre AS sucursal,
+    CASE 
+        WHEN ip.cantidad <= COALESCE(ip.stock_minimo, 2) THEN 'STOCK_CRITICO'
+        WHEN ip.cantidad <= COALESCE(ip.punto_reorden, 5) THEN 'STOCK_BAJO'
+        ELSE 'NORMAL'
+    END AS estado_alerta
+FROM inventario_productos ip
+JOIN productos p ON ip.id_producto = p.id_producto
+JOIN sucursales s ON ip.id_sucursal = s.id_sucursal
+LEFT JOIN tallas t ON ip.id_talla = t.id_talla
+LEFT JOIN colores c ON ip.id_color = c.id_color
+WHERE p.tipo_producto = 'ROPA';
+
+-- 11. Función para obtener stock unificado
+CREATE OR REPLACE FUNCTION obtener_stock_unificado(
+    p_tipo VARCHAR,
+    p_id_item INT,
+    p_id_sucursal INT,
+    p_id_talla INT DEFAULT NULL,
+    p_id_color INT DEFAULT NULL
+)
+RETURNS INT AS $$
+DECLARE
+    v_stock INT;
+BEGIN
+    IF p_tipo = 'MEDICAMENTO' THEN
+        -- Buscar stock de medicamento (sumando todos los lotes activos)
+        SELECT COALESCE(SUM(i.cantidad), 0) INTO v_stock
+        FROM inventario i
+        JOIN lotes l ON i.id_lote = l.id_lote
+        WHERE l.id_medicamento = p_id_item
+          AND i.id_sucursal = p_id_sucursal
+          AND l.estado = 'ACTIVO'
+          AND l.fecha_vencimiento >= CURRENT_DATE;
+    ELSE
+        -- Buscar stock de producto (ropa)
+        SELECT COALESCE(SUM(cantidad), 0) INTO v_stock
+        FROM inventario_productos
+        WHERE id_producto = p_id_item
+          AND id_sucursal = p_id_sucursal
+          AND (p_id_talla IS NULL OR id_talla = p_id_talla)
+          AND (p_id_color IS NULL OR id_color = p_id_color);
+    END IF;
+    
+    RETURN v_stock;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 12. Función para generar alertas de stock (unificada)
+CREATE OR REPLACE FUNCTION generar_alertas_stock_unificado()
+RETURNS TABLE (
+    tipo_alerta VARCHAR(50),
+    item_nombre VARCHAR(200),
+    sucursal VARCHAR(100),
+    cantidad INT,
+    stock_minimo INT,
+    talla VARCHAR(10),
+    color VARCHAR(30)
+) AS $$
+BEGIN
+    -- Alertas de medicamentos
+    RETURN QUERY
+    SELECT 
+        'STOCK_CRITICO_MEDICAMENTO'::VARCHAR(50),
+        m.nombre_completo::VARCHAR(200),
+        s.nombre::VARCHAR(100),
+        i.cantidad::INT,
+        m.stock_minimo::INT,
+        NULL::VARCHAR(10),
+        NULL::VARCHAR(30)
+    FROM inventario i
+    JOIN lotes l ON i.id_lote = l.id_lote
+    JOIN medicamentos m ON l.id_medicamento = m.id_medicamento
+    JOIN sucursales s ON i.id_sucursal = s.id_sucursal
+    WHERE l.estado = 'ACTIVO' 
+      AND l.fecha_vencimiento >= CURRENT_DATE
+      AND i.cantidad <= m.stock_minimo;
+    
+    -- Alertas de productos (ropa)
+    RETURN QUERY
+    SELECT 
+        'STOCK_CRITICO_PRODUCTO'::VARCHAR(50),
+        p.nombre::VARCHAR(200),
+        s.nombre::VARCHAR(100),
+        ip.cantidad::INT,
+        COALESCE(ip.stock_minimo, 2)::INT,
+        t.nombre::VARCHAR(10),
+        c.nombre::VARCHAR(30)
+    FROM inventario_productos ip
+    JOIN productos p ON ip.id_producto = p.id_producto
+    JOIN sucursales s ON ip.id_sucursal = s.id_sucursal
+    LEFT JOIN tallas t ON ip.id_talla = t.id_talla
+    LEFT JOIN colores c ON ip.id_color = c.id_color
+    WHERE p.tipo_producto = 'ROPA'
+      AND ip.cantidad <= COALESCE(ip.stock_minimo, 2);
+END;
+$$ LANGUAGE plpgsql;
 
 CREATE TABLE IF NOT EXISTS historial_estado_lote (
     id_historial SERIAL PRIMARY KEY,
@@ -1598,55 +1951,181 @@ CREATE TRIGGER tg_actualizar_stock_lote
 AFTER INSERT OR UPDATE OR DELETE ON inventario
 FOR EACH ROW EXECUTE FUNCTION actualizar_stock_lote();
 
+
+
+-- =====================================================
+-- CORRECCIÓN COMPLETA PARA COMPRAS (MEDICAMENTOS Y ROPA)
+-- =====================================================
+
+-- 1. Trigger para MEDICAMENTOS (solo cuando hay id_lote)
 CREATE OR REPLACE FUNCTION trg_compra_actualiza_inventario()
 RETURNS TRIGGER AS $$
 DECLARE
     v_sucursal INT;
     v_usuario INT;
 BEGIN
+    -- Validar cantidad
     IF NEW.cantidad <= 0 THEN
-        RAISE EXCEPTION 'Cantidad inválida en compra';
+        RAISE EXCEPTION 'Cantidad inválida en compra: %', NEW.cantidad;
     END IF;
-    SELECT id_sucursal, id_usuario INTO v_sucursal, v_usuario FROM compras WHERE id_compra = NEW.id_compra;
-    INSERT INTO inventario (id_lote, id_sucursal, cantidad)
-    VALUES (NEW.id_lote, v_sucursal, NEW.cantidad)
-    ON CONFLICT (id_lote, id_sucursal) DO UPDATE SET cantidad = inventario.cantidad + NEW.cantidad;
-    PERFORM registrar_movimiento_inventario(NEW.id_lote, v_sucursal, 'ENTRADA', NEW.cantidad, 'Compra de proveedor', NEW.id_compra::VARCHAR, v_usuario);
+    
+    -- Obtener sucursal y usuario de la compra
+    SELECT id_sucursal, id_usuario INTO v_sucursal, v_usuario 
+    FROM compras WHERE id_compra = NEW.id_compra;
+    
+    -- Validar que el lote existe
+    IF NOT EXISTS (SELECT 1 FROM lotes WHERE id_lote = NEW.id_lote) THEN
+        RAISE EXCEPTION 'El lote con ID % no existe', NEW.id_lote;
+    END IF;
+    
+    -- Solo registrar movimiento de auditoría (NO actualizar inventario)
+    INSERT INTO movimiento_inventario (
+        id_lote, id_sucursal, tipo, cantidad, motivo, referencia, id_usuario
+    ) VALUES (
+        NEW.id_lote, v_sucursal, 'ENTRADA', NEW.cantidad, 
+        'Compra de proveedor', NEW.id_compra::VARCHAR, v_usuario
+    );
+    
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Recrear trigger SOLO para medicamentos
+DROP TRIGGER IF EXISTS tg_detalle_compra_ai ON detalle_compra;
+CREATE TRIGGER tg_detalle_compra_ai 
+AFTER INSERT ON detalle_compra
+FOR EACH ROW
+WHEN (NEW.id_lote IS NOT NULL)  -- ✅ Solo cuando hay lote (medicamentos)
+EXECUTE FUNCTION trg_compra_actualiza_inventario();
+
+
 
 DROP TRIGGER IF EXISTS tg_detalle_compra_ai ON detalle_compra;
 CREATE TRIGGER tg_detalle_compra_ai AFTER INSERT ON detalle_compra
 FOR EACH ROW EXECUTE FUNCTION trg_compra_actualiza_inventario();
 
+
+
+
+
+
+-- =====================================================
+-- CORRECCIÓN DEFINITIVA DEL PROBLEMA DE DOBLE RESTA
+-- =====================================================
+
+-- 1. Eliminar trigger problemático de medicamentos
+DROP TRIGGER IF EXISTS tg_detalle_venta_ai ON detalle_venta;
+
+-- 2. Modificar función de medicamentos para que NO actualice stock
 CREATE OR REPLACE FUNCTION trg_venta_actualiza_inventario()
 RETURNS TRIGGER AS $$
 DECLARE
     v_usuario INT;
     v_sucursal INT;
     v_estado_lote VARCHAR(20);
+    v_cantidad_actual INTEGER;
 BEGIN
     IF NEW.cantidad <= 0 THEN
         RAISE EXCEPTION 'Cantidad inválida en venta';
     END IF;
-    SELECT id_usuario, id_sucursal INTO v_usuario, v_sucursal FROM ventas WHERE id_venta = NEW.id_venta;
+    
+    SELECT id_usuario, id_sucursal INTO v_usuario, v_sucursal 
+    FROM ventas WHERE id_venta = NEW.id_venta;
+    
     IF NEW.id_lote IS NOT NULL THEN
-        SELECT estado INTO v_estado_lote FROM lotes WHERE id_lote = NEW.id_lote;
+        -- Solo validar stock, NO actualizar (el PHP ya lo hace)
+        SELECT l.estado, i.cantidad INTO v_estado_lote, v_cantidad_actual
+        FROM lotes l
+        JOIN inventario i ON l.id_lote = i.id_lote AND i.id_sucursal = v_sucursal
+        WHERE l.id_lote = NEW.id_lote;
+        
         IF v_estado_lote != 'ACTIVO' THEN
             RAISE EXCEPTION 'Lote no disponible (Estado: %)', v_estado_lote;
         END IF;
-        UPDATE inventario 
-        SET cantidad = cantidad - NEW.cantidad 
-        WHERE id_lote = NEW.id_lote AND id_sucursal = v_sucursal AND cantidad >= NEW.cantidad;
-        IF NOT FOUND THEN
-            RAISE EXCEPTION 'Stock insuficiente para lote % en sucursal %', NEW.id_lote, v_sucursal;
+        
+        IF v_cantidad_actual < NEW.cantidad THEN
+            RAISE EXCEPTION 'Stock insuficiente. Disponible: %, requerido: %', 
+                v_cantidad_actual, NEW.cantidad;
         END IF;
-        PERFORM registrar_movimiento_inventario(NEW.id_lote, v_sucursal, 'SALIDA', NEW.cantidad, 'Venta', NEW.id_venta::VARCHAR, v_usuario);
+        
+        -- Solo registrar movimiento de auditoría
+        INSERT INTO movimiento_inventario (id_lote, id_sucursal, tipo, cantidad, motivo, referencia, id_usuario)
+        VALUES (NEW.id_lote, v_sucursal, 'SALIDA', NEW.cantidad, 'Venta', NEW.id_venta::VARCHAR, v_usuario);
     END IF;
+    
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+-- 3. Recrear el trigger (ahora solo valida, no actualiza stock)
+CREATE TRIGGER tg_detalle_venta_ai 
+AFTER INSERT ON detalle_venta
+FOR EACH ROW
+WHEN (NEW.id_lote IS NOT NULL)
+EXECUTE FUNCTION trg_venta_actualiza_inventario();
+
+-- 4. Verificar que todo está correcto
+SELECT 
+    tgname AS trigger_name,
+    proname AS function_name,
+    prosrc AS function_code
+FROM pg_trigger t
+JOIN pg_class c ON t.tgrelid = c.oid
+LEFT JOIN pg_proc p ON t.tgfoid = p.oid
+WHERE c.relname = 'detalle_venta'
+AND tgname = 'tg_detalle_venta_ai';
+
+
+
+
+
+
+
+
+
+-- =============================================================================
+-- ELIMINAR TODOS LOS TRIGGERS EXISTENTES
+-- =============================================================================
+DROP TRIGGER IF EXISTS tg_detalle_venta_ai ON detalle_venta;
+DROP TRIGGER IF EXISTS tg_detalle_venta_productos_ai ON detalle_venta;
+DROP TRIGGER IF EXISTS tg_detalle_venta_ropa_ai ON detalle_venta;
+
+-- =============================================================================
+-- CREAR TRIGGER CORRECTO PARA MEDICAMENTOS (SOLO CON LOTE)
+-- =============================================================================
+CREATE TRIGGER tg_detalle_venta_ai 
+AFTER INSERT ON detalle_venta
+FOR EACH ROW
+WHEN (NEW.id_lote IS NOT NULL)
+EXECUTE FUNCTION trg_venta_actualiza_inventario();
+
+-- =============================================================================
+-- CREAR TRIGGER CORRECTO PARA ROPA (SOLO SIN LOTE)
+-- =============================================================================
+CREATE TRIGGER tg_detalle_venta_productos_ai 
+AFTER INSERT ON detalle_venta
+FOR EACH ROW
+WHEN (NEW.id_lote IS NULL AND NEW.id_producto IS NOT NULL)
+EXECUTE FUNCTION trg_venta_actualiza_inventario_productos();
+
+-- =============================================================================
+-- VERIFICAR LOS TRIGGERS EXISTENTES
+-- =============================================================================
+SELECT tgname, tgtype, tgfoid::regproc, tgenabled 
+FROM pg_trigger 
+WHERE tgrelid = 'detalle_venta'::regclass;
+
+
+
+
+
+
+
+
+
+
+
+
 
 DROP TRIGGER IF EXISTS tg_detalle_venta_ai ON detalle_venta;
 CREATE TRIGGER tg_detalle_venta_ai AFTER INSERT ON detalle_venta

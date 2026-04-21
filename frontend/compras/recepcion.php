@@ -186,6 +186,21 @@ function abrirRecepcion(idCompra) {
 }
 
 function renderizarFormularioRecepcion(data) {
+    // ========== DEPURACIÓN: Ver qué está llegando ==========
+    console.log('=== DATOS COMPLETOS DE LA COMPRA ===');
+    console.log('Productos:', data.productos);
+    data.productos.forEach((prod, idx) => {
+        console.log(`Producto ${idx}:`, {
+            nombre: prod.producto_nombre,
+            tipo: prod.tipo,
+            cantidad_total: prod.cantidad,
+            cantidad_recibida: prod.cantidad_recibida,
+            cantidad_pendiente: prod.cantidad_pendiente,
+            id_detalle: prod.id_detalle
+        });
+    });
+    // ====================================================
+    
     let html = `
         <div class="row g-3 mb-4">
             <div class="col-md-3"><div class="bg-light p-2 rounded"><small class="text-muted">Nº Documento</small><br><strong>${escapeHtml(data.numero_documento)}</strong></div></div>
@@ -198,28 +213,61 @@ function renderizarFormularioRecepcion(data) {
             <table class="table table-bordered">
                 <thead class="bg-light">
                     <tr>
-                        <th>Medicamento</th>
+                        <th>Producto</th>
                         <th>Cantidad (pedido / recibido)</th>
                         <th>Cantidad a recibir ahora</th>
-                        <th>N° Lote</th>
-                        <th>Fecha Vencimiento</th>
-                        <th>Costo Unitario</th>
-                    </tr>
-                </thead>
-                <tbody>
     `;
     
+    // Verificar si hay productos de tipo ROPA para mostrar columnas adicionales
+    const tieneRopa = data.productos.some(p => p.tipo === 'ROPA');
+    const tieneMedicamentos = data.productos.some(p => p.tipo === 'MEDICAMENTO');
+    
+    if (tieneMedicamentos) {
+        html += `<th>N° Lote</th><th>Fecha Vencimiento</th>`;
+    }
+    if (tieneRopa) {
+        html += `<th>Talla</th><th>Color</th>`;
+    }
+    
+    html += `<th>Costo Unitario</th></tr></thead><tbody>`;
+    
     data.productos.forEach((prod, idx) => {
-        const loteSolicitado = prod.numero_lote_solicitado || '';
-        const vencSolicitado = prod.fecha_vencimiento_solicitada || '';
         const recibidoHastaAhora = prod.cantidad_recibida || 0;
-        html += `
-            <tr>
-                <td><strong>${escapeHtml(prod.producto_nombre)}</strong><br><small class="text-muted">ID: ${prod.id_medicamento}</small></td>
-                <td class="text-center">${prod.cantidad} / ${recibidoHastaAhora}</td>
-                <td><input type="number" class="form-control cantidad-recibida" data-idx="${idx}" value="${prod.cantidad_pendiente}" min="0" max="${prod.cantidad_pendiente}" step="1" onchange="actualizarCantidadRecibida(${idx}, this.value)"></td>
+        // IMPORTANTE: Calcular pendiente aquí mismo si no viene del backend
+        let pendiente = prod.cantidad_pendiente;
+        if (pendiente === undefined || pendiente === null) {
+            pendiente = (prod.cantidad || 0) - recibidoHastaAhora;
+        }
+        
+        // Si aún es 0, mostrar la cantidad total como valor por defecto
+        const valorPorDefecto = pendiente > 0 ? pendiente : (prod.cantidad || 0);
+        
+        console.log(`Producto ${idx} "${prod.producto_nombre}": pendiente=${pendiente}, valorPorDefecto=${valorPorDefecto}`);
+        
+        // Información específica según tipo
+        let infoExtra = '';
+        if (prod.tipo === 'MEDICAMENTO') {
+            const loteSolicitado = prod.numero_lote || '';
+            const vencSolicitado = prod.fecha_vencimiento || '';
+            infoExtra = `
                 <td><input type="text" class="form-control" id="lote_${idx}" placeholder="Número de lote" value="${escapeHtml(loteSolicitado)}"></td>
                 <td><input type="date" class="form-control" id="venc_${idx}" value="${vencSolicitado}"></td>
+            `;
+        } else if (prod.tipo === 'ROPA') {
+            const tallaNombre = prod.talla_nombre || prod.talla || '—';
+            const colorNombre = prod.color_nombre || prod.color || '—';
+            infoExtra = `
+                <td><input type="text" class="form-control" value="${escapeHtml(tallaNombre)}" readonly style="background:#e9ecef;"></td>
+                <td><input type="text" class="form-control" value="${escapeHtml(colorNombre)}" readonly style="background:#e9ecef;"></td>
+            `;
+        }
+        
+        html += `
+            <tr>
+                <td><strong>${escapeHtml(prod.producto_nombre)}</strong><br><small class="text-muted">${prod.tipo}</small></td>
+                <td class="text-center">${prod.cantidad} / ${recibidoHastaAhora}</td>
+                <td><input type="number" class="form-control cantidad-recibida" data-idx="${idx}" value="${valorPorDefecto}" min="0" max="${prod.cantidad}" step="1" onchange="actualizarCantidadRecibida(${idx}, this.value)"></td>
+                ${infoExtra}
                 <td><input type="number" step="0.01" class="form-control" id="costo_${idx}" value="${prod.precio_unitario}" readonly style="background:#e9ecef;"></td>
             </tr>
         `;
@@ -230,7 +278,9 @@ function renderizarFormularioRecepcion(data) {
             </table>
         </div>
         <div class="alert alert-info mt-3">
-            <i class="fas fa-info-circle"></i> Los datos de lote y vencimiento se precargan desde la orden de compra. Puede modificarlos si es necesario.
+            <i class="fas fa-info-circle"></i> 
+            ${tieneMedicamentos ? 'Para medicamentos, los datos de lote y vencimiento se precargan desde la orden de compra. Puede modificarlos si es necesario.<br>' : ''}
+            ${tieneRopa ? 'Para ropa, la talla y color son fijos según lo solicitado.' : ''}
         </div>
     `;
     document.getElementById('modalRecepcionBody').innerHTML = html;
@@ -239,8 +289,10 @@ function renderizarFormularioRecepcion(data) {
 function actualizarCantidadRecibida(idx, value) {
     let cant = parseInt(value);
     if (isNaN(cant)) cant = 0;
-    const max = datosCompra.productos[idx].cantidad_pendiente;
-    if (cant > max) cant = max;
+    // Usar prod.cantidad como máximo si cantidad_pendiente no está disponible
+    const prod = datosCompra.productos[idx];
+    const maximo = prod.cantidad_pendiente > 0 ? prod.cantidad_pendiente : prod.cantidad;
+    if (cant > maximo) cant = maximo;
     if (cant < 0) cant = 0;
     document.querySelector(`.cantidad-recibida[data-idx="${idx}"]`).value = cant;
 }
@@ -255,25 +307,37 @@ function confirmarRecepcion() {
     for (let i = 0; i < datosCompra.productos.length; i++) {
         const prod = datosCompra.productos[i];
         const cantidadRecibida = parseInt(document.querySelector(`.cantidad-recibida[data-idx="${i}"]`).value) || 0;
-        const numeroLote = document.getElementById(`lote_${i}`).value.trim();
-        const fechaVencimiento = document.getElementById(`venc_${i}`).value;
         
         if (cantidadRecibida > 0) {
-            if (!numeroLote || !fechaVencimiento) {
-                Swal.fire('Error', `Para el producto "${prod.producto_nombre}" debe indicar número de lote y fecha de vencimiento`, 'error');
-                return;
+            const item = {
+                id_detalle: prod.id_detalle,
+                tipo: prod.tipo,
+                cantidad_recibida: cantidadRecibida,
+                costo_unitario: prod.precio_unitario
+            };
+            
+            if (prod.tipo === 'MEDICAMENTO') {
+                const numeroLote = document.getElementById(`lote_${i}`).value.trim();
+                const fechaVencimiento = document.getElementById(`venc_${i}`).value;
+                
+                if (!numeroLote || !fechaVencimiento) {
+                    Swal.fire('Error', `Para el medicamento "${prod.producto_nombre}" debe indicar número de lote y fecha de vencimiento`, 'error');
+                    return;
+                }
+                item.id_medicamento = prod.id_producto;
+                item.numero_lote = numeroLote;
+                item.fecha_vencimiento = fechaVencimiento;
+                
+            } else if (prod.tipo === 'ROPA') {
+                item.id_producto = prod.id_producto;
+                item.id_talla = prod.id_talla || null;
+                item.id_color = prod.id_color || null;
             }
+            
             if (cantidadRecibida < prod.cantidad_pendiente) parcial = true;
             if (cantidadRecibida !== prod.cantidad_pendiente) todoRecibido = false;
             
-            recibidos.push({
-                id_detalle: prod.id_detalle,
-                id_medicamento: prod.id_medicamento,
-                cantidad_recibida: cantidadRecibida,
-                numero_lote: numeroLote,
-                fecha_vencimiento: fechaVencimiento,
-                costo_unitario: prod.precio_unitario
-            });
+            recibidos.push(item);
         } else {
             if (prod.cantidad_pendiente > 0) todoRecibido = false;
         }
