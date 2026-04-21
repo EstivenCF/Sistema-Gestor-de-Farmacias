@@ -231,7 +231,7 @@ $sql = "
         p.estado,
         p.exento_itbis,
         p.imagen_url,
-        COALESCE(SUM(ip.cantidad), 0) as stock_total,
+        COALESCE(SUM(DISTINCT ip.cantidad), 0) as stock_total,
         COUNT(DISTINCT r.id_ropa) as num_variantes,
         STRING_AGG(DISTINCT COALESCE(ta.nombre, r.talla), ', ' ORDER BY COALESCE(ta.nombre, r.talla)) as tallas_disponibles,
         STRING_AGG(DISTINCT COALESCE(c.nombre, r.color), ', ' ORDER BY COALESCE(c.nombre, r.color)) as colores_disponibles,
