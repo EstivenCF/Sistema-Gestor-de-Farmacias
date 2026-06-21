@@ -408,6 +408,9 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                                 <?php if (in_array('historial_ventas', $menu_por_rol[$rol_usuario]['ventas'])): ?>
                                     <li><a href="menuprincipal.php?mod=historial_ventas" class="nav-link dropdown-link"><span class="material-symbols-rounded">history</span> Historial de Ventas</a></li>
                                 <?php endif; ?>
+                                <?php if (in_array('clientes', $menu_por_rol[$rol_usuario]['clientes'])): ?>
+                                    <li><a href="menuprincipal.php?mod=clientes" class="nav-link dropdown-link"><span class="material-symbols-rounded">person</span> Clientes</a></li>
+                                <?php endif; ?>
                                 <?php if (in_array('pagos', $menu_por_rol[$rol_usuario]['ventas'])): ?>
                                     <li><a href="menuprincipal.php?mod=pagos" class="nav-link dropdown-link"><span class="material-symbols-rounded">payments</span> Pagos</a></li>
                                 <?php endif; ?>
@@ -480,22 +483,6 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                                     <li><a href="menuprincipal.php?mod=proveedores" class="nav-link dropdown-link"><span class="material-symbols-rounded">badge</span> Proveedores</a></li>
                                 <?php endif; ?>
                                 <!-- ✅ ELIMINADA LA OPCIÓN "RECEPCIÓN" -->
-                            </ul>
-                        </li>
-                    <?php endif; ?>
-
-                    <!-- MÓDULO CLIENTES -->
-                    <?php if (!empty($menu_por_rol[$rol_usuario]['clientes'] ?? [])): ?>
-                        <li class="nav-item has-submenu">
-                            <a href="#submenuClientes" class="nav-link dropdown-toggle" data-bs-toggle="collapse" data-bs-target="#submenuClientes">
-                                <span class="material-symbols-rounded">groups</span>
-                                <span class="nav-label">Clientes</span>
-                                <span class="material-symbols-rounded dropdown-arrow">expand_more</span>
-                            </a>
-                            <ul class="dropdown-menu collapse list-unstyled" id="submenuClientes" data-bs-parent="#sidebarAccordion">
-                                <?php if (in_array('clientes', $menu_por_rol[$rol_usuario]['clientes'])): ?>
-                                    <li><a href="menuprincipal.php?mod=clientes" class="nav-link dropdown-link"><span class="material-symbols-rounded">person</span> Lista de Clientes</a></li>
-                                <?php endif; ?>
                             </ul>
                         </li>
                     <?php endif; ?>
