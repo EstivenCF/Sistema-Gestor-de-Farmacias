@@ -578,6 +578,7 @@ function getConfig($clave, $default = '') {
                             </div>
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="impresion_automatica" value="0">
                                     <input class="form-check-input" type="checkbox" name="impresion_automatica" value="1" 
                                            id="impresion_automatica" <?php echo getConfig('impresion_automatica', '1') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="impresion_automatica">Imprimir automáticamente al guardar venta</label>
@@ -608,6 +609,7 @@ function getConfig($clave, $default = '') {
                             </div>
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="mostrar_logo_factura" value="0">
                                     <input class="form-check-input" type="checkbox" name="mostrar_logo_factura" value="1" 
                                            id="mostrar_logo_factura" <?php echo getConfig('mostrar_logo_factura', '1') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="mostrar_logo_factura">Mostrar logo en facturas</label>
@@ -615,6 +617,7 @@ function getConfig($clave, $default = '') {
                             </div>
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="mostrar_itbis_detallado" value="0">
                                     <input class="form-check-input" type="checkbox" name="mostrar_itbis_detallado" value="1" 
                                            id="mostrar_itbis_detallado" <?php echo getConfig('mostrar_itbis_detallado', '1') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="mostrar_itbis_detallado">Mostrar ITBIS desglosado</label>
@@ -655,6 +658,7 @@ function getConfig($clave, $default = '') {
                             </div>
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="permitir_stock_negativo" value="0">
                                     <input class="form-check-input" type="checkbox" name="permitir_stock_negativo" value="1" 
                                            id="permitir_stock_negativo" <?php echo getConfig('permitir_stock_negativo', '0') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="permitir_stock_negativo">Permitir stock negativo</label>
@@ -662,6 +666,7 @@ function getConfig($clave, $default = '') {
                             </div>
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="control_lotes_obligatorio" value="0">
                                     <input class="form-check-input" type="checkbox" name="control_lotes_obligatorio" value="1" 
                                            id="control_lotes_obligatorio" <?php echo getConfig('control_lotes_obligatorio', '1') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="control_lotes_obligatorio">Control de lotes obligatorio</label>
@@ -687,6 +692,7 @@ function getConfig($clave, $default = '') {
                             </div>
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="calcular_rentabilidad_automatico" value="0">
                                     <input class="form-check-input" type="checkbox" name="calcular_rentabilidad_automatico" value="1" 
                                            id="calcular_rentabilidad_automatico" <?php echo getConfig('calcular_rentabilidad_automatico', '1') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="calcular_rentabilidad_automatico">Calcular rentabilidad automáticamente</label>
@@ -715,6 +721,7 @@ function getConfig($clave, $default = '') {
                             </div>
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="itbis_medicamentos_sin_receta" value="0">
                                     <input class="form-check-input" type="checkbox" name="itbis_medicamentos_sin_receta" value="1" 
                                            id="itbis_medicamentos_sin_receta" <?php echo getConfig('itbis_medicamentos_sin_receta', '1') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="itbis_medicamentos_sin_receta">Aplicar ITBIS a medicamentos sin receta</label>
@@ -722,6 +729,7 @@ function getConfig($clave, $default = '') {
                             </div>
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="itbis_medicamentos_con_receta" value="0">
                                     <input class="form-check-input" type="checkbox" name="itbis_medicamentos_con_receta" value="1" 
                                            id="itbis_medicamentos_con_receta" <?php echo getConfig('itbis_medicamentos_con_receta', '0') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="itbis_medicamentos_con_receta">Aplicar ITBIS a medicamentos con receta</label>
@@ -729,6 +737,7 @@ function getConfig($clave, $default = '') {
                             </div>
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="itbis_ropa" value="0">
                                     <input class="form-check-input" type="checkbox" name="itbis_ropa" value="1" 
                                            id="itbis_ropa" <?php echo getConfig('itbis_ropa', '1') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="itbis_ropa">Aplicar ITBIS a productos de ropa</label>
@@ -736,6 +745,7 @@ function getConfig($clave, $default = '') {
                             </div>
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="redondear_itbis" value="0">
                                     <input class="form-check-input" type="checkbox" name="redondear_itbis" value="1" 
                                            id="redondear_itbis" <?php echo getConfig('redondear_itbis', '1') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="redondear_itbis">Redondear ITBIS a 2 decimales</label>
@@ -781,6 +791,7 @@ function getConfig($clave, $default = '') {
                             </div>
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="requerir_mayusculas" value="0">
                                     <input class="form-check-input" type="checkbox" name="requerir_mayusculas" value="1" 
                                            id="requerir_mayusculas" <?php echo getConfig('requerir_mayusculas', '1') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="requerir_mayusculas">Requerir mayúsculas en contraseña</label>
@@ -788,6 +799,7 @@ function getConfig($clave, $default = '') {
                             </div>
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="requerir_numeros" value="0">
                                     <input class="form-check-input" type="checkbox" name="requerir_numeros" value="1" 
                                            id="requerir_numeros" <?php echo getConfig('requerir_numeros', '1') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="requerir_numeros">Requerir números en contraseña</label>
@@ -795,6 +807,7 @@ function getConfig($clave, $default = '') {
                             </div>
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="auditar_accesos" value="0">
                                     <input class="form-check-input" type="checkbox" name="auditar_accesos" value="1" 
                                            id="auditar_accesos" <?php echo getConfig('auditar_accesos', '1') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="auditar_accesos">Auditar accesos al sistema</label>
@@ -826,6 +839,7 @@ function getConfig($clave, $default = '') {
                             </div>
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="backup_antes_actualizar" value="0">
                                     <input class="form-check-input" type="checkbox" name="backup_antes_actualizar" value="1" 
                                            id="backup_antes_actualizar" <?php echo getConfig('backup_antes_actualizar', '1') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="backup_antes_actualizar">Hacer backup antes de actualizaciones</label>
@@ -848,6 +862,7 @@ function getConfig($clave, $default = '') {
                         <div class="config-card-body">
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="notificaciones_activas" value="0">
                                     <input class="form-check-input" type="checkbox" name="notificaciones_activas" value="1" 
                                            id="notificaciones_activas" <?php echo getConfig('notificaciones_activas', '1') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="notificaciones_activas">Activar notificaciones del sistema</label>
@@ -855,6 +870,7 @@ function getConfig($clave, $default = '') {
                             </div>
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="notificar_stock_critico" value="0">
                                     <input class="form-check-input" type="checkbox" name="notificar_stock_critico" value="1" 
                                            id="notificar_stock_critico" <?php echo getConfig('notificar_stock_critico', '1') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="notificar_stock_critico">Notificar stock crítico</label>
@@ -862,6 +878,7 @@ function getConfig($clave, $default = '') {
                             </div>
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="notificar_vencimientos" value="0">
                                     <input class="form-check-input" type="checkbox" name="notificar_vencimientos" value="1" 
                                            id="notificar_vencimientos" <?php echo getConfig('notificar_vencimientos', '1') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="notificar_vencimientos">Notificar vencimientos próximos</label>
@@ -875,6 +892,7 @@ function getConfig($clave, $default = '') {
                             </div>
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="sonido_notificaciones" value="0">
                                     <input class="form-check-input" type="checkbox" name="sonido_notificaciones" value="1" 
                                            id="sonido_notificaciones" <?php echo getConfig('sonido_notificaciones', '1') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="sonido_notificaciones">Reproducir sonido en notificaciones</label>
@@ -897,16 +915,23 @@ function getConfig($clave, $default = '') {
                         <div class="config-card-body">
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="delivery_activo" value="0">
                                     <input class="form-check-input" type="checkbox" name="delivery_activo" value="1" 
                                            id="delivery_activo" <?php echo getConfig('delivery_activo', '1') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="delivery_activo">Activar servicio de delivery</label>
                                 </div>
                             </div>
                             <div class="config-group">
-                                <label>Costo de Envío por Defecto</label>
+                                <label>Costo por Kilómetro (RD$/km)</label>
+                                <input type="number" name="costo_por_km" class="form-control" 
+                                       value="<?php echo htmlspecialchars(getConfig('costo_por_km', '15')); ?>" step="1" min="0">
+                                <small class="form-text">El sistema calcula la distancia real entre la sucursal y la dirección de entrega, y la multiplica por este valor.</small>
+                            </div>
+                            <div class="config-group">
+                                <label>Costo de Envío por Defecto (respaldo)</label>
                                 <input type="number" name="costo_envio_default" class="form-control" 
                                        value="<?php echo htmlspecialchars(getConfig('costo_envio_default', '100')); ?>" step="10" min="0">
-                                <small class="form-text">Costo base para envíos (RD$)</small>
+                                <small class="form-text">Se usa solo cuando falta la coordenada de la sucursal o de la dirección de entrega, y no se puede calcular por distancia.</small>
                             </div>
                             <div class="config-group">
                                 <label>Radio de Cobertura (km)</label>
@@ -945,6 +970,7 @@ function getConfig($clave, $default = '') {
                             </div>
                             <div class="config-group">
                                 <div class="form-check form-switch">
+                                    <input type="hidden" name="delivery_domingo" value="0">
                                     <input class="form-check-input" type="checkbox" name="delivery_domingo" value="1" 
                                            id="delivery_domingo" <?php echo getConfig('delivery_domingo', '0') == '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="delivery_domingo">Entregas los domingos</label>

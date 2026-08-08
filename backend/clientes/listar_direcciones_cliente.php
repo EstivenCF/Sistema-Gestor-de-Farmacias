@@ -25,6 +25,8 @@ try {
                 d.barrio,
                 d.ciudad,
                 d.referencia,
+                d.latitud,
+                d.longitud,
                 COALESCE(d.direccion || ', ' || d.barrio || ', ' || d.ciudad, d.direccion) AS direccion_completa,
                 cd.predeterminada
             FROM direcciones d

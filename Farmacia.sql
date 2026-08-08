@@ -204,13 +204,6 @@ CREATE TABLE IF NOT EXISTS ropa_detalle (
     id_talla INT REFERENCES tallas(id_talla)
 );
 
-select * from tipo_ropa
-
--- Verificar columnas de detalle_venta
-SELECT column_name, data_type 
-FROM information_schema.columns 
-WHERE table_name = 'detalle_venta' 
-ORDER BY ordinal_position;
 
 -- =============================================
 -- 2. INSERCIÓN DE DATOS (ENFOQUE MÉDICO)
@@ -499,6 +492,13 @@ CREATE TABLE IF NOT EXISTS detalle_compra (
     fecha_vencimiento_solicitada DATE
 );
 
+-- 5. Extender detalle_compra para soportar productos (ropa)
+ALTER TABLE detalle_compra 
+ADD COLUMN IF NOT EXISTS id_producto INT REFERENCES productos(id_producto),
+ADD COLUMN IF NOT EXISTS id_talla INT REFERENCES tallas(id_talla),
+ADD COLUMN IF NOT EXISTS id_color INT REFERENCES colores(id_color);
+
+
 CREATE TABLE IF NOT EXISTS inventario (
     id_inventario SERIAL PRIMARY KEY,
     id_lote INT REFERENCES lotes(id_lote),
@@ -620,11 +620,6 @@ WHERE a.id_inventario < b.id_inventario
   AND a.id_sucursal = b.id_sucursal;
   
 
--- 5. Extender detalle_compra para soportar productos (ropa)
-ALTER TABLE detalle_compra 
-ADD COLUMN IF NOT EXISTS id_producto INT REFERENCES productos(id_producto),
-ADD COLUMN IF NOT EXISTS id_talla INT REFERENCES tallas(id_talla),
-ADD COLUMN IF NOT EXISTS id_color INT REFERENCES colores(id_color);
 
 
 
@@ -678,18 +673,6 @@ $$ LANGUAGE plpgsql;
 
 
 
--- 8. Extender detalle_venta para soportar productos (ropa)
-ALTER TABLE detalle_venta 
-ADD COLUMN IF NOT EXISTS id_talla INT REFERENCES tallas(id_talla),
-ADD COLUMN IF NOT EXISTS id_color INT REFERENCES colores(id_color);
-
--- 9. Trigger para ventas de productos (ropa)
-DROP TRIGGER IF EXISTS tg_detalle_venta_productos_ai ON detalle_venta;
-CREATE TRIGGER tg_detalle_venta_productos_ai
-AFTER INSERT ON detalle_venta
-FOR EACH ROW
-WHEN (NEW.id_producto IS NOT NULL AND NEW.id_lote IS NULL)
-EXECUTE FUNCTION trg_venta_actualiza_inventario_productos();
 
 -- 10. Vista unificada de inventario (medicamentos + productos)
 CREATE OR REPLACE VIEW vista_inventario_unificado AS
@@ -895,6 +878,20 @@ CREATE TABLE IF NOT EXISTS detalle_venta (
     subtotal NUMERIC(10,2) NOT NULL,
     CONSTRAINT chk_detalle_origen CHECK (id_lote IS NOT NULL OR id_producto IS NOT NULL)
 );
+
+-- 8. Extender detalle_venta para soportar productos (ropa)
+ALTER TABLE detalle_venta 
+ADD COLUMN IF NOT EXISTS id_talla INT REFERENCES tallas(id_talla),
+ADD COLUMN IF NOT EXISTS id_color INT REFERENCES colores(id_color);
+
+-- 9. Trigger para ventas de productos (ropa)
+DROP TRIGGER IF EXISTS tg_detalle_venta_productos_ai ON detalle_venta;
+CREATE TRIGGER tg_detalle_venta_productos_ai
+AFTER INSERT ON detalle_venta
+FOR EACH ROW
+WHEN (NEW.id_producto IS NOT NULL AND NEW.id_lote IS NULL)
+EXECUTE FUNCTION trg_venta_actualiza_inventario_productos();
+
 
 CREATE TABLE IF NOT EXISTS pagos (
     id_pago SERIAL PRIMARY KEY,
@@ -3012,4 +3009,1032 @@ ON CONFLICT (id_tipo) DO NOTHING;
 ALTER TABLE roles ADD COLUMN IF NOT EXISTS estado BOOLEAN DEFAULT TRUE;
 -- =============================================================================
 -- FIN DEL SCRIPT
+
+
 -- =============================================================================
+-- PATCH 1/2 — MÓDULO DE DELIVERY (rol Repartidor, agenda, despacho, conciliación)
+-- =============================================================================
+
+-- ============================================================
+-- PATCH COMPLETO — Módulo de Delivery SGF
+-- Ejecutar TODO de una vez en pgAdmin (Query Tool → Run F5)
+-- ============================================================
+
+-- ─────────────────────────────────────────────────────────────
+-- SECCIÓN 1: ROL Y VINCULACIÓN
+-- ─────────────────────────────────────────────────────────────
+
+INSERT INTO roles (nombre, descripcion)
+VALUES ('Repartidor', 'Personal de entrega a domicilio')
+ON CONFLICT (nombre) DO NOTHING;
+
+ALTER TABLE repartidores
+    ADD COLUMN IF NOT EXISTS id_usuario INTEGER REFERENCES usuarios(id_usuario) ON DELETE SET NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_repartidor_usuario
+    ON repartidores(id_usuario) WHERE id_usuario IS NOT NULL;
+
+-- ─────────────────────────────────────────────────────────────
+-- SECCIÓN 2: MEJORAS A TABLAS EXISTENTES
+-- ─────────────────────────────────────────────────────────────
+
+ALTER TABLE entregas
+    ADD COLUMN IF NOT EXISTS nombre_receptor_autorizado VARCHAR(150),
+    ADD COLUMN IF NOT EXISTS cedula_receptor_autorizado VARCHAR(20),
+    ADD COLUMN IF NOT EXISTS nombre_quien_recibe        VARCHAR(150),
+    ADD COLUMN IF NOT EXISTS estado_recepcion           VARCHAR(20) DEFAULT 'PENDIENTE'
+        CHECK (estado_recepcion IN ('PENDIENTE','CONFIRMADO','EN_DISPUTA'));
+
+COMMENT ON COLUMN entregas.nombre_receptor_autorizado IS
+    'Persona autorizada por el cliente para recibir el pedido si el no esta disponible';
+COMMENT ON COLUMN entregas.cedula_receptor_autorizado IS
+    'Cedula de la persona autorizada, para verificacion por el repartidor';
+COMMENT ON COLUMN entregas.estado_recepcion IS
+    'PENDIENTE=sin confirmar, CONFIRMADO=receptor correcto, EN_DISPUTA=receptor no coincide';
+
+ALTER TABLE calificaciones_entrega
+    ADD COLUMN IF NOT EXISTS token              VARCHAR(64) UNIQUE,
+    ADD COLUMN IF NOT EXISTS token_usado        BOOLEAN     DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS token_expira_en    TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS rapidez            SMALLINT    CHECK (rapidez BETWEEN 1 AND 5),
+    ADD COLUMN IF NOT EXISTS amabilidad         SMALLINT    CHECK (amabilidad BETWEEN 1 AND 5),
+    ADD COLUMN IF NOT EXISTS estado_pedido_cal  SMALLINT    CHECK (estado_pedido_cal BETWEEN 1 AND 5),
+    ADD COLUMN IF NOT EXISTS fecha_calificacion TIMESTAMP;
+
+COMMENT ON COLUMN calificaciones_entrega.token IS
+    'Token unico generado al confirmar la entrega, enviado al cliente por WhatsApp/SMS';
+COMMENT ON COLUMN calificaciones_entrega.token_expira_en IS
+    'El link de calificacion expira 48 horas despues de generado';
+
+-- ─────────────────────────────────────────────────────────────
+-- SECCIÓN 3: TABLAS NUEVAS DEL MÓDULO DELIVERY
+-- ─────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS agenda_delivery (
+    id_agenda            SERIAL PRIMARY KEY,
+    id_repartidor        INT  NOT NULL REFERENCES repartidores(id_repartidor) ON DELETE CASCADE,
+    id_vehiculo          INT  REFERENCES vehiculos(id_vehiculo),
+    fecha                DATE NOT NULL DEFAULT CURRENT_DATE,
+    hora_inicio          TIME,
+    hora_fin_estimada    TIME,
+    estado               VARCHAR(20) NOT NULL DEFAULT 'PROGRAMADA'
+                         CHECK (estado IN ('PROGRAMADA','EN_CURSO','FINALIZADA','CANCELADA')),
+    total_entregas       INT  DEFAULT 0,
+    entregas_completadas INT  DEFAULT 0,
+    entregas_fallidas    INT  DEFAULT 0,
+    observaciones        TEXT,
+    creado_por           INT  REFERENCES usuarios(id_usuario),
+    fecha_creacion       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_agenda_repartidor_dia UNIQUE (id_repartidor, fecha)
+);
+
+CREATE TABLE IF NOT EXISTS agenda_delivery_entrega (
+    id_detalle           SERIAL PRIMARY KEY,
+    id_agenda            INT  NOT NULL REFERENCES agenda_delivery(id_agenda) ON DELETE CASCADE,
+    id_entrega           INT  NOT NULL REFERENCES entregas(id_entrega),
+    orden_visita         INT  NOT NULL DEFAULT 1,
+    hora_estimada        TIME,
+    estado               VARCHAR(20) NOT NULL DEFAULT 'PENDIENTE'
+                         CHECK (estado IN ('PENDIENTE','EN_CAMINO','COMPLETADA','FALLIDA','OMITIDA')),
+    fecha_actualizacion  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    observaciones        TEXT,
+    CONSTRAINT uq_agenda_entrega UNIQUE (id_agenda, id_entrega)
+);
+
+CREATE TABLE IF NOT EXISTS despacho_entrega (
+    id_despacho          SERIAL PRIMARY KEY,
+    id_entrega           INT  NOT NULL REFERENCES entregas(id_entrega) ON DELETE CASCADE,
+    id_usuario_cajero    INT  NOT NULL REFERENCES usuarios(id_usuario),
+    fecha_despacho       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    observaciones        TEXT,
+    CONSTRAINT uq_despacho_entrega UNIQUE (id_entrega)
+);
+
+CREATE TABLE IF NOT EXISTS detalle_despacho (
+    id_detalle           SERIAL PRIMARY KEY,
+    id_despacho          INT  NOT NULL REFERENCES despacho_entrega(id_despacho) ON DELETE CASCADE,
+    id_lote              INT  REFERENCES lotes(id_lote),
+    id_producto          INT  REFERENCES productos(id_producto),
+    cantidad_despachada  INT  NOT NULL CHECK (cantidad_despachada > 0),
+    observaciones        TEXT,
+    CONSTRAINT chk_det_despacho_origen
+        CHECK (id_lote IS NOT NULL OR id_producto IS NOT NULL)
+);
+
+CREATE TABLE IF NOT EXISTS conciliacion_entrega (
+    id_conciliacion          SERIAL PRIMARY KEY,
+    id_entrega               INT  NOT NULL REFERENCES entregas(id_entrega) ON DELETE CASCADE,
+    fecha_conciliacion       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    tiene_diferencia         BOOLEAN NOT NULL DEFAULT FALSE,
+    observaciones_sistema    TEXT,
+    observaciones_repartidor TEXT,
+    validado_por             INT  REFERENCES usuarios(id_usuario),
+    fecha_validacion         TIMESTAMP,
+    estado                   VARCHAR(20) NOT NULL DEFAULT 'PENDIENTE'
+                             CHECK (estado IN ('PENDIENTE','VALIDADO','RECHAZADO','REQUERIDO_AJUSTE')),
+    CONSTRAINT uq_conciliacion_entrega UNIQUE (id_entrega)
+);
+
+CREATE TABLE IF NOT EXISTS detalle_conciliacion (
+    id_detalle           SERIAL PRIMARY KEY,
+    id_conciliacion      INT  NOT NULL REFERENCES conciliacion_entrega(id_conciliacion) ON DELETE CASCADE,
+    id_lote              INT  REFERENCES lotes(id_lote),
+    id_producto          INT  REFERENCES productos(id_producto),
+    cantidad_despachada  INT  NOT NULL DEFAULT 0,
+    cantidad_entregada   INT  NOT NULL DEFAULT 0,
+    diferencia           INT  GENERATED ALWAYS AS (cantidad_despachada - cantidad_entregada) STORED,
+    motivo_diferencia    TEXT,
+    CONSTRAINT chk_det_concil_origen
+        CHECK (id_lote IS NOT NULL OR id_producto IS NOT NULL)
+);
+
+-- ─────────────────────────────────────────────────────────────
+-- SECCIÓN 4: ÍNDICES DE PERFORMANCE
+-- ─────────────────────────────────────────────────────────────
+
+CREATE INDEX IF NOT EXISTS idx_agenda_rep_fecha      ON agenda_delivery(id_repartidor, fecha DESC);
+CREATE INDEX IF NOT EXISTS idx_agenda_estado         ON agenda_delivery(estado);
+CREATE INDEX IF NOT EXISTS idx_agenda_ent_agenda     ON agenda_delivery_entrega(id_agenda);
+CREATE INDEX IF NOT EXISTS idx_agenda_ent_entrega    ON agenda_delivery_entrega(id_entrega);
+CREATE INDEX IF NOT EXISTS idx_agenda_ent_estado     ON agenda_delivery_entrega(estado);
+CREATE INDEX IF NOT EXISTS idx_despacho_entrega      ON despacho_entrega(id_entrega);
+CREATE INDEX IF NOT EXISTS idx_despacho_cajero       ON despacho_entrega(id_usuario_cajero);
+CREATE INDEX IF NOT EXISTS idx_det_despacho          ON detalle_despacho(id_despacho);
+CREATE INDEX IF NOT EXISTS idx_concil_entrega        ON conciliacion_entrega(id_entrega);
+CREATE INDEX IF NOT EXISTS idx_concil_estado         ON conciliacion_entrega(estado);
+CREATE INDEX IF NOT EXISTS idx_det_concil            ON detalle_conciliacion(id_conciliacion);
+CREATE INDEX IF NOT EXISTS idx_calificacion_token    ON calificaciones_entrega(token) WHERE token IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_entregas_estado_rec   ON entregas(estado_recepcion);
+
+-- ─────────────────────────────────────────────────────────────
+-- SECCIÓN 5: VINCULAR REPARTIDOR A USUARIO (ejecutar manualmente
+-- despues de crear el usuario con rol Repartidor)
+-- ─────────────────────────────────────────────────────────────
+-- UPDATE repartidores
+--     SET id_usuario = (SELECT id_usuario FROM usuarios WHERE usuario = 'nombre_usuario')
+--     WHERE id_repartidor = X;
+
+-- ============================================================
+-- RESUMEN:
+--   Tablas nuevas   : 6  (agenda_delivery, agenda_delivery_entrega,
+--                         despacho_entrega, detalle_despacho,
+--                         conciliacion_entrega, detalle_conciliacion)
+--   Tablas alteradas: 3  (repartidores, entregas, calificaciones_entrega)
+--   Indices creados : 13
+-- ============================================================
+
+-- =============================================================================
+-- PATCH 2/2 — REDISEÑO DELIVERY: estados nuevos, vehículos, habilidades,
+-- receta médica y tipo de despacho en facturación
+-- =============================================================================
+
+-- ============================================================
+-- PATCH v2 — Rediseño módulo Delivery + Receta + Despacho SGF
+-- Ejecutar DESPUÉS de Farmacia.sql y del patch v1 (si ya lo corriste)
+-- Seguro de re-ejecutar (usa IF NOT EXISTS / ON CONFLICT en todo)
+-- ============================================================
+
+-- ─────────────────────────────────────────────────────────────
+-- SECCIÓN 1: Nuevos estados de entrega (se agregan a los 8 que
+-- ya existen: PENDIENTE, ASIGNADA, EN_CAMINO, ENTREGADA,
+-- CANCELADA, REPROGRAMADA, FALLIDA, ACCIDENTE)
+-- ─────────────────────────────────────────────────────────────
+INSERT INTO estado_entrega (nombre) VALUES
+    ('INTERRUMPIDA'),  -- accidente, robo, o cualquier interrupción en el camino
+    ('PARCIAL')        -- se entregó solo una parte del pedido
+ON CONFLICT (nombre) DO NOTHING;
+
+-- ─────────────────────────────────────────────────────────────
+-- SECCIÓN 2: Estado granular de vehículos
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE vehiculos
+    ADD COLUMN IF NOT EXISTS estado VARCHAR(20) NOT NULL DEFAULT 'DISPONIBLE'
+        CHECK (estado IN ('DISPONIBLE','EN_USO','DAÑADO','TALLER','INACTIVO'));
+
+-- Backfill: si activo=false, marcar como INACTIVO
+UPDATE vehiculos SET estado = 'INACTIVO' WHERE activo = FALSE AND estado = 'DISPONIBLE';
+
+COMMENT ON COLUMN vehiculos.estado IS
+    'Estado operativo del vehiculo. EN_USO se actualiza automaticamente al asignar/cerrar una entrega.';
+
+CREATE INDEX IF NOT EXISTS idx_vehiculos_estado ON vehiculos(estado);
+
+-- ─────────────────────────────────────────────────────────────
+-- SECCIÓN 3: Habilidades del repartidor por tipo de vehículo
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS repartidor_habilidad (
+    id_habilidad     SERIAL PRIMARY KEY,
+    id_repartidor    INT NOT NULL REFERENCES repartidores(id_repartidor) ON DELETE CASCADE,
+    tipo_vehiculo    VARCHAR(50) NOT NULL,
+    nivel            VARCHAR(20) DEFAULT 'COMPETENTE'
+                     CHECK (nivel IN ('BASICO','COMPETENTE','EXPERTO')),
+    CONSTRAINT uq_repartidor_tipo UNIQUE (id_repartidor, tipo_vehiculo)
+);
+CREATE INDEX IF NOT EXISTS idx_hab_repartidor ON repartidor_habilidad(id_repartidor);
+
+COMMENT ON TABLE repartidor_habilidad IS
+    'Tipos de vehiculo que cada repartidor esta habilitado para manejar (Motocicleta, Carro, Bicicleta, etc.)';
+
+-- ─────────────────────────────────────────────────────────────
+-- SECCIÓN 4: Facturación — despacho, receta médica
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE ventas
+    ADD COLUMN IF NOT EXISTS tipo_despacho       VARCHAR(20)
+        CHECK (tipo_despacho IN ('RETIRO_PERSONAL','DELIVERY')),
+    ADD COLUMN IF NOT EXISTS con_receta          BOOLEAN DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS receta_imagen_path  VARCHAR(255);
+
+COMMENT ON COLUMN ventas.tipo_despacho IS
+    'RETIRO_PERSONAL = cliente se lo llevo en el momento. DELIVERY = se genero registro en tabla entregas.';
+COMMENT ON COLUMN ventas.con_receta IS
+    'TRUE si la venta incluye al menos un medicamento que requiere receta (medicamentos.requiere_receta)';
+COMMENT ON COLUMN ventas.receta_imagen_path IS
+    'Ruta del archivo de la foto de la receta adjunta, si aplica';
+
+CREATE INDEX IF NOT EXISTS idx_ventas_despacho ON ventas(tipo_despacho);
+
+-- ─────────────────────────────────────────────────────────────
+-- SECCIÓN 5: Entregas — interrupción y entrega parcial
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE entregas
+    ADD COLUMN IF NOT EXISTS motivo_interrupcion TEXT,
+    ADD COLUMN IF NOT EXISTS es_entrega_parcial  BOOLEAN DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS detalle_parcial     TEXT,
+    ADD COLUMN IF NOT EXISTS id_vehiculo         INT REFERENCES vehiculos(id_vehiculo);
+
+COMMENT ON COLUMN entregas.id_vehiculo IS
+    'Vehiculo especifico usado en esta entrega (para saber que vehiculo esta ocupado y por quien)';
+
+COMMENT ON COLUMN entregas.motivo_interrupcion IS
+    'Descripcion libre: accidente, robo, vehiculo dañado en ruta, etc. Se llena cuando id_estado = INTERRUMPIDA';
+COMMENT ON COLUMN entregas.detalle_parcial IS
+    'Que se entrego y que no, cuando id_estado = PARCIAL';
+
+-- ─────────────────────────────────────────────────────────────
+-- SECCIÓN 6: Datos de ejemplo — habilidades (ajustar IDs si aplica)
+-- ─────────────────────────────────────────────────────────────
+-- Ejemplo: repartidor 1 puede manejar motocicleta y carro
+-- INSERT INTO repartidor_habilidad (id_repartidor, tipo_vehiculo) VALUES
+--     (1, 'Motocicleta'), (1, 'Carro')
+-- ON CONFLICT (id_repartidor, tipo_vehiculo) DO NOTHING;
+
+-- ============================================================
+-- RESUMEN:
+--   Tablas nuevas    : 1  (repartidor_habilidad)
+--   Tablas alteradas : 4  (estado_entrega, vehiculos, ventas, entregas)
+--   Estados nuevos   : 2  (INTERRUMPIDA, PARCIAL)
+-- ============================================================
+
+
+-- =============================================================================
+-- PATCH 3/3 — CATÁLOGO DE MOTIVOS DE ENTREGA FALLIDA
+-- =============================================================================
+
+-- ============================================================
+-- PATCH — Catálogo de motivos de entrega fallida
+-- Ejecutar despues de Farmacia_FINAL.sql (aditivo, seguro re-ejecutar)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS motivo_fallida (
+    id_motivo   SERIAL PRIMARY KEY,
+    nombre      VARCHAR(100) UNIQUE NOT NULL,
+    activo      BOOLEAN NOT NULL DEFAULT TRUE,
+    orden       INT DEFAULT 0
+);
+
+INSERT INTO motivo_fallida (nombre, orden) VALUES
+    ('Cliente ausente',                          1),
+    ('Cliente rechazó el pedido',                 2),
+    ('Cliente no contesta el teléfono',            3),
+    ('Dirección incorrecta o no encontrada',       4),
+    ('Zona de difícil acceso o insegura',          5),
+    ('Producto dañado en tránsito',                6),
+    ('Vehículo averiado',                          7),
+    ('Accidente de tránsito',                      8),
+    ('Robo o asalto',                              9),
+    ('Pedido cancelado por el cliente',           10),
+    ('Horario de entrega vencido',                11),
+    ('Otro',                                      99)
+ON CONFLICT (nombre) DO NOTHING;
+
+ALTER TABLE entregas
+    ADD COLUMN IF NOT EXISTS id_motivo_fallida INT REFERENCES motivo_fallida(id_motivo);
+
+COMMENT ON COLUMN entregas.id_motivo_fallida IS
+    'Motivo catalogado de por que la entrega no se pudo completar (solo aplica cuando el estado es FALLIDA). El detalle libre adicional sigue guardandose en observaciones.';
+
+CREATE INDEX IF NOT EXISTS idx_entregas_motivo_fallida ON entregas(id_motivo_fallida);
+
+
+-- =============================================================================
+-- PATCH 4/4 — LICENCIA POR TIPO DE VEHÍCULO (una licencia distinta por cada
+-- tipo que el repartidor esté habilitado a manejar)
+-- =============================================================================
+
+-- ============================================================
+-- PATCH — Licencia por tipo de vehículo (una licencia distinta
+-- por cada tipo que el repartidor esté habilitado a manejar)
+-- Ejecutar después de Farmacia_FINAL.sql (aditivo, seguro re-ejecutar)
+-- ============================================================
+
+ALTER TABLE repartidor_habilidad
+    ADD COLUMN IF NOT EXISTS numero_licencia            VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS fecha_vencimiento_licencia  DATE;
+
+COMMENT ON COLUMN repartidor_habilidad.numero_licencia IS
+    'Número de la licencia específica para este tipo de vehículo (cada categoría —motocicleta, carro, camión— es una licencia distinta)';
+COMMENT ON COLUMN repartidor_habilidad.fecha_vencimiento_licencia IS
+    'Vencimiento de esa licencia específica, para poder alertar cuando esté por vencer';
+
+-- Nota: repartidores.licencia_conducir y repartidores.fecha_vencimiento_licencia
+-- (las columnas genéricas de antes) se dejan intactas por compatibilidad,
+-- pero ya no se usan — ahora la licencia vive por tipo de vehículo en
+-- repartidor_habilidad.
+
+
+-- =============================================================================
+-- PATCH 5/5 — ESTADO LABORAL DEL REPARTIDOR (vacaciones, licencia médica,
+-- hospitalizado, luto, otro — más allá de activo/inactivo)
+-- =============================================================================
+
+-- ============================================================
+-- PATCH — Estado laboral del repartidor (más allá de activo/inactivo)
+-- Ejecutar después de Farmacia_FINAL.sql (aditivo, seguro re-ejecutar)
+-- ============================================================
+
+ALTER TABLE repartidores
+    ADD COLUMN IF NOT EXISTS estado_laboral VARCHAR(30) NOT NULL DEFAULT 'ACTIVO'
+        CHECK (estado_laboral IN ('ACTIVO','VACACIONES','LICENCIA_MEDICA','HOSPITALIZADO','LUTO','OTRO'));
+
+COMMENT ON COLUMN repartidores.estado_laboral IS
+    'Estado laboral actual del repartidor. "activo" (booleano) sigue significando si sigue perteneciendo a la empresa; este campo describe su disponibilidad temporal aunque siga activo.';
+
+CREATE INDEX IF NOT EXISTS idx_repartidores_estado_laboral ON repartidores(estado_laboral);
+
+
+-- =============================================================================
+-- PATCH 6/6 — NORMALIZAR TIPOS DE VEHÍCULO EXISTENTES (MOTO -> Motocicleta,
+-- para que coincidan con el combobox de licencias)
+-- =============================================================================
+
+-- ============================================================
+-- PATCH — Normalizar tipos de vehículo existentes
+-- Ejecutar después de Farmacia_FINAL.sql (aditivo, seguro re-ejecutar)
+-- ============================================================
+--
+-- Problema encontrado: el combobox de licencias (repartidor_habilidad)
+-- usa "Motocicleta", "Carro", "Camión" — pero los vehículos que ya
+-- existían en la base de datos usaban otros nombres ("MOTO",
+-- "BICICLETA"), así que nunca hacían match con ninguna licencia y el
+-- sistema decía "no hay repartidores disponibles" aunque sí los hubiera.
+
+UPDATE vehiculos SET tipo = 'Motocicleta' WHERE tipo = 'MOTO';
+
+-- NOTA IMPORTANTE: el vehículo con tipo 'BICICLETA' (el de Carlos
+-- Gómez) NO se tocó, porque "Bicicleta" no es una de las 3 categorías
+-- de licencia que definiste (Motocicleta, Carro, Camión). Tal como
+-- quedó, ese vehículo no se le puede asignar a nadie hasta que:
+--   (a) le cambies el tipo manualmente a uno de los 3 válidos, o
+--   (b) me digas si quieres agregar "Bicicleta" como una 4ta opción
+--       de licencia en el combobox.
+-- Puedes ver ese vehículo con:
+--   SELECT * FROM vehiculos WHERE tipo = 'BICICLETA';
+
+
+-- =============================================================================
+-- PATCH 7/7 — Retirar de la flota el vehículo tipo "Bicicleta" (no es una
+-- categoría de licencia válida). Se marca INACTIVO, no se borra, para no
+-- perder el historial si alguna entrega vieja lo usó.
+-- =============================================================================
+
+UPDATE vehiculos
+SET estado = 'INACTIVO', activo = FALSE
+WHERE tipo = 'BICICLETA';
+
+
+-- =============================================================================
+-- PATCH 8/8 — AUDITORÍA REAL: función de trigger genérica enganchada a las
+-- tablas de negocio de todos los módulos (antes existía la tabla y la
+-- pantalla, pero ningún trigger escribía en ella)
+-- =============================================================================
+
+-- ============================================================
+-- PATCH — Activar la auditoría de verdad en todo el sistema
+-- Ejecutar después del resto del script (aditivo, seguro re-ejecutar)
+-- ============================================================
+--
+-- Lo que encontré revisando el repo: la tabla auditoria_cambios, la
+-- pantalla de Auditoría y hasta la función set_audit_vars() YA
+-- EXISTÍAN — pero nada los conectaba. No había ni un solo trigger
+-- escribiendo en auditoria_cambios, y ningún archivo PHP llamaba a
+-- set_audit_vars(). Por eso el filtro de "módulo" solo mostraba lo
+-- poco que hubiera (o nada).
+--
+-- Este patch agrega:
+--   1. Una función de trigger genérica que registra INSERT/UPDATE/
+--      DELETE de cualquier tabla a la que se le enganche.
+--   2. Esa función enganchada a las tablas de negocio de todos los
+--      módulos (Seguridad/permisos, Administración, Inventario,
+--      Ventas, Compras, Delivery, Caja, Clientes).
+--
+-- (La otra mitad — que conexion.php llame a set_audit_vars() con el
+-- usuario real de la sesión — va en un archivo PHP aparte, porque
+-- eso no es SQL.)
+
+-- ─────────────────────────────────────────────────────────────
+-- 1. Función de trigger genérica
+-- ─────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION fn_auditoria_generica()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_id_usuario INT;
+    v_ip VARCHAR(45);
+    v_id_registro INT;
+    v_pk_column TEXT := TG_ARGV[0];
+BEGIN
+    BEGIN
+        v_id_usuario := NULLIF(current_setting('myapp.id_usuario', true), '')::INT;
+    EXCEPTION WHEN OTHERS THEN
+        v_id_usuario := NULL;
+    END;
+
+    BEGIN
+        v_ip := NULLIF(current_setting('myapp.ip_address', true), '');
+    EXCEPTION WHEN OTHERS THEN
+        v_ip := NULL;
+    END;
+
+    IF TG_OP = 'INSERT' THEN
+        EXECUTE format('SELECT ($1).%I', v_pk_column) INTO v_id_registro USING NEW;
+        INSERT INTO auditoria_cambios (tabla_afectada, id_registro, accion, datos_nuevos, id_usuario, ip)
+        VALUES (TG_TABLE_NAME, v_id_registro, 'INSERT', to_jsonb(NEW), v_id_usuario, v_ip);
+        RETURN NEW;
+
+    ELSIF TG_OP = 'UPDATE' THEN
+        EXECUTE format('SELECT ($1).%I', v_pk_column) INTO v_id_registro USING NEW;
+        INSERT INTO auditoria_cambios (tabla_afectada, id_registro, accion, datos_anteriores, datos_nuevos, id_usuario, ip)
+        VALUES (TG_TABLE_NAME, v_id_registro, 'UPDATE', to_jsonb(OLD), to_jsonb(NEW), v_id_usuario, v_ip);
+        RETURN NEW;
+
+    ELSIF TG_OP = 'DELETE' THEN
+        EXECUTE format('SELECT ($1).%I', v_pk_column) INTO v_id_registro USING OLD;
+        INSERT INTO auditoria_cambios (tabla_afectada, id_registro, accion, datos_anteriores, id_usuario, ip)
+        VALUES (TG_TABLE_NAME, v_id_registro, 'DELETE', to_jsonb(OLD), v_id_usuario, v_ip);
+        RETURN OLD;
+    END IF;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ─────────────────────────────────────────────────────────────
+-- 2. Enganchar la función a las tablas de negocio de cada módulo
+--    (nombre de trigger, tabla, columna de llave primaria)
+-- ─────────────────────────────────────────────────────────────
+
+-- Seguridad / Administración
+DROP TRIGGER IF EXISTS trg_auditoria_usuarios ON usuarios;
+CREATE TRIGGER trg_auditoria_usuarios AFTER INSERT OR UPDATE OR DELETE ON usuarios
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_usuario');
+
+DROP TRIGGER IF EXISTS trg_auditoria_roles ON roles;
+CREATE TRIGGER trg_auditoria_roles AFTER INSERT OR UPDATE OR DELETE ON roles
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_rol');
+
+DROP TRIGGER IF EXISTS trg_auditoria_permisos ON permisos;
+CREATE TRIGGER trg_auditoria_permisos AFTER INSERT OR UPDATE OR DELETE ON permisos
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_permiso');
+
+DROP TRIGGER IF EXISTS trg_auditoria_rol_permiso ON rol_permiso;
+CREATE TRIGGER trg_auditoria_rol_permiso AFTER INSERT OR UPDATE OR DELETE ON rol_permiso
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_rol');
+
+DROP TRIGGER IF EXISTS trg_auditoria_usuario_permiso ON usuario_permiso;
+CREATE TRIGGER trg_auditoria_usuario_permiso AFTER INSERT OR UPDATE OR DELETE ON usuario_permiso
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_usuario');
+
+DROP TRIGGER IF EXISTS trg_auditoria_configuracion_sistema ON configuracion_sistema;
+CREATE TRIGGER trg_auditoria_configuracion_sistema AFTER INSERT OR UPDATE OR DELETE ON configuracion_sistema
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_config');
+
+DROP TRIGGER IF EXISTS trg_auditoria_sucursales ON sucursales;
+CREATE TRIGGER trg_auditoria_sucursales AFTER INSERT OR UPDATE OR DELETE ON sucursales
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_sucursal');
+
+-- Inventario
+DROP TRIGGER IF EXISTS trg_auditoria_medicamentos ON medicamentos;
+CREATE TRIGGER trg_auditoria_medicamentos AFTER INSERT OR UPDATE OR DELETE ON medicamentos
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_medicamento');
+
+DROP TRIGGER IF EXISTS trg_auditoria_productos ON productos;
+CREATE TRIGGER trg_auditoria_productos AFTER INSERT OR UPDATE OR DELETE ON productos
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_producto');
+
+DROP TRIGGER IF EXISTS trg_auditoria_lotes ON lotes;
+CREATE TRIGGER trg_auditoria_lotes AFTER INSERT OR UPDATE OR DELETE ON lotes
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_lote');
+
+DROP TRIGGER IF EXISTS trg_auditoria_inventario ON inventario;
+CREATE TRIGGER trg_auditoria_inventario AFTER INSERT OR UPDATE OR DELETE ON inventario
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_inventario');
+
+DROP TRIGGER IF EXISTS trg_auditoria_inventario_productos ON inventario_productos;
+CREATE TRIGGER trg_auditoria_inventario_productos AFTER INSERT OR UPDATE OR DELETE ON inventario_productos
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_inventario');
+
+DROP TRIGGER IF EXISTS trg_auditoria_movimiento_inventario ON movimiento_inventario;
+CREATE TRIGGER trg_auditoria_movimiento_inventario AFTER INSERT OR UPDATE OR DELETE ON movimiento_inventario
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_movimiento');
+
+-- Ventas
+DROP TRIGGER IF EXISTS trg_auditoria_ventas ON ventas;
+CREATE TRIGGER trg_auditoria_ventas AFTER INSERT OR UPDATE OR DELETE ON ventas
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_venta');
+
+DROP TRIGGER IF EXISTS trg_auditoria_detalle_venta ON detalle_venta;
+CREATE TRIGGER trg_auditoria_detalle_venta AFTER INSERT OR UPDATE OR DELETE ON detalle_venta
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_detalle');
+
+DROP TRIGGER IF EXISTS trg_auditoria_pagos ON pagos;
+CREATE TRIGGER trg_auditoria_pagos AFTER INSERT OR UPDATE OR DELETE ON pagos
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_pago');
+
+DROP TRIGGER IF EXISTS trg_auditoria_abonos_credito ON abonos_credito;
+CREATE TRIGGER trg_auditoria_abonos_credito AFTER INSERT OR UPDATE OR DELETE ON abonos_credito
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_abono');
+
+DROP TRIGGER IF EXISTS trg_auditoria_descuentos ON descuentos;
+CREATE TRIGGER trg_auditoria_descuentos AFTER INSERT OR UPDATE OR DELETE ON descuentos
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_descuento');
+
+DROP TRIGGER IF EXISTS trg_auditoria_cupones ON cupones;
+CREATE TRIGGER trg_auditoria_cupones AFTER INSERT OR UPDATE OR DELETE ON cupones
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_cupon');
+
+-- Compras
+DROP TRIGGER IF EXISTS trg_auditoria_compras ON compras;
+CREATE TRIGGER trg_auditoria_compras AFTER INSERT OR UPDATE OR DELETE ON compras
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_compra');
+
+DROP TRIGGER IF EXISTS trg_auditoria_detalle_compra ON detalle_compra;
+CREATE TRIGGER trg_auditoria_detalle_compra AFTER INSERT OR UPDATE OR DELETE ON detalle_compra
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_detalle');
+
+DROP TRIGGER IF EXISTS trg_auditoria_proveedores ON proveedores;
+CREATE TRIGGER trg_auditoria_proveedores AFTER INSERT OR UPDATE OR DELETE ON proveedores
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_proveedor');
+
+-- Clientes
+DROP TRIGGER IF EXISTS trg_auditoria_clientes ON clientes;
+CREATE TRIGGER trg_auditoria_clientes AFTER INSERT OR UPDATE OR DELETE ON clientes
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_cliente');
+
+-- Delivery
+DROP TRIGGER IF EXISTS trg_auditoria_repartidores ON repartidores;
+CREATE TRIGGER trg_auditoria_repartidores AFTER INSERT OR UPDATE OR DELETE ON repartidores
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_repartidor');
+
+DROP TRIGGER IF EXISTS trg_auditoria_vehiculos ON vehiculos;
+CREATE TRIGGER trg_auditoria_vehiculos AFTER INSERT OR UPDATE OR DELETE ON vehiculos
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_vehiculo');
+
+DROP TRIGGER IF EXISTS trg_auditoria_entregas ON entregas;
+CREATE TRIGGER trg_auditoria_entregas AFTER INSERT OR UPDATE OR DELETE ON entregas
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_entrega');
+
+DROP TRIGGER IF EXISTS trg_auditoria_devoluciones ON devoluciones;
+CREATE TRIGGER trg_auditoria_devoluciones AFTER INSERT OR UPDATE OR DELETE ON devoluciones
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_devolucion');
+
+DROP TRIGGER IF EXISTS trg_auditoria_tarifas_envio ON tarifas_envio;
+CREATE TRIGGER trg_auditoria_tarifas_envio AFTER INSERT OR UPDATE OR DELETE ON tarifas_envio
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_tarifa');
+
+-- Caja
+DROP TRIGGER IF EXISTS trg_auditoria_caja ON caja;
+CREATE TRIGGER trg_auditoria_caja AFTER INSERT OR UPDATE OR DELETE ON caja
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_caja');
+
+DROP TRIGGER IF EXISTS trg_auditoria_movimiento_caja ON movimiento_caja;
+CREATE TRIGGER trg_auditoria_movimiento_caja AFTER INSERT OR UPDATE OR DELETE ON movimiento_caja
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_movimiento');
+
+
+-- =============================================================================
+-- PATCH 9/9 — CATÁLOGO DE MÓDULOS Y PERMISOS (estaban completamente vacíos,
+-- por eso el sistema de Permisos de Usuario nunca guardaba nada)
+-- =============================================================================
+
+-- ============================================================
+-- PATCH — Sembrar el catálogo de módulos y permisos
+-- Ejecutar después del resto del script (aditivo, seguro re-ejecutar)
+-- ============================================================
+--
+-- Encontré que las tablas modulos y permisos estaban COMPLETAMENTE
+-- VACÍAS. Esto rompía todo el sistema de permisos de dos formas:
+--   1. procesar_permisos.php busca el id_permiso por nombre para
+--      poder guardar — como la tabla estaba vacía, nunca encontraba
+--      nada y NUNCA se guardaba ni un solo permiso, sin importar qué
+--      marcaras en la pantalla.
+--   2. Aunque se hubiera guardado algo, no había catálogo con el que
+--      relacionarlo.
+--
+-- Los 49 nombres de aquí abajo son EXACTAMENTE los que ya usa tu
+-- pantalla permisos_usuarios.php (los saqué directo del HTML, no me
+-- los inventé) — por eso van a encajar sin tocar esa pantalla.
+
+-- ─────────────────────────────────────────────────────────────
+-- 0. Restricciones UNIQUE necesarias para poder re-ejecutar este
+--    patch sin duplicar filas (no existían antes)
+-- ─────────────────────────────────────────────────────────────
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_modulos_nombre') THEN
+        ALTER TABLE modulos ADD CONSTRAINT uq_modulos_nombre UNIQUE (nombre);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_permisos_nombre') THEN
+        ALTER TABLE permisos ADD CONSTRAINT uq_permisos_nombre UNIQUE (nombre);
+    END IF;
+END $$;
+
+-- ─────────────────────────────────────────────────────────────
+-- 1. Módulos
+-- ─────────────────────────────────────────────────────────────
+INSERT INTO modulos (nombre, icono, orden) VALUES
+    ('Dashboard', 'dashboard', 0),
+    ('Ventas', 'point_of_sale', 1),
+    ('Inventario', 'inventory_2', 2),
+    ('Compras', 'shopping_cart', 3),
+    ('Clientes', 'group', 4),
+    ('Delivery', 'local_shipping', 5),
+    ('Caja', 'payments', 6),
+    ('Ropa', 'checkroom', 7),
+    ('Administración', 'admin_panel_settings', 8),
+    ('Seguridad', 'shield_person', 9),
+    ('Reportes', 'bar_chart', 10)
+ON CONFLICT (nombre) DO NOTHING;
+
+-- ─────────────────────────────────────────────────────────────
+-- 2. Permisos — nivel módulo (los 10 interruptores grandes)
+-- ─────────────────────────────────────────────────────────────
+INSERT INTO permisos (id_modulo, nombre, accion, tipo_accion)
+SELECT id_modulo, 'ventas', 'ACCESO', 'MODULO' FROM modulos WHERE nombre='Ventas'
+UNION ALL SELECT id_modulo, 'inventario', 'ACCESO', 'MODULO' FROM modulos WHERE nombre='Inventario'
+UNION ALL SELECT id_modulo, 'compras', 'ACCESO', 'MODULO' FROM modulos WHERE nombre='Compras'
+UNION ALL SELECT id_modulo, 'clientes', 'ACCESO', 'MODULO' FROM modulos WHERE nombre='Clientes'
+UNION ALL SELECT id_modulo, 'delivery', 'ACCESO', 'MODULO' FROM modulos WHERE nombre='Delivery'
+UNION ALL SELECT id_modulo, 'caja', 'ACCESO', 'MODULO' FROM modulos WHERE nombre='Caja'
+UNION ALL SELECT id_modulo, 'ropa', 'ACCESO', 'MODULO' FROM modulos WHERE nombre='Ropa'
+UNION ALL SELECT id_modulo, 'administracion', 'ACCESO', 'MODULO' FROM modulos WHERE nombre='Administración'
+UNION ALL SELECT id_modulo, 'seguridad', 'ACCESO', 'MODULO' FROM modulos WHERE nombre='Seguridad'
+UNION ALL SELECT id_modulo, 'reportes', 'ACCESO', 'MODULO' FROM modulos WHERE nombre='Reportes'
+ON CONFLICT (nombre) DO NOTHING;
+
+-- ─────────────────────────────────────────────────────────────
+-- 3. Permisos — nivel sub-módulo (los 39 interruptores finos)
+-- ─────────────────────────────────────────────────────────────
+INSERT INTO permisos (id_modulo, nombre, accion, tipo_accion)
+SELECT id_modulo, x.nombre, 'ACCESO', 'SUBMODULO' FROM modulos, (VALUES
+    ('registrar_venta'),('historial_ventas'),('pagos'),('facturacion')
+) AS x(nombre) WHERE modulos.nombre='Ventas'
+UNION ALL
+SELECT id_modulo, x.nombre, 'ACCESO', 'SUBMODULO' FROM modulos, (VALUES
+    ('medicamentos'),('categorias'),('lotes'),('stock'),('vencimientos')
+) AS x(nombre) WHERE modulos.nombre='Inventario'
+UNION ALL
+SELECT id_modulo, x.nombre, 'ACCESO', 'SUBMODULO' FROM modulos, (VALUES
+    ('registrar_compra'),('historial_compras'),('proveedores')
+) AS x(nombre) WHERE modulos.nombre='Compras'
+UNION ALL
+SELECT id_modulo, x.nombre, 'ACCESO', 'SUBMODULO' FROM modulos, (VALUES
+    ('clientes_lista'),('historial_cliente')
+) AS x(nombre) WHERE modulos.nombre='Clientes'
+UNION ALL
+SELECT id_modulo, x.nombre, 'ACCESO', 'SUBMODULO' FROM modulos, (VALUES
+    ('repartidores'),('entregas'),('vehiculos'),('tracking'),('incidencias_delivery')
+) AS x(nombre) WHERE modulos.nombre='Delivery'
+UNION ALL
+SELECT id_modulo, x.nombre, 'ACCESO', 'SUBMODULO' FROM modulos, (VALUES
+    ('apertura_caja'),('cierre_caja')
+) AS x(nombre) WHERE modulos.nombre='Caja'
+UNION ALL
+SELECT id_modulo, x.nombre, 'ACCESO', 'SUBMODULO' FROM modulos, (VALUES
+    ('gestion_ropa'),('tipo_ropa'),('marcas'),('fabricantes'),('colores'),('tallas')
+) AS x(nombre) WHERE modulos.nombre='Ropa'
+UNION ALL
+SELECT id_modulo, x.nombre, 'ACCESO', 'SUBMODULO' FROM modulos, (VALUES
+    ('sucursales'),('empresa'),('usuarios'),('roles'),('permisos_usuarios'),('desbloqueo_usuarios')
+) AS x(nombre) WHERE modulos.nombre='Administración'
+UNION ALL
+SELECT id_modulo, x.nombre, 'ACCESO', 'SUBMODULO' FROM modulos, (VALUES
+    ('sesiones'),('auditoria'),('logs')
+) AS x(nombre) WHERE modulos.nombre='Seguridad'
+UNION ALL
+SELECT id_modulo, x.nombre, 'ACCESO', 'SUBMODULO' FROM modulos, (VALUES
+    ('reporte_ventas'),('reporte_inventario'),('reporte_vencimientos')
+) AS x(nombre) WHERE modulos.nombre='Reportes'
+ON CONFLICT (nombre) DO NOTHING;
+
+
+-- =============================================================================
+-- PATCH 10/10 — COSTO DE DELIVERY POR KM RECORRIDO (coordenadas de
+-- sucursales + costo por km configurable, en vez de costo fijo escrito
+-- a mano en cada venta)
+-- =============================================================================
+
+-- ============================================================
+-- PATCH — Costo de delivery por km recorrido
+-- Ejecutar después del resto del script (aditivo, seguro re-ejecutar)
+-- ============================================================
+
+-- Coordenadas de cada sucursal (para calcular distancia desde ahí)
+ALTER TABLE sucursales
+    ADD COLUMN IF NOT EXISTS latitud  DECIMAL(10,8),
+    ADD COLUMN IF NOT EXISTS longitud DECIMAL(11,8);
+
+COMMENT ON COLUMN sucursales.latitud IS
+    'Coordenada de la sucursal, para calcular la distancia hasta la dirección de entrega. Sin esto, el sistema usa el costo de envío por defecto en vez de calcular por km.';
+
+-- Nueva clave de configuración: cuánto se cobra por cada km recorrido
+INSERT INTO configuracion_sistema (clave, valor, descripcion) VALUES
+    ('costo_por_km', '15', 'Costo en RD$ que se cobra por cada kilómetro de distancia entre la sucursal y la dirección de entrega')
+ON CONFLICT (clave) DO NOTHING;
+
+
+-- =============================================================================
+-- PATCH 11/11 — PORTAL DE CLIENTES (simulación): login propio para clientes,
+-- ver sus entregas con todo el detalle, cancelar con motivo, y confirmar +
+-- calificar en 3 bloques (repartidor, medicamento, general) cuando el
+-- repartidor marque la entrega como completada.
+-- =============================================================================
+
+-- ============================================================
+-- PATCH — Portal de Clientes (simulación): login, ver sus entregas,
+-- cancelar con motivo, confirmar y calificar cuando el repartidor
+-- marque la entrega como completada.
+-- Ejecutar después del resto del script (aditivo, seguro re-ejecutar)
+-- ============================================================
+
+-- ─────────────────────────────────────────────────────────────
+-- 1. Acceso al portal para el cliente (usuario/contraseña propios,
+--    separados de los usuarios del staff)
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE clientes
+    ADD COLUMN IF NOT EXISTS usuario_portal    VARCHAR(50) UNIQUE,
+    ADD COLUMN IF NOT EXISTS contrasena_portal VARCHAR(255);
+
+COMMENT ON COLUMN clientes.usuario_portal IS
+    'Usuario para que el cliente entre al portal de seguimiento/calificación. NULL = todavía no tiene acceso.';
+
+-- ─────────────────────────────────────────────────────────────
+-- 2. Catálogo de motivos de cancelación (el combobox que ve el
+--    cliente al cancelar su propia entrega)
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS motivo_cancelacion_cliente (
+    id_motivo SERIAL PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL UNIQUE,
+    activo BOOLEAN DEFAULT TRUE,
+    orden INT DEFAULT 0
+);
+
+INSERT INTO motivo_cancelacion_cliente (nombre, orden) VALUES
+    ('Ya no necesito el pedido', 1),
+    ('Me equivoqué al pedir', 2),
+    ('Encontré el medicamento en otro lugar', 3),
+    ('El tiempo de espera es muy largo', 4),
+    ('Cambié de dirección de entrega', 5),
+    ('Ya no voy a estar disponible para recibirlo', 6),
+    ('Otro motivo', 99)
+ON CONFLICT (nombre) DO NOTHING;
+
+-- ─────────────────────────────────────────────────────────────
+-- 3. Campos en "entregas" para la cancelación y confirmación del
+--    cliente (independiente del flujo normal del repartidor)
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE entregas
+    ADD COLUMN IF NOT EXISTS cancelado_por            VARCHAR(20),
+    ADD COLUMN IF NOT EXISTS id_motivo_cancelacion     INT REFERENCES motivo_cancelacion_cliente(id_motivo),
+    ADD COLUMN IF NOT EXISTS comentario_cancelacion    TEXT,
+    ADD COLUMN IF NOT EXISTS confirmado_por_cliente    BOOLEAN DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS fecha_confirmacion_cliente TIMESTAMP;
+
+COMMENT ON COLUMN entregas.cancelado_por IS
+    'Quién canceló: CLIENTE o el usuario del staff que lo hizo. NULL si no está cancelada.';
+COMMENT ON COLUMN entregas.confirmado_por_cliente IS
+    'El repartidor ya puede haber marcado ENTREGADA — esto es aparte: que el propio cliente lo haya confirmado y calificado en el portal.';
+
+-- ─────────────────────────────────────────────────────────────
+-- 4. Completar calificaciones_entrega con la dimensión de
+--    "persona correcta" (bloque general que pediste)
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE calificaciones_entrega
+    ADD COLUMN IF NOT EXISTS persona_correcta BOOLEAN;
+
+COMMENT ON COLUMN calificaciones_entrega.persona_correcta IS
+    'Bloque general: ¿se entregó a la persona correcta?';
+
+
+-- =============================================================================
+-- PATCH 12/12 — CONECTAR "PERMISOS DE USUARIO" CON EL ACCESO REAL
+-- Agrega 'dashboard' y 'agenda' como permisos reales, corrige el nombre
+-- 'entregas' -> 'entrega', y siembra los valores por defecto de Dashboard y
+-- Delivery para cada rol que ya existe.
+-- =============================================================================
+
+-- ============================================================
+-- PATCH — Conectar "Permisos de Usuario" con el control de acceso
+-- real, para Dashboard y Delivery (incluye la nueva Mi Agenda).
+--
+-- Hasta ahora, la pantalla de Permisos guardaba en usuario_permiso /
+-- rol_permiso, pero el acceso real de cada quien lo decidía un
+-- arreglo fijo en PHP (menu_por_rol) que nunca leía esas tablas —
+-- por eso mover los interruptores no cambiaba nada.
+--
+-- Este patch:
+--   1. Agrega 'dashboard' como permiso real (antes no existía, por
+--      eso nunca se podía quitar).
+--   2. Agrega 'agenda' como submódulo de Delivery (la pantalla del
+--      repartidor).
+--   3. Corrige 'entregas' -> 'entrega' para que coincida con el
+--      nombre real que usa el sistema (menuprincipal.php?mod=entrega).
+--   4. Siembra rol_permiso para Dashboard y Delivery en los 6 roles
+--      que ya existen, para que el comportamiento de hoy no cambie
+--      de golpe — solo a partir de aquí, cambiar un interruptor en
+--      Permisos sí tiene efecto real.
+-- ============================================================
+
+-- 1. Dashboard como permiso real (antes no existía)
+INSERT INTO permisos (id_modulo, nombre, accion, tipo_accion)
+SELECT id_modulo, 'dashboard', 'ACCESO', 'MODULO' FROM modulos WHERE nombre='Dashboard'
+ON CONFLICT (nombre) DO NOTHING;
+
+-- 2. Agenda como submódulo de Delivery
+INSERT INTO permisos (id_modulo, nombre, accion, tipo_accion)
+SELECT id_modulo, 'agenda', 'ACCESO', 'SUBMODULO' FROM modulos WHERE nombre='Delivery'
+ON CONFLICT (nombre) DO NOTHING;
+
+-- 3. Corregir el nombre para que coincida con el real del sistema
+UPDATE permisos SET nombre = 'entrega' WHERE nombre = 'entregas';
+
+-- 4. Sembrar rol_permiso — Dashboard (todos menos Repartidor)
+INSERT INTO rol_permiso (id_rol, id_permiso)
+SELECT r.id_rol, p.id_permiso
+FROM roles r, permisos p
+WHERE p.nombre = 'dashboard'
+  AND r.nombre IN ('Administrador', 'Cajero', 'Vendedor', 'Encargado Inventario', 'Gestor Compras')
+ON CONFLICT DO NOTHING;
+
+-- 5. Sembrar rol_permiso — Delivery, módulo (Administrador, Cajero, Repartidor)
+INSERT INTO rol_permiso (id_rol, id_permiso)
+SELECT r.id_rol, p.id_permiso
+FROM roles r, permisos p
+WHERE p.nombre = 'delivery'
+  AND r.nombre IN ('Administrador', 'Cajero', 'Repartidor')
+ON CONFLICT DO NOTHING;
+
+-- 6. Sembrar rol_permiso — Delivery, submódulos administrativos
+--    (Administrador y Cajero ven la gestión completa; el repartidor no)
+INSERT INTO rol_permiso (id_rol, id_permiso)
+SELECT r.id_rol, p.id_permiso
+FROM roles r, permisos p
+WHERE p.nombre IN ('repartidores', 'entrega', 'vehiculos')
+  AND r.nombre IN ('Administrador', 'Cajero')
+ON CONFLICT DO NOTHING;
+
+-- 7. Sembrar rol_permiso — Delivery, "Mi Agenda" (solo el Repartidor)
+INSERT INTO rol_permiso (id_rol, id_permiso)
+SELECT r.id_rol, p.id_permiso
+FROM roles r, permisos p
+WHERE p.nombre = 'agenda'
+  AND r.nombre = 'Repartidor'
+ON CONFLICT DO NOTHING;
+
+
+-- =============================================================================
+-- PATCH 13/13 — PERMISOS DE USUARIO COMPLETO: los 10 módulos ya controlan
+-- acceso real (antes solo Dashboard+Delivery). Corrige 2 bugs reales del
+-- archivo permisos_usuarios.php (Dashboard fijo en "checked disabled", y
+-- "Configuración" que en realidad compartía el checkbox de "Sucursales").
+-- Siembra rol_permiso completo para los 6 roles reales.
+-- =============================================================================
+
+-- ============================================================
+-- PATCH — Conectar TODO "Permisos de Usuario" con el acceso real
+-- (los 10 módulos, no solo Delivery), y corregir 2 bugs reales que
+-- tenía el archivo original de esa pantalla.
+--
+-- Bugs encontrados en permisos_usuarios.php (el archivo real):
+--   1. El interruptor de "Dashboard" tenía checked disabled en el
+--      HTML — nunca se podía apagar, sin importar qué guardara el
+--      backend.
+--   2. La fila que dice "Configuración" en Administración en
+--      realidad tenía el checkbox de "Sucursales" duplicado (mismo
+--      id, mismo data-permiso) — Configuración nunca fue un permiso
+--      real, aunque se veía en pantalla.
+--   3. El botón "Cargar permisos por defecto del rol" tenía sus
+--      propios valores por defecto escritos directo en JavaScript,
+--      con roles que ni existen en la base de datos ('Vendedor',
+--      'Gestor Delivery', etc.) y sin ninguna entrada para
+--      'Repartidor' — si lo usabas con un repartidor, cargaba por
+--      error los permisos de Cajero.
+-- ============================================================
+
+-- 1. "entrega" vuelve a llamarse "entregas" — así se llama en el
+--    archivo real de Permisos (permisos_usuarios.php usa ese nombre
+--    en 15+ lugares); es más seguro ajustar la base de datos que
+--    reescribir ese archivo entero.
+UPDATE permisos SET nombre = 'entregas' WHERE nombre = 'entrega';
+
+-- 2. "configuracion" como permiso real y propio (antes compartía,
+--    por error, el mismo checkbox que "sucursales")
+INSERT INTO permisos (id_modulo, nombre, accion, tipo_accion)
+SELECT id_modulo, 'configuracion', 'ACCESO', 'SUBMODULO' FROM modulos WHERE nombre='Administración'
+ON CONFLICT (nombre) DO NOTHING;
+
+-- ============================================================
+-- Sembrar rol_permiso completo, para los 6 roles reales que existen
+-- (Administrador, Cajero, Inventario, Supervisor, Soporte,
+-- Repartidor) — de aquí en adelante, esto es lo único que decide
+-- accesos por defecto; ya no el arreglo de PHP ni el de JavaScript.
+-- ============================================================
+
+-- Administrador: absolutamente todo
+INSERT INTO rol_permiso (id_rol, id_permiso)
+SELECT r.id_rol, p.id_permiso FROM roles r, permisos p WHERE r.nombre = 'Administrador'
+ON CONFLICT DO NOTHING;
+
+-- Cajero: ventas, clientes, caja, delivery completo (igual que ya
+-- tenía el sistema antes de este cambio)
+INSERT INTO rol_permiso (id_rol, id_permiso)
+SELECT r.id_rol, p.id_permiso FROM roles r, permisos p
+WHERE r.nombre = 'Cajero'
+  AND p.nombre IN (
+    'dashboard',
+    'ventas', 'registrar_venta', 'historial_ventas', 'pagos', 'facturacion',
+    'clientes', 'clientes_lista', 'historial_cliente',
+    'caja', 'apertura_caja', 'cierre_caja',
+    'delivery', 'repartidores', 'entregas', 'vehiculos', 'tracking', 'incidencias_delivery'
+  )
+ON CONFLICT DO NOTHING;
+
+-- Inventario (rol): dashboard + módulo de inventario + reportes
+-- relacionados
+INSERT INTO rol_permiso (id_rol, id_permiso)
+SELECT r.id_rol, p.id_permiso FROM roles r, permisos p
+WHERE r.nombre = 'Inventario'
+  AND p.nombre IN (
+    'dashboard',
+    'inventario', 'medicamentos', 'categorias', 'lotes', 'stock', 'vencimientos',
+    'reportes', 'reporte_inventario', 'reporte_vencimientos'
+  )
+ON CONFLICT DO NOTHING;
+
+-- Supervisor: dashboard + reportes de todo, sin poder operar nada
+INSERT INTO rol_permiso (id_rol, id_permiso)
+SELECT r.id_rol, p.id_permiso FROM roles r, permisos p
+WHERE r.nombre = 'Supervisor'
+  AND p.nombre IN ('dashboard', 'reportes', 'reporte_ventas', 'reporte_inventario', 'reporte_vencimientos')
+ON CONFLICT DO NOTHING;
+
+-- Soporte: dashboard + seguridad + administración de usuarios
+INSERT INTO rol_permiso (id_rol, id_permiso)
+SELECT r.id_rol, p.id_permiso FROM roles r, permisos p
+WHERE r.nombre = 'Soporte'
+  AND p.nombre IN (
+    'dashboard',
+    'seguridad', 'sesiones', 'auditoria', 'logs',
+    'administracion', 'usuarios', 'desbloqueo_usuarios'
+  )
+ON CONFLICT DO NOTHING;
+
+-- Repartidor: solo su Agenda — nada de Dashboard, nada de la
+-- gestión administrativa de Delivery
+INSERT INTO rol_permiso (id_rol, id_permiso)
+SELECT r.id_rol, p.id_permiso FROM roles r, permisos p
+WHERE r.nombre = 'Repartidor'
+  AND p.nombre IN ('delivery', 'agenda')
+ON CONFLICT DO NOTHING;
+
+
+-- =============================================================================
+-- PATCH 14/14 — Permiso propio para "Accesos de Clientes" (antes reutilizaba
+-- por error el permiso de "Usuarios", así que nunca aparecía como interruptor
+-- independiente en Permisos de Usuarios).
+-- =============================================================================
+
+-- ============================================================
+-- PATCH — "Accesos de Clientes" necesita su propio permiso, no
+-- compartir el de "Usuarios" (personal del sistema). Sin esto,
+-- nunca aparecía como interruptor independiente en la pantalla de
+-- Permisos de Usuarios.
+-- ============================================================
+
+INSERT INTO permisos (id_modulo, nombre, accion, tipo_accion)
+SELECT id_modulo, 'usuarios_clientes', 'ACCESO', 'SUBMODULO' FROM modulos WHERE nombre='Administración'
+ON CONFLICT (nombre) DO NOTHING;
+
+-- Por ahora, solo el Administrador lo tiene por defecto
+INSERT INTO rol_permiso (id_rol, id_permiso)
+SELECT r.id_rol, p.id_permiso FROM roles r, permisos p
+WHERE p.nombre = 'usuarios_clientes' AND r.nombre = 'Administrador'
+ON CONFLICT DO NOTHING;

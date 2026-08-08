@@ -1256,3 +1256,34 @@ body {
         margin-left: 0;
     }
 }
+
+/* ============================================================
+   FIX — los modales de Bootstrap se quedaban con el fondo negro
+   trabado, sin dejar interactuar con nada.
+   Causa: .top-navbar usa z-index: 1050, el mismo valor que
+   Bootstrap usa por defecto para el fondo oscuro del modal
+   (.modal-backdrop), y este archivo también tiene reglas hasta
+   z-index: 10000 en otros lados (submenús). Esa coincidencia/
+   competencia de z-index hacía que el fondo oscuro del modal se
+   quedara por encima del modal en vez de por debajo.
+   Forzamos que los modales de Bootstrap siempre ganen, sin
+   importar qué otro z-index haya en el resto del sistema.
+   ============================================================ */
+.modal-backdrop {
+    z-index: 100000 !important;
+}
+.modal.show {
+    z-index: 100001 !important;
+}
+
+/* ============================================================
+   FIX 2 — las alertas de SweetAlert2 (Swal.fire) se quedaban
+   detrás del fondo del modal de Bootstrap en el instante en que
+   un modal se cierra y aparece la alerta de éxito justo después.
+   SweetAlert2 trae su propio z-index por defecto, más bajo que el
+   que forzamos arriba para Bootstrap — así que hay que subirlo
+   también, un escalón más arriba que todo lo anterior.
+   ============================================================ */
+.swal2-container {
+    z-index: 100002 !important;
+}

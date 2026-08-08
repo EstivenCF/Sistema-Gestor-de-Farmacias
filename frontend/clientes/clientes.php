@@ -246,6 +246,27 @@ $base_url = '/sistema-gestor-de-farmacias';
                                 <label class="form-check-label fw-bold">Permite crédito</label>
                             </div>
                         </div>
+                        <div class="col-12">
+                            <hr>
+                            <div class="form-check form-switch mb-2">
+                                <input class="form-check-input" type="checkbox" id="cliente_dar_acceso" onchange="toggleAccesoPortalCliente()">
+                                <label class="form-check-label fw-bold" for="cliente_dar_acceso">Darle acceso al portal de seguimiento (para ver sus pedidos y calificar)</label>
+                            </div>
+                            <p class="small text-success mb-2" id="cliente_ya_tiene_acceso" style="display:none;">
+                                <span class="material-symbols-rounded align-middle" style="font-size:1rem;">check_circle</span>
+                                Ya tiene acceso al portal (usuario: <strong id="cliente_usuario_actual"></strong>)
+                            </p>
+                            <div class="row g-2 mb-2" id="cliente_bloque_acceso" style="display:none;">
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-semibold">Usuario</label>
+                                    <input type="text" class="form-control" id="cliente_usuario_portal" placeholder="Ej: ldiaz">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-semibold">Contraseña</label>
+                                    <input type="password" class="form-control" id="cliente_password_portal" placeholder="Mínimo 4 caracteres">
+                                </div>
+                            </div>
+                        </div>
                         <!-- Teléfonos -->
                         <div class="col-12">
                             <label class="form-label fw-bold">Teléfonos</label>
@@ -313,8 +334,41 @@ $base_url = '/sistema-gestor-de-farmacias';
     </div>
 </div>
 
+<!-- MODAL: ubicar dirección en el mapa (OpenStreetMap, gratis) -->
+<div class="modal fade" id="modalMapaDireccion" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h6 class="modal-title mb-0"><span class="material-symbols-rounded align-middle me-1">location_on</span> Ubicar dirección en el mapa</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="input-group mb-2">
+          <input type="text" class="form-control" id="mapaBuscarInput" placeholder="Busca la dirección (ej: Av. Independencia, Santiago)">
+          <button class="btn btn-outline-success" type="button" onclick="buscarEnMapa()">
+            <span class="material-symbols-rounded align-middle">search</span> Buscar
+          </button>
+        </div>
+        <div id="mapaResultados" class="list-group mb-2" style="max-height:140px; overflow-y:auto;"></div>
+        <p class="text-muted small mb-2">O haz clic directamente en el mapa para marcar el punto exacto.</p>
+        <div id="mapaLeaflet" style="height:350px; border-radius:10px;"></div>
+        <p class="small mt-2 mb-0" id="mapaCoordsTexto">Sin ubicación seleccionada todavía.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-success" onclick="confirmarUbicacionMapa()">
+          <span class="material-symbols-rounded align-middle me-1">check</span> Usar esta ubicación
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const BASE_URL = '<?php echo $base_url; ?>';
 let editMode = false;
@@ -439,11 +493,188 @@ function agregarCampoDireccion() {
             <div class="col-md-6"><input type="text" class="form-control" placeholder="Referencia (opcional)" name="direcciones_referencia[]"></div>
             <div class="col-md-2 d-flex align-items-center"><div class="form-check"><input class="form-check-input" type="checkbox" name="direcciones_predeterminada[]"><label class="form-check-label small">Predeterminada</label></div></div>
             <div class="col-md-2 text-end"><button type="button" class="btn btn-outline-danger btn-sm" onclick="removerCampoDireccion(this)">-</button></div>
+            <div class="col-12 d-flex align-items-center gap-2 mt-1">
+                <input type="hidden" name="direcciones_lat[]" value="">
+                <input type="hidden" name="direcciones_lng[]" value="">
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="abrirMapaParaDireccion(this)">
+                    <span class="material-symbols-rounded align-middle" style="font-size:1rem;">location_on</span> Ubicar en mapa
+                </button>
+                <span class="small text-muted estado-ubicacion">Sin ubicar (se usará el costo de envío fijo hasta que la ubiques)</span>
+            </div>
         </div>
     `;
     container.appendChild(div);
 }
 function removerCampoDireccion(btn) { if (document.querySelectorAll('#direccionesContainer .direccion-item').length > 1) btn.closest('.direccion-item').remove(); else Swal.fire('Aviso', 'Debe haber al menos una dirección', 'info'); }
+
+// ══════════════ MAPA (OpenStreetMap + Nominatim, gratis) ══════════════
+
+let modalMapa, mapaLeaflet, marcadorMapa, contenedorDireccionActual = null;
+let coordsSeleccionadas = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+    modalMapa = new bootstrap.Modal(document.getElementById('modalMapaDireccion'));
+});
+
+function abrirMapaParaDireccion(btn) {
+    contenedorDireccionActual = btn.closest('.direccion-item');
+    coordsSeleccionadas = null;
+    document.getElementById('mapaBuscarInput').value = '';
+    document.getElementById('mapaResultados').innerHTML = '';
+    document.getElementById('mapaCoordsTexto').textContent = 'Sin ubicación seleccionada todavía.';
+
+    modalMapa.show();
+
+    // Leaflet necesita que el contenedor ya sea visible para medir su tamaño,
+    // así que inicializamos justo después de que el modal termine de abrirse.
+    document.getElementById('modalMapaDireccion').addEventListener('shown.bs.modal', function iniciarMapa() {
+        this.removeEventListener('shown.bs.modal', iniciarMapa);
+
+        const latActual = parseFloat(contenedorDireccionActual.querySelector('input[name="direcciones_lat[]"]').value);
+        const lngActual = parseFloat(contenedorDireccionActual.querySelector('input[name="direcciones_lng[]"]').value);
+        const tieneUbicacionPrevia = !isNaN(latActual) && !isNaN(lngActual);
+        const centroInicial = tieneUbicacionPrevia ? [latActual, lngActual] : [19.4517, -70.6970]; // Santiago, RD por defecto
+        const zoomInicial = tieneUbicacionPrevia ? 16 : 13;
+
+        if (mapaLeaflet) { mapaLeaflet.remove(); mapaLeaflet = null; }
+        mapaLeaflet = L.map('mapaLeaflet').setView(centroInicial, zoomInicial);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+            maxZoom: 19
+        }).addTo(mapaLeaflet);
+
+        if (tieneUbicacionPrevia) {
+            colocarMarcador(latActual, lngActual);
+        }
+
+        // Clic directo en el mapa: coloca el pin y busca la dirección de ese
+        // punto exacto por geocodificación inversa (Nominatim, gratis).
+        mapaLeaflet.on('click', function(e) {
+            colocarMarcador(e.latlng.lat, e.latlng.lng);
+            geocodificarInverso(e.latlng.lat, e.latlng.lng);
+        });
+    }, { once: true });
+}
+
+function colocarMarcador(lat, lng) {
+    if (marcadorMapa) mapaLeaflet.removeLayer(marcadorMapa);
+    marcadorMapa = L.marker([lat, lng]).addTo(mapaLeaflet);
+    coordsSeleccionadas = { lat, lng, direccion: null, barrio: null, ciudad: null };
+    document.getElementById('mapaCoordsTexto').innerHTML =
+        `<span class="text-success"><strong>✓ Ubicación marcada:</strong> ${lat.toFixed(6)}, ${lng.toFixed(6)}</span>`;
+}
+
+// Saca dirección / barrio / ciudad de la respuesta de Nominatim (sirve
+// tanto para resultados de búsqueda como para clic directo en el mapa).
+function extraerComponentesDireccion(addr, displayName) {
+    if (!addr) return { direccion: displayName || '', barrio: '', ciudad: '' };
+    const direccion = [addr.house_number, addr.road].filter(Boolean).join(' ') || addr.road || displayName || '';
+    const barrio = addr.suburb || addr.neighbourhood || addr.quarter || addr.city_district || '';
+    const ciudad = addr.city || addr.town || addr.village || addr.municipality || 'Santiago';
+    return { direccion, barrio, ciudad };
+}
+
+function geocodificarInverso(lat, lng) {
+    const detalle = document.getElementById('mapaCoordsTexto');
+    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`)
+        .then(r => r.json())
+        .then(data => {
+            const comp = extraerComponentesDireccion(data.address, data.display_name);
+            coordsSeleccionadas.direccion = comp.direccion;
+            coordsSeleccionadas.barrio = comp.barrio;
+            coordsSeleccionadas.ciudad = comp.ciudad;
+            detalle.innerHTML =
+                `<span class="text-success"><strong>✓ Ubicación marcada:</strong> ${lat.toFixed(6)}, ${lng.toFixed(6)}</span><br>
+                 <span class="text-muted">${comp.direccion}${comp.barrio ? ', ' + comp.barrio : ''}</span>`;
+        })
+        .catch(() => { /* si falla la geocodificación inversa, igual queda la coordenada marcada */ });
+}
+
+let timeoutBusquedaMapa;
+document.addEventListener('DOMContentLoaded', () => {
+    const inputBuscar = document.getElementById('mapaBuscarInput');
+    if (inputBuscar) {
+        inputBuscar.addEventListener('keyup', (e) => {
+            if (e.key === 'Enter') { buscarEnMapa(); return; }
+            clearTimeout(timeoutBusquedaMapa);
+            timeoutBusquedaMapa = setTimeout(buscarEnMapa, 700);
+        });
+    }
+});
+
+let resultadosBusquedaMapa = [];
+
+function buscarEnMapa() {
+    const query = document.getElementById('mapaBuscarInput').value.trim();
+    const resultados = document.getElementById('mapaResultados');
+    if (query.length < 3) { resultados.innerHTML = ''; return; }
+
+    resultados.innerHTML = '<div class="list-group-item small text-muted">Buscando...</div>';
+
+    // Nominatim: buscador de direcciones de OpenStreetMap, gratis y sin llave.
+    // countrycodes=do limita la búsqueda a República Dominicana.
+    // addressdetails=1 hace que devuelva la dirección ya separada en
+    // partes (calle, barrio, ciudad), para poder llenar los campos solos.
+    fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(query)}&countrycodes=do&limit=5`)
+        .then(r => r.json())
+        .then(data => {
+            resultadosBusquedaMapa = data;
+            if (!data.length) {
+                resultados.innerHTML = '<div class="list-group-item small text-muted">Sin resultados. Prueba con otro texto o marca el punto directo en el mapa.</div>';
+                return;
+            }
+            resultados.innerHTML = data.map((item, i) => `
+                <button type="button" class="list-group-item list-group-item-action small" onclick='seleccionarResultadoMapa(${i})'>
+                    ${item.display_name}
+                </button>
+            `).join('');
+        })
+        .catch(() => {
+            resultados.innerHTML = '<div class="list-group-item small text-danger">Error al buscar. Intenta de nuevo o marca el punto directo en el mapa.</div>';
+        });
+}
+
+function seleccionarResultadoMapa(indice) {
+    const item = resultadosBusquedaMapa[indice];
+    if (!item) return;
+    const lat = parseFloat(item.lat), lng = parseFloat(item.lon);
+    mapaLeaflet.setView([lat, lng], 16);
+    colocarMarcador(lat, lng);
+    const comp = extraerComponentesDireccion(item.address, item.display_name);
+    coordsSeleccionadas.direccion = comp.direccion;
+    coordsSeleccionadas.barrio = comp.barrio;
+    coordsSeleccionadas.ciudad = comp.ciudad;
+    document.getElementById('mapaCoordsTexto').innerHTML =
+        `<span class="text-success"><strong>✓ Ubicación marcada:</strong> ${lat.toFixed(6)}, ${lng.toFixed(6)}</span><br>
+         <span class="text-muted">${comp.direccion}${comp.barrio ? ', ' + comp.barrio : ''}</span>`;
+}
+
+function confirmarUbicacionMapa() {
+    if (!coordsSeleccionadas) {
+        Swal.fire('Falta ubicar', 'Busca la dirección o haz clic en el mapa para marcar el punto exacto.', 'warning');
+        return;
+    }
+    contenedorDireccionActual.querySelector('input[name="direcciones_lat[]"]').value = coordsSeleccionadas.lat;
+    contenedorDireccionActual.querySelector('input[name="direcciones_lng[]"]').value = coordsSeleccionadas.lng;
+
+    // Llenar los campos de texto con lo que se extrajo del mapa, si se
+    // pudo obtener (búsqueda o clic directo con geocodificación inversa).
+    if (coordsSeleccionadas.direccion) {
+        contenedorDireccionActual.querySelector('input[name="direcciones[]"]').value = coordsSeleccionadas.direccion;
+    }
+    if (coordsSeleccionadas.barrio) {
+        contenedorDireccionActual.querySelector('input[name="direcciones_barrio[]"]').value = coordsSeleccionadas.barrio;
+    }
+    if (coordsSeleccionadas.ciudad) {
+        contenedorDireccionActual.querySelector('input[name="direcciones_ciudad[]"]').value = coordsSeleccionadas.ciudad;
+    }
+
+    const estadoTexto = contenedorDireccionActual.querySelector('.estado-ubicacion');
+    estadoTexto.textContent = '✓ Ubicada en el mapa';
+    estadoTexto.className = 'small text-success estado-ubicacion';
+    modalMapa.hide();
+}
+
 
 // Abrir modal agregar cliente
 function abrirModalAgregarCliente() {
@@ -452,10 +683,19 @@ function abrirModalAgregarCliente() {
     document.getElementById('formCliente').reset();
     document.getElementById('cliente_id').value = '';
     document.getElementById('cliente_ciudad').value = 'Santiago';
+    document.getElementById('cliente_dar_acceso').checked = false;
+    document.getElementById('cliente_dar_acceso').disabled = false;
+    document.getElementById('cliente_ya_tiene_acceso').style.display = 'none';
+    toggleAccesoPortalCliente();
     document.getElementById('telefonosContainer').innerHTML = ''; agregarCampoTelefono();
     document.getElementById('correosContainer').innerHTML = ''; agregarCampoCorreo();
     document.getElementById('direccionesContainer').innerHTML = ''; agregarCampoDireccion();
     new bootstrap.Modal(document.getElementById('modalFormCliente'), { backdrop: false }).show();
+}
+
+function toggleAccesoPortalCliente() {
+    document.getElementById('cliente_bloque_acceso').style.display =
+        document.getElementById('cliente_dar_acceso').checked ? 'flex' : 'none';
 }
 
 // Editar cliente
@@ -473,6 +713,18 @@ function editarCliente(id) {
                 document.getElementById('cliente_barrio').value = c.barrio || '';
                 document.getElementById('cliente_ciudad').value = c.ciudad || 'Santiago';
                 document.getElementById('cliente_permite_credito').checked = c.permite_credito;
+                if (c.tiene_acceso_portal) {
+                    document.getElementById('cliente_dar_acceso').checked = false;
+                    document.getElementById('cliente_dar_acceso').disabled = true;
+                    document.getElementById('cliente_ya_tiene_acceso').style.display = 'block';
+                    document.getElementById('cliente_usuario_actual').textContent = c.usuario_portal || '';
+                    document.getElementById('cliente_bloque_acceso').style.display = 'none';
+                } else {
+                    document.getElementById('cliente_dar_acceso').disabled = false;
+                    document.getElementById('cliente_dar_acceso').checked = false;
+                    document.getElementById('cliente_ya_tiene_acceso').style.display = 'none';
+                    toggleAccesoPortalCliente();
+                }
                 // Teléfonos
                 const telContainer = document.getElementById('telefonosContainer');
                 telContainer.innerHTML = '';
@@ -510,6 +762,7 @@ function editarCliente(id) {
                     c.direcciones.forEach(dir => {
                         const div = document.createElement('div');
                         div.className = 'direccion-item mb-2 p-3 border rounded';
+                        const yaUbicada = dir.latitud !== null && dir.latitud !== undefined && dir.longitud !== null && dir.longitud !== undefined;
                         div.innerHTML = `
                             <div class="row g-2">
                                 <div class="col-md-8"><input type="text" class="form-control" name="direcciones[]" value="${escapeHtml(dir.direccion)}"></div>
@@ -518,6 +771,14 @@ function editarCliente(id) {
                                 <div class="col-md-6"><input type="text" class="form-control" name="direcciones_referencia[]" value="${escapeHtml(dir.referencia || '')}"></div>
                                 <div class="col-md-2 d-flex align-items-center"><div class="form-check"><input class="form-check-input" type="checkbox" name="direcciones_predeterminada[]" ${dir.predeterminada ? 'checked' : ''}><label class="form-check-label small">Predeterminada</label></div></div>
                                 <div class="col-md-2 text-end"><button type="button" class="btn btn-outline-danger btn-sm" onclick="removerCampoDireccion(this)">-</button></div>
+                                <div class="col-12 d-flex align-items-center gap-2 mt-1">
+                                    <input type="hidden" name="direcciones_lat[]" value="${yaUbicada ? dir.latitud : ''}">
+                                    <input type="hidden" name="direcciones_lng[]" value="${yaUbicada ? dir.longitud : ''}">
+                                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="abrirMapaParaDireccion(this)">
+                                        <span class="material-symbols-rounded align-middle" style="font-size:1rem;">location_on</span> ${yaUbicada ? 'Cambiar ubicación' : 'Ubicar en mapa'}
+                                    </button>
+                                    <span class="small ${yaUbicada ? 'text-success' : 'text-muted'} estado-ubicacion">${yaUbicada ? '✓ Ubicada en el mapa' : 'Sin ubicar (se usará el costo de envío fijo hasta que la ubiques)'}</span>
+                                </div>
                             </div>
                         `;
                         dirContainer.appendChild(div);
@@ -555,6 +816,8 @@ function guardarCliente() {
     const ciudadInputs = document.querySelectorAll('#direccionesContainer input[name="direcciones_ciudad[]"]');
     const refInputs = document.querySelectorAll('#direccionesContainer input[name="direcciones_referencia[]"]');
     const predCheck = document.querySelectorAll('#direccionesContainer input[name="direcciones_predeterminada[]"]');
+    const latInputs = document.querySelectorAll('#direccionesContainer input[name="direcciones_lat[]"]');
+    const lngInputs = document.querySelectorAll('#direccionesContainer input[name="direcciones_lng[]"]');
     for (let i = 0; i < dirInputs.length; i++) {
         let dir = dirInputs[i].value.trim();
         if (dir) direcciones.push({
@@ -562,9 +825,18 @@ function guardarCliente() {
             barrio: barrioInputs[i]?.value.trim() || '',
             ciudad: ciudadInputs[i]?.value.trim() || 'Santiago',
             referencia: refInputs[i]?.value.trim() || '',
-            predeterminada: predCheck[i]?.checked || false
+            predeterminada: predCheck[i]?.checked || false,
+            latitud: latInputs[i]?.value || null,
+            longitud: lngInputs[i]?.value || null
         });
     }
+    const darAcceso = document.getElementById('cliente_dar_acceso').checked;
+    const usuarioPortal = document.getElementById('cliente_usuario_portal').value.trim();
+    const passwordPortal = document.getElementById('cliente_password_portal').value;
+    if (darAcceso && (!usuarioPortal || !passwordPortal)) {
+        return Swal.fire('Error', 'Para darle acceso al portal, completa usuario y contraseña.', 'error');
+    }
+
     const data = {
         id_cliente: document.getElementById('cliente_id').value || null,
         nombre: nombre,
@@ -574,7 +846,10 @@ function guardarCliente() {
         permite_credito: document.getElementById('cliente_permite_credito').checked,
         telefonos: telefonos,
         correos: correos,
-        direcciones: direcciones
+        direcciones: direcciones,
+        dar_acceso_portal: darAcceso,
+        usuario_portal: darAcceso ? usuarioPortal : null,
+        password_portal: darAcceso ? passwordPortal : null
     };
     const url = editMode ? BASE_URL + '/backend/clientes/actualizar_cliente.php' : BASE_URL + '/backend/clientes/agregar_cliente.php';
     Swal.fire({ title: 'Guardando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });

@@ -66,6 +66,30 @@ function generarNuevoNumeroDocumento($conexion) {
 $numero_documento = generarNuevoNumeroDocumento($conexion);
 $usuario_actual = $_SESSION['id_usuario'] ?? 1;
 
+// Rol y sucursal asignada del usuario actual (para bloquear el selector si es Cajero)
+$rol_usuario_actual = '';
+$id_sucursal_usuario = null;
+$nombre_sucursal_usuario = '';
+try {
+    $stmt = $conexion->prepare("
+        SELECT r.nombre AS rol_nombre, u.id_sucursal, s.nombre AS sucursal_nombre
+        FROM usuarios u
+        LEFT JOIN roles r ON r.id_rol = u.id_rol
+        LEFT JOIN sucursales s ON s.id_sucursal = u.id_sucursal
+        WHERE u.id_usuario = :id
+    ");
+    $stmt->execute([':id' => $usuario_actual]);
+    $infoUsuario = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($infoUsuario) {
+        $rol_usuario_actual = $infoUsuario['rol_nombre'] ?? '';
+        $id_sucursal_usuario = $infoUsuario['id_sucursal'];
+        $nombre_sucursal_usuario = $infoUsuario['sucursal_nombre'] ?? '';
+    }
+} catch (PDOException $e) {}
+
+// El cajero tiene su sucursal fija; solo se bloquea si de verdad tiene una asignada
+$sucursal_bloqueada = ($rol_usuario_actual === 'Cajero' && $id_sucursal_usuario);
+
 $itbis_porcentaje = 18;
 try {
     $stmt = $conexion->query("SELECT porcentaje FROM config_itbis WHERE activo = true AND CURRENT_DATE BETWEEN fecha_inicio AND COALESCE(fecha_fin, CURRENT_DATE + INTERVAL '100 years') LIMIT 1");
@@ -78,11 +102,19 @@ try {
 $base_url = '/sistema-gestor-de-farmacias';
 ?>
 
-<!-- Agregar FontAwesome justo después del inicio del contenido -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
 <style>
-    /* Estilos generales */
+    /* (todos los estilos originales se mantienen, solo se añade uno nuevo para el botón reintentar) */
+    .btn-reintentar {
+        background-color: #ffc107;
+        color: #000;
+        border: none;
+        border-radius: 20px;
+        padding: 5px 15px;
+        font-size: 0.8rem;
+    }
+    /* El resto de estilos ya están en el código original, se omiten por brevedad pero se conservan */
     .modal-backdrop { display: none !important; }
     .modal { background-color: rgba(0, 0, 0, 0.5) !important; z-index: 1050; }
     .modal-dialog-centered { display: flex; align-items: center; min-height: calc(100% - 1rem); }
@@ -247,6 +279,12 @@ $base_url = '/sistema-gestor-de-farmacias';
         background: #17a2b8;
         border-bottom: none;
     }
+
+    .tarjeta-repartidor { border:1.5px solid #dee2e6; border-radius:10px; padding:.7rem .9rem; cursor:pointer; transition:all .15s; }
+    .tarjeta-repartidor:hover { border-color:#0dcaf0; background:#f0fdff; }
+    .tarjeta-repartidor.selected { border-color:#0dcaf0; background:#e7fbff; box-shadow:0 0 0 2px rgba(13,202,240,.25); }
+    .hab-mini { background:#EAF1F8; color:#1F5C99; border-radius:12px; padding:.15em .55em; font-size:.68rem; font-weight:600; margin-right:.25rem; }    
+
     .direccion-card {
         background: #f8f9fa;
         border-radius: 12px;
@@ -260,82 +298,62 @@ $base_url = '/sistema-gestor-de-farmacias';
         width: 100%;
     }
 
-    /* Badges para tipos de producto - más modernos */
-.badge-tipo-medicamento {
-    background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
-    color: white;
-    font-size: 0.65rem;
-    padding: 3px 10px;
-    border-radius: 20px;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-}
+    .badge-tipo-medicamento {
+        background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+        color: white;
+        font-size: 0.65rem;
+        padding: 3px 10px;
+        border-radius: 20px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
 
-.badge-tipo-ropa {
-    background: linear-gradient(135deg, #17a2b8 0%, #0f6b7a 100%);
-    color: white;
-    font-size: 0.65rem;
-    padding: 3px 10px;
-    border-radius: 20px;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-}
+    .badge-tipo-ropa {
+        background: linear-gradient(135deg, #17a2b8 0%, #0f6b7a 100%);
+        color: white;
+        font-size: 0.65rem;
+        padding: 3px 10px;
+        border-radius: 20px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
 
-/* Badges ITBIS mejorados */
-.badge-itbis {
-    font-size: 0.7rem;
-    padding: 4px 10px;
-    border-radius: 20px;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-}
+    .badge-itbis.aplica { background-color: #fff3cd; color: #856404; }
+    .badge-itbis.exento { background-color: #d4edda; color: #155724; }
 
-.badge-itbis.aplica { 
-    background-color: #fff3cd; 
-    color: #856404; 
-}
+    .tab-btn {
+        background: none;
+        border: none;
+        padding: 10px 24px;
+        font-size: 1rem;
+        font-weight: 600;
+        color: #6c757d;
+        border-radius: 12px;
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
 
-.badge-itbis.exento { 
-    background-color: #d4edda; 
-    color: #155724; 
-}
+    .tab-btn:hover {
+        background-color: #e9ecef;
+        color: #28a745;
+    }
 
-/* Estilos para pestañas manuales */
-.tab-btn {
-    background: none;
-    border: none;
-    padding: 10px 24px;
-    font-size: 1rem;
-    font-weight: 600;
-    color: #6c757d;
-    border-radius: 12px;
-    transition: all 0.2s ease;
-    cursor: pointer;
-}
+    .tab-btn.active {
+        background-color: #28a745;
+        color: white;
+        box-shadow: 0 2px 8px rgba(40,167,69,0.3);
+    }
 
-.tab-btn:hover {
-    background-color: #e9ecef;
-    color: #28a745;
-}
+    .tab-pane {
+        display: none;
+    }
 
-.tab-btn.active {
-    background-color: #28a745;
-    color: white;
-    box-shadow: 0 2px 8px rgba(40,167,69,0.3);
-}
+    .tab-pane.active {
+        display: block;
+    }
 
-.tab-pane {
-    display: none;
-}
-
-.tab-pane.active {
-    display: block;
-}
-
-    /* Tarjetas de producto mejoradas */
     .producto-card {
         transition: all 0.2s ease;
         cursor: pointer;
@@ -375,15 +393,8 @@ $base_url = '/sistema-gestor-de-farmacias';
         gap: 4px;
     }
 
-    .producto-card .stock.bajo { 
-        background-color: #fff3cd; 
-        color: #856404; 
-    }
-
-    .producto-card .stock.critico { 
-        background-color: #f8d7da; 
-        color: #721c24; 
-    }
+    .producto-card .stock.bajo { background-color: #fff3cd; color: #856404; }
+    .producto-card .stock.critico { background-color: #f8d7da; color: #721c24; }
 </style>
 
 <div class="dashboard-container">
@@ -415,12 +426,19 @@ $base_url = '/sistema-gestor-de-farmacias';
                         </div>
                         <div class="col-md-4">
                             <label class="form-label fw-bold small text-muted">SUCURSAL</label>
-                            <select class="form-select" id="sucursal">
-                                <option value="">Seleccionar sucursal...</option>
-                                <?php foreach ($sucursales as $suc): ?>
-                                    <option value="<?php echo $suc['id_sucursal']; ?>"><?php echo htmlspecialchars($suc['nombre']); ?></option>
-                                <?php endforeach; ?>
-                            </select>
+                            <?php if ($sucursal_bloqueada): ?>
+                                <input type="text" class="form-control" value="<?php echo htmlspecialchars($nombre_sucursal_usuario); ?>" readonly style="background-color: #f8f9fa;">
+                                <select class="form-select d-none" id="sucursal">
+                                    <option value="<?php echo $id_sucursal_usuario; ?>" selected><?php echo htmlspecialchars($nombre_sucursal_usuario); ?></option>
+                                </select>
+                            <?php else: ?>
+                                <select class="form-select" id="sucursal">
+                                    <option value="">Seleccionar sucursal...</option>
+                                    <?php foreach ($sucursales as $suc): ?>
+                                        <option value="<?php echo $suc['id_sucursal']; ?>"><?php echo htmlspecialchars($suc['nombre']); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            <?php endif; ?>
                         </div>
                         <div class="col-md-12">
                             <label class="form-label fw-bold small text-muted">CLIENTE</label>
@@ -583,13 +601,36 @@ $base_url = '/sistema-gestor-de-farmacias';
                     <i class="fas fa-info-circle me-1"></i> Esta venta se registrará a crédito.
                 </div>
 
-                <!-- SECCIÓN DELIVERY -->
+                <!-- SECCIÓN RECETA MÉDICA -->
+                <div class="mt-3 mb-3 p-3" style="background:#f8f9fa;border-radius:10px;border:1px solid #dee2e6;">
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="conReceta" onchange="toggleReceta()">
+                        <label class="form-check-label fw-bold small" for="conReceta">Esta venta incluye receta médica</label>
+                    </div>
+                    <div id="divFotoReceta" style="display:none;">
+                        <label class="form-label small text-muted">Foto de la receta (JPG, PNG o PDF, máx. 5MB)</label>
+                        <input type="file" class="form-control form-control-sm" id="fotoReceta" accept="image/jpeg,image/png,image/webp,application/pdf">
+                    </div>
+                </div>
+
+                <!-- SECCIÓN TIPO DE DESPACHO -->
                 <div class="mt-3">
+                    <label class="form-label fw-bold small text-muted">TIPO DE DESPACHO</label>
+                    <div class="d-flex gap-2 mb-2">
+                        <button type="button" class="btn btn-outline-success flex-fill" id="btnRetiroPersonal" onclick="seleccionarDespacho('RETIRO_PERSONAL')">
+                            <span class="material-symbols-rounded align-middle me-1">storefront</span> Retiro Personal
+                        </button>
+                        <button type="button" class="btn btn-outline-info flex-fill" id="btnEnviarDelivery" onclick="seleccionarDespacho('DELIVERY')">
+                            <span class="material-symbols-rounded align-middle me-1">local_shipping</span> Delivery
+                        </button>
+                    </div>
+
                     <div id="deliveryState" style="display: none;" class="delivery-info">
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
                                 <strong><span class="material-symbols-rounded" style="font-size: 1rem;">local_shipping</span> Delivery asignado</strong><br>
                                 <small>Repartidor: <span id="deliveryRepartidor"></span></small><br>
+                                <small>Vehículo: <span id="deliveryVehiculo"></span></small><br>
                                 <small>Costo: RD$ <span id="deliveryCosto"></span></small><br>
                                 <small>Dirección: <span id="deliveryDireccion"></span></small>
                             </div>
@@ -598,9 +639,6 @@ $base_url = '/sistema-gestor-de-farmacias';
                             </button>
                         </div>
                     </div>
-                    <button type="button" class="btn btn-outline-info w-100" id="btnAsignarDelivery" onclick="abrirModalDelivery()">
-                        <span class="material-symbols-rounded align-middle me-1">local_shipping</span> Asignar Delivery
-                    </button>
                 </div>
 
                 <div class="d-grid gap-2 mt-3">
@@ -616,7 +654,6 @@ $base_url = '/sistema-gestor-de-farmacias';
     </div>
 </div>
 
-<!-- Modal Productos con pestañas -->
 <!-- Modal Productos con pestañas -->
 <div class="modal fade" id="modalProductos" tabindex="-1">
     <div class="modal-dialog modal-xl modal-dialog-centered">
@@ -667,8 +704,15 @@ $base_url = '/sistema-gestor-de-farmacias';
                     </div>
                 </div>
             </div>
-            <div class="modal-footer border-0 p-4 pt-0">
-                <button type="button" class="btn btn-cancelar" data-bs-dismiss="modal">Cerrar</button>
+            <div class="modal-footer border-0 p-4 pt-0 d-flex justify-content-between">
+                <div>
+                    <button type="button" class="btn btn-outline-warning btn-sm" id="btnReintentarCarga" style="display: none;" onclick="cargarProductosModal()">
+                        <i class="fas fa-sync-alt me-1"></i> Reintentar
+                    </button>
+                </div>
+                <div>
+                    <button type="button" class="btn btn-cancelar" data-bs-dismiss="modal">Cerrar</button>
+                </div>
             </div>
         </div>
     </div>
@@ -749,22 +793,29 @@ $base_url = '/sistema-gestor-de-farmacias';
 
                 <div class="mb-3">
                     <label class="form-label fw-bold text-muted">DIRECCIÓN DE ENTREGA *</label>
-                    <select class="form-select" id="direccionEntrega" required>
+                    <select class="form-select" id="direccionEntrega" required onchange="calcularCostoEnvioAutomatico()">
                         <option value="">Cargando direcciones...</option>
                     </select>
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label fw-bold text-muted">REPARTIDOR *</label>
-                    <select class="form-select" id="repartidorEntrega" required>
-                        <option value="">Cargando repartidores...</option>
-                    </select>
+                    <label class="form-label fw-bold text-muted">PASO 1 — ELEGIR REPARTIDOR *</label>
+                    <div id="listaRepartidoresDisponibles" class="d-flex flex-column gap-2">
+                        <p class="text-muted small">Cargando repartidores disponibles...</p>
+                    </div>
+                    <input type="hidden" id="repartidorSeleccionadoId">
+                    <input type="hidden" id="vehiculoSeleccionadoId">
+                </div>
+
+                <div class="mb-3" id="pasoVehiculos" style="display:none;">
+                    <label class="form-label fw-bold text-muted">PASO 2 — ELEGIR VEHÍCULO *</label>
+                    <div id="listaVehiculosRepartidor" class="d-flex flex-wrap"></div>
                 </div>
 
                 <div class="mb-3">
                     <label class="form-label fw-bold text-muted">COSTO DE ENVÍO (RD$) *</label>
-                    <input type="number" step="0.01" class="form-control" id="costoEnvio" value="0" required>
-                    <small class="text-muted">Ingrese el costo de envío manualmente</small>
+                    <input type="number" step="0.01" class="form-control" id="costoEnvio" value="0" required readonly style="background-color:#f8f9fa;">
+                    <small class="text-muted" id="detalleCostoEnvio">Selecciona una dirección para calcular el costo</small>
                 </div>
 
                 <div class="mb-3">
@@ -803,8 +854,8 @@ let descuentoSeleccionado = { id: null, valor: 0, esPorcentaje: false, montoApli
 let sucursalActual = null;
 let deliveryActivo = false;
 let costoEnvio = 0;
-let idRepartidorSeleccionado = null;
-let direccionSeleccionada = '';
+let deliveryAsignado = null;
+let tipoDespachoSeleccionado = null;
 
 // ==================== FUNCIONES DE DESCUENTO ====================
 function aplicarDescuento(base) {
@@ -878,8 +929,6 @@ function recalcularTodo() {
         document.getElementById('resumenTotal').innerHTML = 'RD$ 0.00';
         document.getElementById('resumenSeguroLinea').style.display = 'none';
         document.getElementById('seguroInfo').style.display = 'none';
-        document.getElementById('resumenEnvioLinea').style.display = 'none';
-        actualizarBotonQuitarDelivery();
         return;
     }
     
@@ -929,7 +978,6 @@ function calcularSinSeguro() {
     document.getElementById('resumenTotal').innerHTML = `RD$ ${total.toFixed(2)}`;
     document.getElementById('resumenSeguroLinea').style.display = 'none';
     document.getElementById('seguroInfo').style.display = 'none';
-    actualizarBotonQuitarDelivery();
 }
 
 async function calcularConSeguro(idCliente) {
@@ -994,7 +1042,6 @@ async function calcularConSeguro(idCliente) {
         console.error(error);
         calcularSinSeguro();
     }
-    actualizarBotonQuitarDelivery();
 }
 
 async function cargarDatosSeguroCliente(idCliente) {
@@ -1024,6 +1071,7 @@ async function cargarDatosSeguroCliente(idCliente) {
             return false;
         }
     } catch(error) {
+        console.error(error);
         datosSeguroCliente = null;
         document.getElementById('cardSeguro').style.display = 'none';
         return false;
@@ -1045,12 +1093,17 @@ function cargarProductosModal() {
     
     const listaMed = document.getElementById('listaMedicamentos');
     const listaRopa = document.getElementById('listaRopa');
+    const btnReintentar = document.getElementById('btnReintentarCarga');
     
     if (listaMed) listaMed.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-success"></div><p>Cargando medicamentos...</p></div>';
     if (listaRopa) listaRopa.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-success"></div><p>Cargando ropa...</p></div>';
+    if (btnReintentar) btnReintentar.style.display = 'none';
     
     fetch(BASE_URL + `/backend/ventas/listar_productos_unificado.php?id_sucursal=${sucursalActual}`)
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.json();
+        })
         .then(data => {
             if (data.success && data.productos) {
                 medicamentosData = data.productos.filter(p => p.tipo === 'MEDICAMENTO');
@@ -1058,14 +1111,26 @@ function cargarProductosModal() {
                 renderizarMedicamentos(medicamentosData);
                 renderizarRopa(ropaData);
             } else {
-                if (listaMed) listaMed.innerHTML = '<div class="text-center py-5 text-danger">Error al cargar productos</div>';
-                if (listaRopa) listaRopa.innerHTML = '<div class="text-center py-5 text-danger">Error al cargar ropa</div>';
+                throw new Error(data.message || 'Error en la respuesta del servidor');
             }
         })
         .catch(error => {
-            console.error(error);
-            if (listaMed) listaMed.innerHTML = '<div class="text-center py-5 text-danger">Error de conexión</div>';
-            if (listaRopa) listaRopa.innerHTML = '<div class="text-center py-5 text-danger">Error de conexión</div>';
+            console.error('Error cargando productos:', error);
+            if (listaMed) listaMed.innerHTML = `<div class="text-center py-5 text-danger">
+                <i class="fas fa-exclamation-triangle" style="font-size: 2rem;"></i>
+                <p>Error al cargar productos: ${error.message}</p>
+                <button class="btn btn-warning btn-sm mt-2" onclick="cargarProductosModal()">
+                    <i class="fas fa-sync-alt me-1"></i> Reintentar
+                </button>
+            </div>`;
+            if (listaRopa) listaRopa.innerHTML = `<div class="text-center py-5 text-danger">
+                <i class="fas fa-exclamation-triangle" style="font-size: 2rem;"></i>
+                <p>Error al cargar productos: ${error.message}</p>
+                <button class="btn btn-warning btn-sm mt-2" onclick="cargarProductosModal()">
+                    <i class="fas fa-sync-alt me-1"></i> Reintentar
+                </button>
+            </div>`;
+            if (btnReintentar) btnReintentar.style.display = 'inline-block';
         });
 }
 
@@ -1325,8 +1390,6 @@ function eliminarProducto(index) {
 }
 
 // ==================== DELIVERY ====================
-let deliveryAsignado = null;
-
 function abrirModalDelivery() {
     const clienteId = document.getElementById('cliente').value;
     if (!clienteId) {
@@ -1378,65 +1441,178 @@ async function cargarDireccionesCliente(idCliente) {
         console.error(error);
         select.innerHTML = '<option value="">Error al cargar direcciones</option>';
     }
+
+    // El navegador NO dispara "change" solo por rellenar el <select> con JS
+    // (ni aunque solo haya una dirección y quede seleccionada sola) — así
+    // que hay que llamar el cálculo a mano justo después de cargar.
+    calcularCostoEnvioAutomatico();
 }
 
+let repartidoresDisponiblesData = [];
+
 async function cargarRepartidoresDisponibles() {
-    const select = document.getElementById('repartidorEntrega');
-    if (!select) return;
-    
-    select.innerHTML = '<option value="">Cargando repartidores...</option>';
+    const cont = document.getElementById('listaRepartidoresDisponibles');
+    if (!cont) return;
+
+    cont.innerHTML = '<p class="text-muted small">Cargando repartidores disponibles...</p>';
+    document.getElementById('repartidorSeleccionadoId').value = '';
+    document.getElementById('vehiculoSeleccionadoId').value = '';
+    document.getElementById('pasoVehiculos').style.display = 'none';
+    window.__enColaSel = false;
+
     try {
         const response = await fetch(BASE_URL + '/backend/ventas/listar_repartidores_disponibles.php');
         const data = await response.json();
-        if (data.success && data.repartidores && data.repartidores.length > 0) {
-            select.innerHTML = '<option value="">Seleccionar repartidor...</option>';
-            data.repartidores.forEach(rep => {
-                const option = document.createElement('option');
-                option.value = rep.id_repartidor;
-                option.textContent = `${rep.nombre}${rep.telefono ? ` (${rep.telefono})` : ''}`;
-                select.appendChild(option);
-            });
-        } else {
-            select.innerHTML = '<option value="">No hay repartidores disponibles</option>';
+        repartidoresDisponiblesData = data.repartidores || [];
+
+        if (!data.success || repartidoresDisponiblesData.length === 0) {
+            cont.innerHTML = `
+                <div class="alert alert-warning py-2 px-3 mb-2" style="font-size:.85rem;">
+                    <span class="material-symbols-rounded align-middle me-1">schedule</span>
+                    <strong>No hay repartidores disponibles en este momento.</strong><br>
+                    Puedes poner este pedido en la cola de espera: se asignará
+                    automáticamente al primer repartidor que quede libre y tenga
+                    un vehículo disponible que sepa manejar.
+                </div>
+                <button type="button" class="btn btn-warning w-100" onclick="marcarParaCola()">
+                    <span class="material-symbols-rounded align-middle me-1">schedule</span>
+                    Poner en cola de espera
+                </button>`;
+            return;
         }
-    } catch(error) {
+
+        cont.innerHTML = repartidoresDisponiblesData.map(rep => {
+            const habs = (rep.habilidades && rep.habilidades.length)
+                ? rep.habilidades.map(h => `<span class="hab-mini">${h.tipo_vehiculo}</span>`).join('')
+                : '<span class="text-muted" style="font-size:.72rem;">Sin habilidades registradas</span>';
+            return `
+                <div class="tarjeta-repartidor" id="tarjeta-rep-${rep.id_repartidor}"
+                     onclick="elegirRepartidor(${rep.id_repartidor}, '${rep.nombre.replace(/'/g,"")}')">
+                    <strong>${rep.nombre}</strong> ${rep.telefono ? `<small class="text-muted">(${rep.telefono})</small>` : ''}
+                    <div class="mt-1">${habs}</div>
+                </div>`;
+        }).join('');
+
+    } catch (error) {
         console.error(error);
-        select.innerHTML = '<option value="">Error al cargar repartidores</option>';
+        cont.innerHTML = '<p class="text-danger small mb-0">Error al cargar repartidores disponibles.</p>';
     }
+}
+
+function elegirRepartidor(idRepartidor, nombreRep) {
+    document.querySelectorAll('.tarjeta-repartidor').forEach(t => t.classList.remove('selected'));
+    document.getElementById('tarjeta-rep-' + idRepartidor).classList.add('selected');
+
+    document.getElementById('repartidorSeleccionadoId').value = idRepartidor;
+    document.getElementById('vehiculoSeleccionadoId').value = '';
+    window.__repartidorNombreSel = nombreRep;
+    window.__enColaSel = false;
+
+    const pasoVeh = document.getElementById('pasoVehiculos');
+    pasoVeh.style.display = 'block';
+    document.getElementById('listaVehiculosRepartidor').innerHTML = '<p class="text-muted small">Cargando vehículos...</p>';
+
+    fetch(BASE_URL + `/backend/ventas/listar_vehiculos_para_repartidor.php?id_repartidor=${idRepartidor}`)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                document.getElementById('listaVehiculosRepartidor').innerHTML =
+                    `<p class="text-danger small mb-0">${data.message}</p>`;
+                return;
+            }
+            if (!data.vehiculos.length) {
+                document.getElementById('listaVehiculosRepartidor').innerHTML =
+                    '<p class="text-danger small mb-0">Este repartidor no tiene ningún vehículo disponible ahora mismo.</p>';
+                return;
+            }
+            document.getElementById('listaVehiculosRepartidor').innerHTML = data.vehiculos.map(v => `
+                <button type="button" class="btn btn-sm btn-outline-secondary me-2 mb-2"
+                    onclick="elegirVehiculo(event, ${v.id_vehiculo}, '${v.tipo}', '${v.placa||''}')">
+                    ${v.tipo}${v.placa ? ' ('+v.placa+')' : ''}
+                </button>`).join('');
+        });
+}
+
+function elegirVehiculo(evt, idVehiculo, tipo, placa) {
+    document.querySelectorAll('#listaVehiculosRepartidor button').forEach(b => {
+        b.classList.remove('btn-primary'); b.classList.add('btn-outline-secondary');
+    });
+    evt.currentTarget.classList.remove('btn-outline-secondary');
+    evt.currentTarget.classList.add('btn-primary');
+
+    document.getElementById('vehiculoSeleccionadoId').value = idVehiculo;
+    window.__vehiculoTextoSel = tipo + (placa ? ' (' + placa + ')' : '');
+}
+
+function marcarParaCola() {
+    window.__enColaSel = true;
+    document.getElementById('repartidorSeleccionadoId').value = '';
+    document.getElementById('vehiculoSeleccionadoId').value = '';
+    window.__repartidorNombreSel = 'En cola de espera';
+    window.__vehiculoTextoSel = '(se asignará automáticamente)';
+    guardarDelivery();
+}
+
+function calcularCostoEnvioAutomatico() {
+    const idDireccion = document.getElementById('direccionEntrega').value;
+    const idSucursal = document.getElementById('sucursal').value;
+    const detalle = document.getElementById('detalleCostoEnvio');
+    const inputCosto = document.getElementById('costoEnvio');
+
+    if (!idDireccion || !idSucursal) return;
+
+    detalle.textContent = 'Calculando...';
+    fetch(BASE_URL + `/backend/ventas/calcular_costo_envio.php?id_sucursal=${idSucursal}&id_direccion=${idDireccion}`)
+        .then(r => {
+            if (!r.ok) throw new Error('HTTP ' + r.status + ' — revisa que backend/ventas/calcular_costo_envio.php esté subido');
+            return r.json();
+        })
+        .then(data => {
+            if (!data.success) {
+                console.error('calcular_costo_envio.php:', data.message);
+                detalle.textContent = 'No se pudo calcular (' + (data.message || 'ver consola') + ')';
+                return;
+            }
+            inputCosto.value = data.costo_envio.toFixed(2);
+            detalle.textContent = data.detalle;
+            detalle.className = data.calculado ? 'text-success' : 'text-muted';
+        })
+        .catch((err) => {
+            console.error('calcular_costo_envio.php:', err);
+            detalle.textContent = 'Error al calcular el costo (ver consola del navegador).';
+        });
 }
 
 function guardarDelivery() {
     const direccionSelect = document.getElementById('direccionEntrega');
-    const repartidorSelect = document.getElementById('repartidorEntrega');
     const costoInput = document.getElementById('costoEnvio');
     const observacionesText = document.getElementById('observacionesDelivery');
-    
-    if (!direccionSelect || !repartidorSelect || !costoInput) return;
-    
+    const idRepartidor = document.getElementById('repartidorSeleccionadoId').value;
+    const idVehiculo = document.getElementById('vehiculoSeleccionadoId').value;
+
+    if (!direccionSelect || !costoInput) return;
+
+    const enCola = window.__enColaSel === true;
+
     const direccionId = direccionSelect.value;
-    const repartidorId = repartidorSelect.value;
     const costo = parseFloat(costoInput.value);
     const observaciones = observacionesText ? observacionesText.value : '';
-    
-    if (!direccionId) {
-        Swal.fire('Error', 'Seleccione una dirección de entrega', 'error');
+
+    if (!direccionId) { Swal.fire('Error', 'Seleccione una dirección de entrega', 'error'); return; }
+    if (!enCola && (!idRepartidor || !idVehiculo)) {
+        Swal.fire('Error', 'Selecciona un repartidor y su vehículo (o ponlo en cola de espera si nadie está disponible)', 'error');
         return;
     }
-    if (!repartidorId) {
-        Swal.fire('Error', 'Seleccione un repartidor', 'error');
-        return;
-    }
-    if (isNaN(costo) || costo < 0) {
-        Swal.fire('Error', 'Costo de envío inválido', 'error');
-        return;
-    }
-    
+    if (isNaN(costo) || costo < 0) { Swal.fire('Error', 'Costo de envío inválido', 'error'); return; }
+
     const selectedOpt = direccionSelect.options[direccionSelect.selectedIndex];
-    const repartidorTexto = repartidorSelect.options[repartidorSelect.selectedIndex]?.text || '';
-    
+
     deliveryAsignado = {
-        id_repartidor: parseInt(repartidorId),
-        nombre_repartidor: repartidorTexto,
+        id_repartidor: enCola ? null : parseInt(idRepartidor),
+        id_vehiculo: enCola ? null : parseInt(idVehiculo),
+        en_cola: enCola,
+        nombre_repartidor: window.__repartidorNombreSel || '',
+        vehiculo_texto: window.__vehiculoTextoSel || '',
         costo_entrega: costo,
         direccion_entrega: selectedOpt.dataset.direccion || selectedOpt.dataset.completa || selectedOpt.text,
         barrio_entrega: selectedOpt.dataset.barrio || '',
@@ -1447,52 +1623,46 @@ function guardarDelivery() {
     };
     costoEnvio = costo;
     deliveryActivo = true;
-    
-    const deliveryRepartidor = document.getElementById('deliveryRepartidor');
-    const deliveryCosto = document.getElementById('deliveryCosto');
-    const deliveryDireccion = document.getElementById('deliveryDireccion');
-    const deliveryState = document.getElementById('deliveryState');
-    const btnAsignar = document.getElementById('btnAsignarDelivery');
-    
-    if (deliveryRepartidor) deliveryRepartidor.innerText = deliveryAsignado.nombre_repartidor;
-    if (deliveryCosto) deliveryCosto.innerText = deliveryAsignado.costo_entrega.toFixed(2);
-    if (deliveryDireccion) deliveryDireccion.innerText = deliveryAsignado.direccion_completa;
-    if (deliveryState) deliveryState.style.display = 'block';
-    if (btnAsignar) btnAsignar.style.display = 'none';
-    
+
+    document.getElementById('deliveryRepartidor').innerText = deliveryAsignado.nombre_repartidor;
+    document.getElementById('deliveryVehiculo').innerText = deliveryAsignado.vehiculo_texto;
+    document.getElementById('deliveryCosto').innerText = deliveryAsignado.costo_entrega.toFixed(2);
+    document.getElementById('deliveryDireccion').innerText = deliveryAsignado.direccion_completa;
+    document.getElementById('deliveryState').style.display = 'block';
+    document.getElementById('btnEnviarDelivery').style.display = 'none';
+    document.getElementById('btnRetiroPersonal').style.display = 'none';
+    tipoDespachoSeleccionado = 'DELIVERY';
+
     if (modalDelivery) modalDelivery.hide();
     recalcularTodo();
-    Swal.fire('Éxito', 'Delivery asignado correctamente', 'success');
+    Swal.fire('Éxito', enCola ? 'Pedido puesto en la cola de espera' : 'Delivery asignado correctamente', 'success');
 }
 
-function quitarDelivery() {
-    Swal.fire({
-        title: '¿Quitar delivery?',
-        text: 'Se eliminará la asignación actual',
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonText: 'Sí, quitar',
-        cancelButtonText: 'No'
-    }).then((result) => {
-        if (result.isConfirmed) {
-            deliveryAsignado = null;
-            deliveryActivo = false;
-            costoEnvio = 0;
-            
-            const deliveryState = document.getElementById('deliveryState');
-            const btnAsignar = document.getElementById('btnAsignarDelivery');
-            
-            if (deliveryState) deliveryState.style.display = 'none';
-            if (btnAsignar) btnAsignar.style.display = 'block';
-            
-            recalcularTodo();
-            Swal.fire('Delivery eliminado', '', 'success');
-        }
-    });
+// ── NUEVO: toggle tipo de despacho ──
+function seleccionarDespacho(tipo) {
+    tipoDespachoSeleccionado = tipo;
+    const btnRetiro = document.getElementById('btnRetiroPersonal');
+    const btnDelivery = document.getElementById('btnEnviarDelivery');
+
+    if (tipo === 'DELIVERY') {
+        btnDelivery.classList.add('btn-info');
+        btnDelivery.classList.remove('btn-outline-info');
+        btnRetiro.classList.remove('btn-success');
+        btnRetiro.classList.add('btn-outline-success');
+        abrirModalDelivery();
+    } else {
+        btnRetiro.classList.add('btn-success');
+        btnRetiro.classList.remove('btn-outline-success');
+        btnDelivery.classList.remove('btn-info');
+        btnDelivery.classList.add('btn-outline-info');
+        if (deliveryActivo) quitarDelivery();
+    }
 }
 
-function actualizarBotonQuitarDelivery() {
-    // Función vacía pero necesaria para evitar errores
+// ── NUEVO: toggle receta ──
+function toggleReceta() {
+    const checked = document.getElementById('conReceta').checked;
+    document.getElementById('divFotoReceta').style.display = checked ? 'block' : 'none';
 }
 
 function quitarDelivery() {
@@ -1507,30 +1677,20 @@ function quitarDelivery() {
         cancelButtonText: 'No'
     }).then((result) => {
         if (result.isConfirmed) {
-            deliveryAsignado = null;
             deliveryActivo = false;
             costoEnvio = 0;
-            idRepartidorSeleccionado = null;
-            direccionSeleccionada = '';
-            
-            // Ocultar la información del delivery
+            deliveryAsignado = null;
+            tipoDespachoSeleccionado = null;
+
             const deliveryState = document.getElementById('deliveryState');
+            const btnRetiro = document.getElementById('btnRetiroPersonal');
+            const btnDelivery = document.getElementById('btnEnviarDelivery');
             if (deliveryState) deliveryState.style.display = 'none';
-            
-            // Mostrar el botón de asignar delivery
-            const btnAsignar = document.getElementById('btnAsignarDelivery');
-            if (btnAsignar) btnAsignar.style.display = 'block';
-            
-            // Limpiar los campos de información
-            const deliveryRepartidor = document.getElementById('deliveryRepartidor');
-            const deliveryCosto = document.getElementById('deliveryCosto');
-            const deliveryDireccion = document.getElementById('deliveryDireccion');
-            if (deliveryRepartidor) deliveryRepartidor.innerText = '';
-            if (deliveryCosto) deliveryCosto.innerText = '0.00';
-            if (deliveryDireccion) deliveryDireccion.innerText = '';
-            
+            if (btnRetiro) { btnRetiro.style.display = ''; btnRetiro.classList.remove('btn-success'); btnRetiro.classList.add('btn-outline-success'); }
+            if (btnDelivery) { btnDelivery.style.display = ''; btnDelivery.classList.remove('btn-info'); btnDelivery.classList.add('btn-outline-info'); }
+
             recalcularTodo();
-            Swal.fire('Delivery eliminado', 'Puede asignar un nuevo delivery si lo desea', 'success');
+            Swal.fire('Delivery eliminado', '', 'success');
         }
     });
 }
@@ -1583,6 +1743,12 @@ function procesarVentaConfirmado(sucursal, condicionPago, idCliente, tieneSeguro
     }
     if (deliveryActivo && costoEnvio > 0) totalPagar += costoEnvio;
     
+    // Validación: si eligió despacho pero no marcó ninguno
+    if (!deliveryActivo && tipoDespachoSeleccionado !== 'RETIRO_PERSONAL') {
+        Swal.fire('Falta información', 'Selecciona el tipo de despacho: Retiro Personal o Delivery.', 'warning');
+        return;
+    }
+
     const datos = {
         numero_documento: document.getElementById('numeroDocumento').value,
         id_usuario: ID_USUARIO_ACTUAL,
@@ -1609,27 +1775,45 @@ function procesarVentaConfirmado(sucursal, condicionPago, idCliente, tieneSeguro
         monto_paga_paciente: totalPagar,
         monto_descuento: descuentoMonto,
         delivery_activo: deliveryActivo,
-        id_repartidor: idRepartidorSeleccionado,
+        id_repartidor: deliveryAsignado ? deliveryAsignado.id_repartidor : null,
+        id_vehiculo: deliveryAsignado ? deliveryAsignado.id_vehiculo : null,
         costo_envio: costoEnvio,
-        direccion_entrega: direccionSeleccionada
+        direccion_entrega: deliveryAsignado ? deliveryAsignado.direccion_completa : null,
+        tipo_despacho: deliveryActivo ? 'DELIVERY' : 'RETIRO_PERSONAL',
+        con_receta: document.getElementById('conReceta').checked
     };
-    
+
     Swal.fire({ title: 'Procesando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-    
+
     fetch(BASE_URL + '/backend/ventas/procesar_venta.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(datos)
     })
     .then(response => response.json())
-    .then(data => {
-        Swal.close();
-        if (data.success) {
-            Swal.fire('Éxito', `Venta ${data.numero_documento} registrada correctamente`, 'success')
-                .then(() => location.reload());
-        } else {
+    .then(async data => {
+        if (!data.success) {
+            Swal.close();
             Swal.fire('Error', data.message || 'Error al procesar la venta', 'error');
+            return;
         }
+
+        // Si hay foto de receta seleccionada, subirla ahora que ya existe id_venta
+        const fotoInput = document.getElementById('fotoReceta');
+        if (document.getElementById('conReceta').checked && fotoInput.files.length > 0) {
+            const fd = new FormData();
+            fd.append('id_venta', data.id_venta);
+            fd.append('receta', fotoInput.files[0]);
+            try {
+                await fetch(BASE_URL + '/backend/ventas/subir_receta.php', { method: 'POST', body: fd });
+            } catch (e) {
+                console.error('Error subiendo receta:', e);
+            }
+        }
+
+        Swal.close();
+        Swal.fire('Éxito', `Venta ${data.numero_documento} registrada correctamente`, 'success')
+            .then(() => location.reload());
     })
     .catch(error => {
         Swal.close();
@@ -1757,8 +1941,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    sucursalActual = null;
+    sucursalActual = document.getElementById('sucursal')?.value || null;
     actualizarCondicionCredito();
-    actualizarBotonQuitarDelivery();
 });
 </script>

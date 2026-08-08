@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../conexion.php';
-session_start();
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
 header('Content-Type: application/json');
 
 if (!isset($_SESSION['id_sesion'])) {
@@ -29,7 +29,7 @@ try {
         ':id_repartidor' => $data['id_repartidor'] ?? null,
         ':seguro_empresa' => $data['seguro_empresa'] ?? null,
         ':fecha_vencimiento_seguro' => $data['fecha_vencimiento_seguro'] ?? null,
-        ':activo' => $data['activo'] ?? true
+        ':activo' => filter_var($data['activo'] ?? true, FILTER_VALIDATE_BOOLEAN) ? 't' : 'f'
     ]);
     $id = $stmt->fetchColumn();
     echo json_encode(['success' => true, 'id_vehiculo' => $id]);

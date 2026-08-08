@@ -1,5 +1,5 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
 require 'conexion.php';
 
 if (isset($_SESSION['id_sesion'])) {

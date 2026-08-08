@@ -1,5 +1,19 @@
 <?php
-session_start();
+// backend/obtener_permisos_usuario.php
+// REEMPLAZA el archivo existente.
+//
+// Antes: solo leía usuario_permiso, con una lista incompleta y vieja
+// de permisos (le faltaban 'dashboard', 'delivery' y sus 5
+// submódulos, entre otros) — por eso la pantalla nunca reflejaba el
+// estado real.
+//
+// Ahora: trae TODOS los permisos del catálogo real, y para cada uno
+// aplica la misma jerarquía que ya usa el sistema para decidir
+// acceso: si la persona tiene un permiso propio guardado
+// (usuario_permiso), ese manda. Si no, se usa el valor por defecto
+// de su rol (rol_permiso).
+
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
 header('Content-Type: application/json');
 
 require_once 'conexion.php';
@@ -10,63 +24,54 @@ if (!isset($_SESSION['id_sesion'])) {
 }
 
 $id_usuario = isset($_GET['id_usuario']) ? intval($_GET['id_usuario']) : 0;
-
 if ($id_usuario <= 0) {
     echo json_encode(['success' => false, 'message' => 'ID de usuario inválido']);
     exit();
 }
 
-// Obtener permisos del usuario
-$stmt = $conexion->prepare("
-    SELECT p.nombre as permiso_nombre, up.permitido
-    FROM usuario_permiso up
-    JOIN permisos p ON up.id_permiso = p.id_permiso
-    WHERE up.id_usuario = ? AND up.permitido = TRUE
-");
-$stmt->execute([$id_usuario]);
-$permisos_db = $stmt->fetchAll(PDO::FETCH_ASSOC);
+try {
+    $stmtRol = $conexion->prepare("SELECT id_rol FROM usuarios WHERE id_usuario = :id");
+    $stmtRol->execute([':id' => $id_usuario]);
+    $id_rol = $stmtRol->fetchColumn();
+    if (!$id_rol) {
+        echo json_encode(['success' => false, 'message' => 'Usuario no encontrado']);
+        exit();
+    }
 
-// Mapear permisos a un formato más usable
-$permisos_mapeados = [];
+    // Todos los permisos del catálogo
+    $todos = $conexion->query("SELECT id_permiso, nombre FROM permisos")->fetchAll(PDO::FETCH_ASSOC);
 
-foreach ($permisos_db as $p) {
-    $permisos_mapeados[$p['permiso_nombre']] = true;
+    // Overrides propios de este usuario
+    $stmtU = $conexion->prepare("SELECT id_permiso, permitido FROM usuario_permiso WHERE id_usuario = :id");
+    $stmtU->execute([':id' => $id_usuario]);
+    $overrides = [];
+    foreach ($stmtU->fetchAll(PDO::FETCH_ASSOC) as $o) {
+        $overrides[$o['id_permiso']] = filter_var($o['permitido'], FILTER_VALIDATE_BOOLEAN);
+    }
+
+    // Permisos por defecto de su rol
+    $stmtR = $conexion->prepare("SELECT id_permiso FROM rol_permiso WHERE id_rol = :id");
+    $stmtR->execute([':id' => $id_rol]);
+    $delRol = array_flip($stmtR->fetchAll(PDO::FETCH_COLUMN));
+
+    $permisos_completos = [];
+    $tiene_override = [];
+    foreach ($todos as $p) {
+        if (isset($overrides[$p['id_permiso']])) {
+            $permisos_completos[$p['nombre']] = $overrides[$p['id_permiso']];
+            $tiene_override[$p['nombre']] = true;
+        } else {
+            $permisos_completos[$p['nombre']] = isset($delRol[$p['id_permiso']]);
+            $tiene_override[$p['nombre']] = false;
+        }
+    }
+
+    echo json_encode([
+        'success' => true,
+        'permisos' => $permisos_completos,
+        'personalizado' => $tiene_override, // qué permisos tiene esta persona sobreescritos manualmente vs. heredados de su rol
+    ]);
+
+} catch (PDOException $e) {
+    echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }
-
-// Definir estructura completa de permisos
-$permisos_completos = [
-    'ventas' => isset($permisos_mapeados['ventas']) ? true : false,
-    'inventario' => isset($permisos_mapeados['inventario']) ? true : false,
-    'compras' => isset($permisos_mapeados['compras']) ? true : false,
-    'clientes' => isset($permisos_mapeados['clientes']) ? true : false,
-    'caja' => isset($permisos_mapeados['caja']) ? true : false,
-    'administracion' => isset($permisos_mapeados['administracion']) ? true : false,
-    'reportes' => isset($permisos_mapeados['reportes']) ? true : false,
-    // Submódulos
-    'registrar_venta' => isset($permisos_mapeados['registrar_venta']) ? true : false,
-    'historial_ventas' => isset($permisos_mapeados['historial_ventas']) ? true : false,
-    'pagos' => isset($permisos_mapeados['pagos']) ? true : false,
-    'facturacion' => isset($permisos_mapeados['facturacion']) ? true : false,
-    'medicamentos' => isset($permisos_mapeados['medicamentos']) ? true : false,
-    'categorias' => isset($permisos_mapeados['categorias']) ? true : false,
-    'lotes' => isset($permisos_mapeados['lotes']) ? true : false,
-    'stock' => isset($permisos_mapeados['stock']) ? true : false,
-    'vencimientos' => isset($permisos_mapeados['vencimientos']) ? true : false,
-    'registrar_compra' => isset($permisos_mapeados['registrar_compra']) ? true : false,
-    'historial_compras' => isset($permisos_mapeados['historial_compras']) ? true : false,
-    'proveedores' => isset($permisos_mapeados['proveedores']) ? true : false,
-    'clientes_lista' => isset($permisos_mapeados['clientes']) ? true : false,
-    'historial_cliente' => isset($permisos_mapeados['historial_cliente']) ? true : false,
-    'apertura_caja' => isset($permisos_mapeados['apertura_caja']) ? true : false,
-    'cierre_caja' => isset($permisos_mapeados['cierre_caja']) ? true : false,
-    'usuarios' => isset($permisos_mapeados['usuarios']) ? true : false,
-    'roles' => isset($permisos_mapeados['roles']) ? true : false,
-    'permisos_usuarios' => isset($permisos_mapeados['permisos_usuarios']) ? true : false,
-    'sucursales' => isset($permisos_mapeados['sucursales']) ? true : false,
-    'reporte_ventas' => isset($permisos_mapeados['reporte_ventas']) ? true : false,
-    'reporte_inventario' => isset($permisos_mapeados['reporte_inventario']) ? true : false,
-    'reporte_vencimientos' => isset($permisos_mapeados['reporte_vencimientos']) ? true : false
-];
-
-echo json_encode(['success' => true, 'permisos' => $permisos_completos]);
-?>

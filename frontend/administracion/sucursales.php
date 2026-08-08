@@ -46,8 +46,11 @@ if (isset($_POST['insert'])) {
         $_SESSION['system_message_type'] = 'error';
     } else {
         try {
-            $sql = "INSERT INTO sucursales (id_empresa, nombre, direccion, telefono, estado) 
-                    VALUES (:id_empresa, :nombre, :direccion, :telefono, :estado)";
+            $latitud = !empty($_POST['latitud']) ? (float)$_POST['latitud'] : null;
+            $longitud = !empty($_POST['longitud']) ? (float)$_POST['longitud'] : null;
+
+            $sql = "INSERT INTO sucursales (id_empresa, nombre, direccion, telefono, estado, latitud, longitud) 
+                    VALUES (:id_empresa, :nombre, :direccion, :telefono, :estado, :latitud, :longitud)";
             $stmt = $pdo->prepare($sql);
 
             $stmt->bindValue(':id_empresa', $id_empresa, $id_empresa ? PDO::PARAM_INT : PDO::PARAM_NULL);
@@ -55,6 +58,8 @@ if (isset($_POST['insert'])) {
             $stmt->bindValue(':direccion', $direccion);
             $stmt->bindValue(':telefono', $telefono);
             $stmt->bindValue(':estado', $activo, PDO::PARAM_BOOL);
+            $stmt->bindValue(':latitud', $latitud, $latitud !== null ? PDO::PARAM_STR : PDO::PARAM_NULL);
+            $stmt->bindValue(':longitud', $longitud, $longitud !== null ? PDO::PARAM_STR : PDO::PARAM_NULL);
 
             $stmt->execute();
 
@@ -91,12 +96,17 @@ if (isset($_POST['actualizar'])) {
         $_SESSION['system_message_type'] = 'error';
     } else {
         try {
+            $latitud_update = !empty($_POST['latitud_update']) ? (float)$_POST['latitud_update'] : null;
+            $longitud_update = !empty($_POST['longitud_update']) ? (float)$_POST['longitud_update'] : null;
+
             $sql = "UPDATE sucursales 
                     SET id_empresa = :id_empresa,
                         nombre = :nombre, 
                         direccion = :direccion, 
                         telefono = :telefono, 
-                        estado = :estado 
+                        estado = :estado,
+                        latitud = :latitud,
+                        longitud = :longitud
                     WHERE id_sucursal = :id";
 
             $stmt = $pdo->prepare($sql);
@@ -106,6 +116,8 @@ if (isset($_POST['actualizar'])) {
             $stmt->bindValue(':direccion', $direccion_update);
             $stmt->bindValue(':telefono', $telefono_update);
             $stmt->bindValue(':estado', $activo_update, PDO::PARAM_BOOL);
+            $stmt->bindValue(':latitud', $latitud_update, $latitud_update !== null ? PDO::PARAM_STR : PDO::PARAM_NULL);
+            $stmt->bindValue(':longitud', $longitud_update, $longitud_update !== null ? PDO::PARAM_STR : PDO::PARAM_NULL);
             $stmt->bindValue(':id', $id_original);
 
             $stmt->execute();
@@ -463,6 +475,38 @@ if (isset($_SESSION['system_message'])) {
         transition: transform 0.25s ease-out;
     }
 
+    /* El modal del mapa es más alto que los demás (buscador + resultados +
+       mapa + botones), así que el título y los botones de acción se quedan
+       fijos arriba/abajo mientras el resto hace scroll adentro — así nunca
+       se pierde de vista la X para cerrar ni el botón de confirmar. */
+    #modalMapaSucursal .modal-content {
+        display: flex;
+        flex-direction: column;
+        max-height: 90vh;
+        padding: 20px 24px;
+    }
+    #modalMapaSucursal .mapa-suc-header {
+        position: sticky;
+        top: 0;
+        background: #fff;
+        z-index: 2;
+        padding-bottom: .6rem;
+        margin-bottom: .6rem;
+        border-bottom: 1px solid #eee;
+    }
+    #modalMapaSucursal .mapa-suc-footer {
+        position: sticky;
+        bottom: 0;
+        background: #fff;
+        z-index: 2;
+        padding-top: .75rem;
+        margin-top: .5rem;
+        border-top: 1px solid #eee;
+    }
+    @media (max-height: 700px) {
+        #mapaSucLeaflet { height: 220px !important; }
+    }
+
     .modal.show .modal-content {
         transform: scale(1);
     }
@@ -757,6 +801,8 @@ if (isset($_SESSION['system_message'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gestión de Sucursales - Farmacia</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 
 <body>
@@ -837,6 +883,27 @@ if (isset($_SESSION['system_message'])) {
                                     placeholder="Dirección completa de la sucursal"></textarea>
                             </div>
 
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label><i class="fas fa-map-pin"></i> Latitud (opcional)</label>
+                                        <input type="text" name="latitud" id="latitud" class="form-control-modern" placeholder="Ej: 19.4517">
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label><i class="fas fa-map-pin"></i> Longitud (opcional)</label>
+                                        <input type="text" name="longitud" id="longitud" class="form-control-modern" placeholder="Ej: -70.6970">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <button type="button" class="btn btn-outline-primary btn-sm" onclick="abrirMapaParaSucursal('crear')">
+                                    <i class="fas fa-map-marked-alt"></i> Ubicar en mapa
+                                </button>
+                                <span class="small text-muted ms-2" id="estadoUbicacionCrear">Sin ubicar</span>
+                            </div>
+
                             <div class="form-group">
                                 <label><i class="fas fa-phone"></i> Teléfono</label>
                                 <input type="text" name="telefono" id="telefono" class="form-control-modern"
@@ -881,6 +948,7 @@ if (isset($_SESSION['system_message'])) {
                                     <?php
                                     try {
                                         $sql = "SELECT s.id_sucursal, s.nombre, s.direccion, s.telefono, s.estado,
+                                                   s.latitud, s.longitud,
                                                    e.nombre as empresa_nombre, e.id_empresa
                                             FROM sucursales s
                                             LEFT JOIN empresa e ON s.id_empresa = e.id_empresa
@@ -919,7 +987,9 @@ if (isset($_SESSION['system_message'])) {
                                                                      <?= json_encode($direccion) ?>, 
                                                                      <?= json_encode($telefono) ?>, 
                                                                      <?= $estado ? 'true' : 'false' ?>,
-                                                                     <?= $fila['id_empresa'] ?? 'null' ?>)'>
+                                                                     <?= $fila['id_empresa'] ?? 'null' ?>,
+                                                                     <?= $fila['latitud'] ?? 'null' ?>,
+                                                                     <?= $fila['longitud'] ?? 'null' ?>)'>
                                                                 <i class="fas fa-edit"></i> Editar
                                                             </button>
                                                         </div>
@@ -970,6 +1040,19 @@ if (isset($_SESSION['system_message'])) {
                 <label for="direccion_update">DIRECCIÓN</label>
                 <textarea name="direccion_update" id="direccion_update" maxlength="200"></textarea>
 
+                <label for="latitud_update">LATITUD (opcional)</label>
+                <input type="text" name="latitud_update" id="latitud_update" placeholder="Ej: 19.4517">
+
+                <label for="longitud_update">LONGITUD (opcional)</label>
+                <input type="text" name="longitud_update" id="longitud_update" placeholder="Ej: -70.6970">
+
+                <div class="mb-2">
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="abrirMapaParaSucursal('editar')">
+                        <i class="fas fa-map-marked-alt"></i> Ubicar en mapa
+                    </button>
+                    <span class="small text-muted ms-2" id="estadoUbicacionEditar">Sin ubicar</span>
+                </div>
+
                 <label for="telefono_update">TELÉFONO</label>
                 <input type="text" name="telefono_update" id="telefono_update" maxlength="30">
 
@@ -987,6 +1070,32 @@ if (isset($_SESSION['system_message'])) {
                 </div>
             </form>
         </div>
+    </div>
+
+    <!-- MODAL: ubicar sucursal en el mapa (OpenStreetMap, gratis) -->
+    <div class="modal" id="modalMapaSucursal" style="z-index:10000;">
+      <div class="modal-content" style="width:700px;max-width:95%;">
+          <div class="d-flex justify-content-between align-items-center mapa-suc-header">
+            <h6 class="mb-0"><i class="fas fa-map-marked-alt"></i> Ubicar sucursal en el mapa</h6>
+            <span style="cursor:pointer;font-size:1.3rem;" onclick="cerrarModalMapaSuc()">&times;</span>
+          </div>
+          <div class="input-group mb-2" style="display:flex;gap:.4rem;">
+              <input type="text" class="form-control-modern" id="mapaSucBuscarInput" placeholder="Busca la dirección (ej: Av. Independencia, Santiago)" style="flex:1;">
+              <button class="btn-actualizar" type="button" onclick="buscarEnMapaSucursal()" style="white-space:nowrap;">
+                <i class="fas fa-search"></i> Buscar
+              </button>
+          </div>
+          <div id="mapaSucResultados" style="max-height:140px; overflow-y:auto;margin-bottom:.5rem;"></div>
+          <p class="text-muted small mb-2">O haz clic directamente en el mapa para marcar el punto exacto.</p>
+          <div id="mapaSucLeaflet" style="height:320px; border-radius:10px;"></div>
+          <p class="small mt-2 mb-3" id="mapaSucCoordsTexto">Sin ubicación seleccionada todavía.</p>
+          <div class="modal-buttons mapa-suc-footer">
+            <button type="button" class="btn-cancelar" onclick="cerrarModalMapaSuc()">Cancelar</button>
+            <button type="button" class="btn-actualizar" onclick="confirmarUbicacionMapaSucursal()">
+              <i class="fas fa-check"></i> Usar esta ubicación
+            </button>
+          </div>
+      </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -1049,13 +1158,21 @@ if (isset($_SESSION['system_message'])) {
             });
         }
 
-        function abrirModalEditar(id, nombre, direccion, telefono, activo, idEmpresa) {
+        function abrirModalEditar(id, nombre, direccion, telefono, activo, idEmpresa, latitud, longitud) {
             document.getElementById('id_original').value = id;
             document.getElementById('empresa_update').value = idEmpresa || '';
             document.getElementById('nombre_update').value = nombre;
             document.getElementById('direccion_update').value = direccion || '';
+            document.getElementById('latitud_update').value = latitud || '';
+            document.getElementById('longitud_update').value = longitud || '';
             document.getElementById('telefono_update').value = telefono || '';
             document.getElementById('activo_update').checked = activo === true || activo === 'true';
+
+            const estadoEditar = document.getElementById('estadoUbicacionEditar');
+            const tieneCoordenadas = latitud !== null && latitud !== undefined && latitud !== '' &&
+                                       longitud !== null && longitud !== undefined && longitud !== '';
+            estadoEditar.textContent = tieneCoordenadas ? '✓ Ubicada en el mapa' : 'Sin ubicar';
+            estadoEditar.style.color = tieneCoordenadas ? '#198754' : '';
 
             modal.classList.add('show');
             document.body.classList.add('modal-open');
@@ -1085,6 +1202,154 @@ if (isset($_SESSION['system_message'])) {
                 cerrarModal();
             }
         });
+
+        // ══════════════ MAPA (OpenStreetMap + Nominatim, gratis) ══════════════
+
+        let mapaSucLeaflet, marcadorMapaSuc, modoMapaSucursal = 'crear';
+        let coordsSeleccionadasSuc = null;
+        let resultadosBusquedaMapaSuc = [];
+        const modalMapaSucEl = document.getElementById('modalMapaSucursal');
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const inputBuscar = document.getElementById('mapaSucBuscarInput');
+            if (inputBuscar) {
+                let timeoutBusq;
+                inputBuscar.addEventListener('keyup', (e) => {
+                    if (e.key === 'Enter') { buscarEnMapaSucursal(); return; }
+                    clearTimeout(timeoutBusq);
+                    timeoutBusq = setTimeout(buscarEnMapaSucursal, 700);
+                });
+            }
+        });
+
+        function cerrarModalMapaSuc() {
+            modalMapaSucEl.classList.remove('show');
+        }
+
+        function abrirMapaParaSucursal(modo) {
+            modoMapaSucursal = modo;
+            coordsSeleccionadasSuc = null;
+            document.getElementById('mapaSucBuscarInput').value = '';
+            document.getElementById('mapaSucResultados').innerHTML = '';
+            document.getElementById('mapaSucCoordsTexto').textContent = 'Sin ubicación seleccionada todavía.';
+
+            modalMapaSucEl.classList.add('show');
+
+            // Esperar un instante a que el modal sea visible antes de iniciar
+            // Leaflet (necesita medir el tamaño real del contenedor).
+            setTimeout(() => {
+                const idLat = modo === 'crear' ? 'latitud' : 'latitud_update';
+                const idLng = modo === 'crear' ? 'longitud' : 'longitud_update';
+                const latActual = parseFloat(document.getElementById(idLat).value);
+                const lngActual = parseFloat(document.getElementById(idLng).value);
+                const tieneUbicacionPrevia = !isNaN(latActual) && !isNaN(lngActual);
+                const centroInicial = tieneUbicacionPrevia ? [latActual, lngActual] : [19.4517, -70.6970]; // Santiago, RD
+                const zoomInicial = tieneUbicacionPrevia ? 16 : 13;
+
+                if (mapaSucLeaflet) { mapaSucLeaflet.remove(); mapaSucLeaflet = null; }
+                mapaSucLeaflet = L.map('mapaSucLeaflet').setView(centroInicial, zoomInicial);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+                    maxZoom: 19
+                }).addTo(mapaSucLeaflet);
+
+                if (tieneUbicacionPrevia) {
+                    colocarMarcadorSuc(latActual, lngActual);
+                }
+
+                mapaSucLeaflet.on('click', function(e) {
+                    colocarMarcadorSuc(e.latlng.lat, e.latlng.lng);
+                    geocodificarInversoSuc(e.latlng.lat, e.latlng.lng);
+                });
+            }, 150);
+        }
+
+        function colocarMarcadorSuc(lat, lng) {
+            if (marcadorMapaSuc) mapaSucLeaflet.removeLayer(marcadorMapaSuc);
+            marcadorMapaSuc = L.marker([lat, lng]).addTo(mapaSucLeaflet);
+            coordsSeleccionadasSuc = { lat, lng, direccion: null };
+            document.getElementById('mapaSucCoordsTexto').innerHTML =
+                `<span style="color:#198754;"><strong>✓ Ubicación marcada:</strong> ${lat.toFixed(6)}, ${lng.toFixed(6)}</span>`;
+        }
+
+        function extraerDireccionCompletaSuc(addr, displayName) {
+            if (!addr) return displayName || '';
+            return [addr.house_number, addr.road].filter(Boolean).join(' ') || displayName || '';
+        }
+
+        function geocodificarInversoSuc(lat, lng) {
+            const detalle = document.getElementById('mapaSucCoordsTexto');
+            fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`)
+                .then(r => r.json())
+                .then(data => {
+                    coordsSeleccionadasSuc.direccion = extraerDireccionCompletaSuc(data.address, data.display_name);
+                    detalle.innerHTML =
+                        `<span style="color:#198754;"><strong>✓ Ubicación marcada:</strong> ${lat.toFixed(6)}, ${lng.toFixed(6)}</span><br>
+                         <span class="text-muted">${data.display_name || ''}</span>`;
+                })
+                .catch(() => { /* si falla, igual queda la coordenada marcada */ });
+        }
+
+        function buscarEnMapaSucursal() {
+            const query = document.getElementById('mapaSucBuscarInput').value.trim();
+            const resultados = document.getElementById('mapaSucResultados');
+            if (query.length < 3) { resultados.innerHTML = ''; return; }
+
+            resultados.innerHTML = '<div class="small text-muted p-2">Buscando...</div>';
+
+            fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(query)}&countrycodes=do&limit=5`)
+                .then(r => r.json())
+                .then(data => {
+                    resultadosBusquedaMapaSuc = data;
+                    if (!data.length) {
+                        resultados.innerHTML = '<div class="small text-muted p-2">Sin resultados. Prueba con otro texto o marca el punto directo en el mapa.</div>';
+                        return;
+                    }
+                    resultados.innerHTML = data.map((item, i) => `
+                        <button type="button" onclick='seleccionarResultadoMapaSucursal(${i})'
+                            style="display:block;width:100%;text-align:left;padding:.5rem .7rem;margin-bottom:2px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;font-size:.82rem;cursor:pointer;">
+                            ${item.display_name}
+                        </button>
+                    `).join('');
+                })
+                .catch(() => {
+                    resultados.innerHTML = '<div class="small text-danger p-2">Error al buscar. Intenta de nuevo o marca el punto directo en el mapa.</div>';
+                });
+        }
+
+        function seleccionarResultadoMapaSucursal(indice) {
+            const item = resultadosBusquedaMapaSuc[indice];
+            if (!item) return;
+            const lat = parseFloat(item.lat), lng = parseFloat(item.lon);
+            mapaSucLeaflet.setView([lat, lng], 16);
+            colocarMarcadorSuc(lat, lng);
+            coordsSeleccionadasSuc.direccion = extraerDireccionCompletaSuc(item.address, item.display_name);
+            document.getElementById('mapaSucCoordsTexto').innerHTML =
+                `<span style="color:#198754;"><strong>✓ Ubicación marcada:</strong> ${lat.toFixed(6)}, ${lng.toFixed(6)}</span><br>
+                 <span class="text-muted">${item.display_name}</span>`;
+        }
+
+        function confirmarUbicacionMapaSucursal() {
+            if (!coordsSeleccionadasSuc) {
+                Swal.fire('Falta ubicar', 'Busca la dirección o haz clic en el mapa para marcar el punto exacto.', 'warning');
+                return;
+            }
+            const idLat = modoMapaSucursal === 'crear' ? 'latitud' : 'latitud_update';
+            const idLng = modoMapaSucursal === 'crear' ? 'longitud' : 'longitud_update';
+            const idDireccion = modoMapaSucursal === 'crear' ? 'direccion' : 'direccion_update';
+            const idEstado = modoMapaSucursal === 'crear' ? 'estadoUbicacionCrear' : 'estadoUbicacionEditar';
+
+            document.getElementById(idLat).value = coordsSeleccionadasSuc.lat;
+            document.getElementById(idLng).value = coordsSeleccionadasSuc.lng;
+            if (coordsSeleccionadasSuc.direccion) {
+                document.getElementById(idDireccion).value = coordsSeleccionadasSuc.direccion;
+            }
+            const estadoTexto = document.getElementById(idEstado);
+            estadoTexto.textContent = '✓ Ubicada en el mapa';
+            estadoTexto.style.color = '#198754';
+
+            cerrarModalMapaSuc();
+        }
     </script>
 
 </body>

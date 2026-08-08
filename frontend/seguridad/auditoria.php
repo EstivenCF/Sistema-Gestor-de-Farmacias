@@ -73,7 +73,34 @@ $stmtStats = $conexion->query("
     ORDER BY total DESC
 ");
 $stats = $stmtStats->fetchAll(PDO::FETCH_ASSOC);
+
+// ── Catálogos pequeños para poder mostrar la auditoría de permisos
+//    en español legible en vez de JSON crudo con solo IDs ──
+$stmtCatPermisos = $conexion->query("SELECT id_permiso, nombre FROM permisos");
+$catalogoPermisos = [];
+foreach ($stmtCatPermisos->fetchAll(PDO::FETCH_ASSOC) as $p) {
+    $catalogoPermisos[$p['id_permiso']] = $p['nombre'];
+}
+
+$stmtCatUsuarios = $conexion->query("SELECT id_usuario, nombre FROM usuarios");
+$catalogoUsuarios = [];
+foreach ($stmtCatUsuarios->fetchAll(PDO::FETCH_ASSOC) as $u) {
+    $catalogoUsuarios[$u['id_usuario']] = $u['nombre'];
+}
+
+$stmtCatRoles = $conexion->query("SELECT id_rol, nombre FROM roles");
+$catalogoRoles = [];
+foreach ($stmtCatRoles->fetchAll(PDO::FETCH_ASSOC) as $r) {
+    $catalogoRoles[$r['id_rol']] = $r['nombre'];
+}
 ?>
+
+<script>
+    // Catálogos para traducir IDs a nombres legibles en el detalle de auditoría
+    const CATALOGO_PERMISOS = <?php echo json_encode($catalogoPermisos, JSON_UNESCAPED_UNICODE); ?>;
+    const CATALOGO_USUARIOS = <?php echo json_encode($catalogoUsuarios, JSON_UNESCAPED_UNICODE); ?>;
+    const CATALOGO_ROLES = <?php echo json_encode($catalogoRoles, JSON_UNESCAPED_UNICODE); ?>;
+</script>
 
 <div class="auditoria-container">
     <div class="d-flex justify-content-between align-items-center flex-wrap mb-4">
@@ -255,6 +282,29 @@ $stats = $stmtStats->fetchAll(PDO::FETCH_ASSOC);
 </div>
 
 <script>
+    // Traduce una fila de usuario_permiso a una frase legible
+    function formatearUsuarioPermiso(fila) {
+        if (!fila) return 'No había ningún permiso registrado en este momento.';
+        const nombreUsuario = CATALOGO_USUARIOS[fila.id_usuario] || ('Usuario #' + fila.id_usuario);
+        const nombrePermiso = CATALOGO_PERMISOS[fila.id_permiso] || ('Permiso #' + fila.id_permiso);
+        const tiene = fila.permitido === true || fila.permitido === 't';
+        return `${nombreUsuario} ${tiene ? 'SÍ tiene' : 'NO tiene'} permiso para: "${nombrePermiso}"`;
+    }
+
+    // Traduce una fila de rol_permiso a una frase legible
+    function formatearRolPermiso(fila) {
+        if (!fila) return 'No existía esta asignación.';
+        const nombreRol = CATALOGO_ROLES[fila.id_rol] || ('Rol #' + fila.id_rol);
+        const nombrePermiso = CATALOGO_PERMISOS[fila.id_permiso] || ('Permiso #' + fila.id_permiso);
+        return `El rol "${nombreRol}" tiene asignado el permiso: "${nombrePermiso}"`;
+    }
+
+    // Traduce una fila del catálogo de permisos (la definición en sí)
+    function formatearPermisoCatalogo(fila) {
+        if (!fila) return 'Esta definición de permiso no existía.';
+        return `Permiso "${fila.nombre}" — tipo: ${fila.tipo_accion || 'sin definir'}, acción: ${fila.accion}`;
+    }
+
     // Llenar modal con datos JSON
     document.querySelectorAll('.ver-detalle').forEach(btn => {
         btn.addEventListener('click', function() {
@@ -263,16 +313,27 @@ $stats = $stmtStats->fetchAll(PDO::FETCH_ASSOC);
             const accion = this.dataset.accion;
             const tabla = this.dataset.tabla;
             const id = this.dataset.id;
-            
+
             document.getElementById('detalleTabla').innerText = tabla;
             document.getElementById('detalleId').innerText = id;
             document.getElementById('detalleAccion').innerText = accion;
-            
+
             let ant = anteriores && anteriores !== 'null' ? JSON.parse(anteriores) : null;
             let nue = nuevos && nuevos !== 'null' ? JSON.parse(nuevos) : null;
-            
-            document.getElementById('detalleAnteriores').innerText = ant ? JSON.stringify(ant, null, 2) : 'No hay datos anteriores';
-            document.getElementById('detalleNuevos').innerText = nue ? JSON.stringify(nue, null, 2) : 'No hay datos nuevos';
+
+            const FORMATEADORES = {
+                'usuario_permiso': formatearUsuarioPermiso,
+                'rol_permiso': formatearRolPermiso,
+                'permisos': formatearPermisoCatalogo,
+            };
+
+            if (FORMATEADORES[tabla]) {
+                document.getElementById('detalleAnteriores').innerText = FORMATEADORES[tabla](ant);
+                document.getElementById('detalleNuevos').innerText = FORMATEADORES[tabla](nue);
+            } else {
+                document.getElementById('detalleAnteriores').innerText = ant ? JSON.stringify(ant, null, 2) : 'No hay datos anteriores';
+                document.getElementById('detalleNuevos').innerText = nue ? JSON.stringify(nue, null, 2) : 'No hay datos nuevos';
+            }
         });
     });
 </script>

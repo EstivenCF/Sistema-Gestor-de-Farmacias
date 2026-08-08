@@ -43,20 +43,33 @@ if (!empty($usuario_actual['imagen_url'])) {
     $imagen_perfil = $usuario_actual['imagen_url'];
 }
 
-// Obtener permisos actuales del usuario (desde usuario_permiso)
-$stmt_permisos_actuales = $conexion->prepare("
-    SELECT p.nombre 
-    FROM usuario_permiso up
-    JOIN permisos p ON up.id_permiso = p.id_permiso
-    WHERE up.id_usuario = ? AND up.permitido = TRUE
-");
-$stmt_permisos_actuales->execute([$usuario_seleccionado_id]);
-$permisos_actuales_nombres = $stmt_permisos_actuales->fetchAll(PDO::FETCH_COLUMN);
+// Obtener permisos actuales del usuario — con respaldo: si no tiene un
+// permiso propio guardado (usuario_permiso), se usa lo que su rol trae
+// por defecto (rol_permiso). Antes esto solo miraba usuario_permiso, así
+// que cualquier persona sin nada guardado todavía se veía con TODO
+// apagado en pantalla, aunque su rol sí le diera acceso real a cosas.
+$stmt_todos_permisos = $conexion->query("SELECT id_permiso, nombre FROM permisos");
+$todos_permisos_catalogo = $stmt_todos_permisos->fetchAll(PDO::FETCH_ASSOC);
 
-// Convertir a array asociativo para fácil acceso
+$stmt_overrides = $conexion->prepare("SELECT id_permiso, permitido FROM usuario_permiso WHERE id_usuario = ?");
+$stmt_overrides->execute([$usuario_seleccionado_id]);
+$overrides_map = [];
+foreach ($stmt_overrides->fetchAll(PDO::FETCH_ASSOC) as $o) {
+    $overrides_map[$o['id_permiso']] = filter_var($o['permitido'], FILTER_VALIDATE_BOOLEAN);
+}
+
+$stmt_del_rol = $conexion->prepare("SELECT id_permiso FROM rol_permiso WHERE id_rol = ?");
+$stmt_del_rol->execute([$usuario_actual['id_rol']]);
+$del_rol_map = array_flip($stmt_del_rol->fetchAll(PDO::FETCH_COLUMN));
+
 $permisos_actuales_map = [];
-foreach ($permisos_actuales_nombres as $perm) {
-    $permisos_actuales_map[$perm] = true;
+foreach ($todos_permisos_catalogo as $p) {
+    $activo = isset($overrides_map[$p['id_permiso']])
+        ? $overrides_map[$p['id_permiso']]
+        : isset($del_rol_map[$p['id_permiso']]);
+    if ($activo) {
+        $permisos_actuales_map[$p['nombre']] = true;
+    }
 }
 ?>
 
@@ -88,6 +101,7 @@ foreach ($permisos_actuales_nombres as $perm) {
                         <?php foreach ($usuarios as $u): ?>
                             <option value="<?php echo $u['id_usuario']; ?>" 
                                 data-rol="<?php echo htmlspecialchars($u['rol_nombre']); ?>"
+                                data-id-rol="<?php echo $u['id_rol']; ?>"
                                 data-imagen="<?php echo htmlspecialchars($u['imagen_url'] ?? ''); ?>"
                                 <?php echo $usuario_seleccionado_id == $u['id_usuario'] ? 'selected' : ''; ?>>
                                 <?php echo htmlspecialchars($u['nombre']); ?> (<?php echo htmlspecialchars($u['usuario']); ?>)
@@ -169,7 +183,7 @@ foreach ($permisos_actuales_nombres as $perm) {
                                                 </div>
                                             </div>
                                             <label class="ios-switch">
-                                                <input type="checkbox" class="modulo-switch" data-modulo="dashboard" checked disabled>
+                                                <input type="checkbox" class="modulo-switch" data-modulo="dashboard" id="switch_dashboard" <?php echo isset($permisos_actuales_map['dashboard']) ? 'checked' : ''; ?>>
                                                 <span class="slider round"></span>
                                             </label>
                                         </div>
@@ -359,6 +373,10 @@ foreach ($permisos_actuales_nombres as $perm) {
                                         <div class="subpermisos ps-4 mt-2" id="subpermisos_delivery" style="display: <?php echo isset($permisos_actuales_map['delivery']) ? 'block' : 'none'; ?>;">
                                             <div class="small text-muted mb-1">Submódulos:</div>
                                             <div class="form-check form-switch mb-1">
+                                                <input class="form-check-input subpermiso-switch" type="checkbox" data-permiso="agenda" id="perm_agenda" <?php echo isset($permisos_actuales_map['agenda']) ? 'checked' : ''; ?>>
+                                                <label class="form-check-label small" for="perm_agenda">Mi Agenda (repartidor)</label>
+                                            </div>
+                                            <div class="form-check form-switch mb-1">
                                                 <input class="form-check-input subpermiso-switch" type="checkbox" data-permiso="repartidores" id="perm_repartidores" <?php echo isset($permisos_actuales_map['repartidores']) ? 'checked' : ''; ?>>
                                                 <label class="form-check-label small" for="perm_repartidores">Repartidores</label>
                                             </div>
@@ -513,8 +531,12 @@ foreach ($permisos_actuales_nombres as $perm) {
                                                 <label class="form-check-label small" for="perm_desbloquear_usuarios">Desbloqueo de Usuarios</label>
                                             </div>
                                             <div class="form-check form-switch mb-1">
-                                                <input class="form-check-input subpermiso-switch" type="checkbox" data-permiso="sucursales" id="perm_sucursales" <?php echo isset($permisos_actuales_map['sucursales']) ? 'checked' : ''; ?>>
+                                                <input class="form-check-input subpermiso-switch" type="checkbox" data-permiso="configuracion" id="perm_configuracion" <?php echo isset($permisos_actuales_map['configuracion']) ? 'checked' : ''; ?>>
                                                 <label class="form-check-label small" for="perm_configuracion">Configuración</label>
+                                            </div>
+                                            <div class="form-check form-switch mb-1">
+                                                <input class="form-check-input subpermiso-switch" type="checkbox" data-permiso="usuarios_clientes" id="perm_usuarios_clientes" <?php echo isset($permisos_actuales_map['usuarios_clientes']) ? 'checked' : ''; ?>>
+                                                <label class="form-check-label small" for="perm_usuarios_clientes">Accesos de Clientes</label>
                                             </div>
                                         </div>
                                     </div>
@@ -813,107 +835,48 @@ function toggleAllPermissions(checked) {
 function cargarPermisosPorRol() {
     const select = document.getElementById('selectUsuario');
     const selectedOption = select.options[select.selectedIndex];
-    const rol = selectedOption.getAttribute('data-rol');
-    
-    const permisosPorDefecto = {
-        'Administrador': {
-            'ventas': true, 'inventario': true, 'compras': true,
-            'clientes': true, 'caja': true, 'administracion': true, 'reportes': true,
-            'delivery': true, 'ropa': true, 'seguridad': true,
-            'registrar_venta': true, 'historial_ventas': true, 'pagos': true, 'facturacion': true,
-            'medicamentos': true, 'categorias': true, 'lotes': true, 'stock': true, 'vencimientos': true,
-            'registrar_compra': true, 'historial_compras': true, 'proveedores': true,
-            'clientes_lista': true, 'historial_cliente': true,
-            'apertura_caja': true, 'cierre_caja': true,
-            'usuarios': true, 'empresa': true, 'roles': true, 'permisos_usuarios': true, 'sucursales': true,
-            'reporte_ventas': true, 'reporte_inventario': true, 'reporte_vencimientos': true,
-            'repartidores': true, 'entregas': true, 'vehiculos': true, 'tracking': true, 'incidencias_delivery': true,
-            'gestion_ropa': true, 'tipo_ropa': true, 'marcas': true, 'fabricantes': true, 'colores': true, 'tallas': true,
-            'sesiones': true, 'auditoria': true, 'logs': true
-        },
-        'Cajero': {
-            'ventas': true, 'clientes': true, 'caja': true,
-            'inventario': false, 'compras': false, 'administracion': false, 'reportes': false,
-            'delivery': false, 'ropa': false, 'seguridad': false,
-            'registrar_venta': true, 'historial_ventas': true, 'pagos': true, 'facturacion': false,
-            'clientes_lista': true, 'historial_cliente': true,
-            'apertura_caja': true, 'cierre_caja': true
-        },
-        'Vendedor': {
-            'ventas': true, 'clientes': true, 'inventario': true,
-            'caja': false, 'compras': false, 'administracion': false, 'reportes': false,
-            'delivery': false, 'ropa': false, 'seguridad': false,
-            'registrar_venta': true, 'historial_ventas': true,
-            'medicamentos': true, 'stock': true,
-            'clientes_lista': true, 'historial_cliente': true
-        },
-        'Encargado Inventario': {
-            'inventario': true, 'reportes': true,
-            'ventas': false, 'clientes': false, 'caja': false, 'compras': false, 'administracion': false,
-            'delivery': false, 'ropa': false, 'seguridad': false,
-            'medicamentos': true, 'categorias': true, 'lotes': true, 'stock': true, 'vencimientos': true,
-            'reporte_inventario': true, 'reporte_vencimientos': true
-        },
-        'Gestor Compras': {
-            'compras': true, 'inventario': true, 'reportes': true,
-            'ventas': false, 'clientes': false, 'caja': false, 'administracion': false,
-            'delivery': false, 'ropa': false, 'seguridad': false,
-            'registrar_compra': true, 'historial_compras': true, 'proveedores': true,
-            'medicamentos': true, 'lotes': true, 'stock': true,
-            'reporte_inventario': true
-        },
-        'Gestor Delivery': {
-            'delivery': true, 'clientes': true, 'ventas': true,
-            'inventario': false, 'compras': false, 'caja': false, 'administracion': false, 'reportes': false,
-            'ropa': false, 'seguridad': false,
-            'repartidores': true, 'entregas': true, 'vehiculos': true, 'tracking': true, 'incidencias_delivery': true,
-            'clientes_lista': true, 'historial_cliente': true,
-            'registrar_venta': true, 'historial_ventas': true
-        },
-        'Gestor Tienda (Ropa)': {
-            'ropa': true, 'ventas': true, 'clientes': true, 'inventario': true,
-            'compras': false, 'caja': false, 'delivery': false, 'administracion': false, 'reportes': false, 'seguridad': false,
-            'gestion_ropa': true, 'tipo_ropa': true, 'marcas': true, 'fabricantes': true, 'colores': true, 'tallas': true,
-            'registrar_venta': true, 'historial_ventas': true,
-            'clientes_lista': true,
-            'medicamentos': false, 'stock': true
-        },
-        'Auditor Seguridad': {
-            'seguridad': true, 'reportes': true,
-            'ventas': false, 'inventario': false, 'compras': false, 'clientes': false, 'caja': false, 'administracion': false,
-            'delivery': false, 'ropa': false,
-            'sesiones': true, 'auditoria': true, 'logs': true,
-            'reporte_ventas': true, 'reporte_inventario': true
-        }
-    };
-    
-    const permisos = permisosPorDefecto[rol] || permisosPorDefecto['Cajero'];
-    
-    // Aplicar los permisos a los switches
-    for (const [permiso, valor] of Object.entries(permisos)) {
-        const switchElem = document.getElementById(`switch_${permiso}`);
-        if (switchElem) {
-            switchElem.checked = valor;
-            const card = switchElem.closest('.modulo-card');
-            const subpermisosDiv = card?.querySelector('.subpermisos');
-            if (subpermisosDiv) {
-                subpermisosDiv.style.display = valor ? 'block' : 'none';
+    const idRol = selectedOption.getAttribute('data-id-rol');
+    const nombreRol = selectedOption.getAttribute('data-rol');
+
+    fetch(`../backend/obtener_permisos_rol.php?id_rol=${idRol}`)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                Swal.fire('Error', data.message || 'No se pudieron cargar los permisos del rol.', 'error');
+                return;
             }
-        }
-        
-        const subSwitch = document.querySelector(`.subpermiso-switch[data-permiso="${permiso}"]`);
-        if (subSwitch) {
-            subSwitch.checked = valor;
-        }
-    }
-    
-    Swal.fire({
-        icon: 'success',
-        title: 'Permisos cargados',
-        text: `Se han cargado los permisos por defecto para el rol: ${rol}`,
-        confirmButtonColor: '#10b981',
-        confirmButtonText: 'Aceptar'
-    });
+            const permisos = data.permisos;
+
+            // Módulos (incluye Dashboard, que ya no está fijo)
+            document.querySelectorAll('.modulo-switch').forEach(sw => {
+                const nombre = sw.getAttribute('data-modulo');
+                if (!(nombre in permisos)) return;
+                sw.checked = permisos[nombre];
+                const card = sw.closest('.modulo-card');
+                const subpermisosDiv = card?.querySelector('.subpermisos');
+                if (subpermisosDiv) {
+                    subpermisosDiv.style.display = permisos[nombre] ? 'block' : 'none';
+                    if (!permisos[nombre]) {
+                        card.querySelectorAll('.subpermiso-switch').forEach(sub => sub.checked = false);
+                    }
+                }
+            });
+
+            // Submódulos
+            document.querySelectorAll('.subpermiso-switch').forEach(sw => {
+                const nombre = sw.getAttribute('data-permiso');
+                if (nombre in permisos) sw.checked = permisos[nombre];
+            });
+
+            Swal.fire({
+                icon: 'success',
+                title: 'Permisos cargados',
+                text: `Se han cargado los permisos por defecto para el rol: ${nombreRol}`,
+                confirmButtonColor: '#10b981',
+                confirmButtonText: 'Aceptar'
+            });
+        })
+        .catch(() => Swal.fire('Error', 'Error de conexión al cargar los permisos del rol.', 'error'));
 }
 
 function hayCambios() {

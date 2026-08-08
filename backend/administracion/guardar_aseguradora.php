@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../conexion.php';
-session_start();
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
 header('Content-Type: application/json');
 $data = json_decode(file_get_contents('php://input'), true);
 if (!$data) { echo json_encode(['success'=>false,'message'=>'Datos inválidos']); exit; }

@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/../conexion.php';
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 header('Content-Type: application/json');
 
@@ -19,6 +21,7 @@ try {
     $conexion->beginTransaction();
 
     // Insertar cliente
+    $permite_credito = filter_var($data['permite_credito'] ?? false, FILTER_VALIDATE_BOOLEAN) ? 't' : 'f';
     $stmt = $conexion->prepare("
         INSERT INTO clientes (nombre, direccion, barrio, ciudad, permite_credito, fecha_registro)
         VALUES (:nombre, :direccion, :barrio, :ciudad, :permite_credito, CURRENT_DATE)
@@ -29,9 +32,29 @@ try {
         ':direccion' => $data['direccion'] ?? null,
         ':barrio' => $data['barrio'] ?? null,
         ':ciudad' => $data['ciudad'] ?? 'Santiago',
-        ':permite_credito' => $data['permite_credito'] ?? false
+        ':permite_credito' => $permite_credito
     ]);
     $id_cliente = $stmt->fetchColumn();
+
+    // ── Acceso al portal de seguimiento, si lo pidieron ──
+    if (!empty($data['dar_acceso_portal'])) {
+        $usuario_portal = trim($data['usuario_portal'] ?? '');
+        $password_portal = (string)($data['password_portal'] ?? '');
+        if ($usuario_portal === '' || strlen($password_portal) < 4) {
+            throw new Exception('Para el acceso al portal, indica un usuario y una contraseña de al menos 4 caracteres');
+        }
+        $stmtChk = $conexion->prepare("SELECT 1 FROM clientes WHERE usuario_portal = :u");
+        $stmtChk->execute([':u' => $usuario_portal]);
+        if ($stmtChk->fetchColumn()) {
+            throw new Exception("El usuario '$usuario_portal' ya está en uso, elige otro");
+        }
+        $conexion->prepare("UPDATE clientes SET usuario_portal = :u, contrasena_portal = :p WHERE id_cliente = :id")
+            ->execute([
+                ':u'  => $usuario_portal,
+                ':p'  => password_hash($password_portal, PASSWORD_DEFAULT),
+                ':id' => $id_cliente,
+            ]);
+    }
 
     // Insertar teléfonos
     if (!empty($data['telefonos'])) {
@@ -41,7 +64,7 @@ try {
             $stmtTel->execute([
                 ':numero' => $tel['numero'],
                 ':tipo' => $tel['tipo'],
-                ':whatsapp' => $tel['whatsapp'] ?? false
+                ':whatsapp' => (filter_var($tel['whatsapp'] ?? false, FILTER_VALIDATE_BOOLEAN) ? 't' : 'f')
             ]);
             $id_telefono = $stmtTel->fetchColumn();
             $stmtRel->execute([':id_cliente' => $id_cliente, ':id_telefono' => $id_telefono]);
@@ -64,20 +87,22 @@ try {
 
     // Insertar direcciones
     if (!empty($data['direcciones'])) {
-        $stmtDir = $conexion->prepare("INSERT INTO direcciones (direccion, barrio, ciudad, referencia, activo) VALUES (:direccion, :barrio, :ciudad, :referencia, TRUE) RETURNING id_direccion");
+        $stmtDir = $conexion->prepare("INSERT INTO direcciones (direccion, barrio, ciudad, referencia, latitud, longitud, activo) VALUES (:direccion, :barrio, :ciudad, :referencia, :latitud, :longitud, TRUE) RETURNING id_direccion");
         $stmtRelDir = $conexion->prepare("INSERT INTO cliente_direccion (id_cliente, id_direccion, predeterminada) VALUES (:id_cliente, :id_direccion, :predeterminada)");
         foreach ($data['direcciones'] as $dir) {
             $stmtDir->execute([
                 ':direccion' => $dir['direccion'],
                 ':barrio' => $dir['barrio'] ?? null,
                 ':ciudad' => $dir['ciudad'] ?? 'Santiago',
-                ':referencia' => $dir['referencia'] ?? null
+                ':referencia' => $dir['referencia'] ?? null,
+                ':latitud' => (isset($dir['latitud']) && $dir['latitud'] !== '') ? $dir['latitud'] : null,
+                ':longitud' => (isset($dir['longitud']) && $dir['longitud'] !== '') ? $dir['longitud'] : null,
             ]);
             $id_direccion = $stmtDir->fetchColumn();
             $stmtRelDir->execute([
                 ':id_cliente' => $id_cliente,
                 ':id_direccion' => $id_direccion,
-                ':predeterminada' => $dir['predeterminada'] ?? false
+                ':predeterminada' => (filter_var($dir['predeterminada'] ?? false, FILTER_VALIDATE_BOOLEAN) ? 't' : 'f')
             ]);
         }
     }

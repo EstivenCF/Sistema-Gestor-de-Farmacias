@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../conexion.php';
-session_start();
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 $id_venta = $_GET['id_venta'] ?? null;
 if (!$id_venta) {

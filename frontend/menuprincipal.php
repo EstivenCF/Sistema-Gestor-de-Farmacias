@@ -56,7 +56,7 @@ $menu_por_rol = [
         'inventario' => ['medicamentos', 'categorias', 'presentaciones', 'laboratorios', 'principios_activos', 'lotes', 'stock', 'movimientos_inventario', 'vencimientos', 'alertas_stock', 'devoluciones', 'recall'],
         'compras' => ['registrar_compra', 'historial_compras', 'proveedores'], // ← ELIMINADO 'recepcion'
         'clientes' => ['clientes'],
-        'delivery' => ['repartidores', 'vehiculos', 'tracking'],
+        'delivery' => ['repartidores', 'entrega', 'vehiculos', 'devoluciones'],
         'caja' => ['apertura_caja', 'cierre_caja', 'movimientos_caja'],
         'ropa' => ['gestion_ropa', 'tipo_ropa', 'marcas', 'fabricantes', 'colores', 'tallas'],
         'administracion' => ['sucursales', 'empresa', 'usuarios', 'consulta_usuarios', 'roles', 'permisos_usuarios', 'desbloquear_usuarios', 'configuracion', 'ofertas', 'seguros_medicos'],
@@ -66,9 +66,10 @@ $menu_por_rol = [
 
     'Cajero' => [
         'dashboard' => true,
-        'ventas' => ['registrar_venta', 'historial_ventas', 'pagos'],
-        'clientes' => ['clientes'],
-        'caja' => ['apertura_caja', 'cierre_caja', 'movimientos_caja'],
+        'ventas'    => ['registrar_venta', 'historial_ventas', 'pagos'],
+        'clientes'  => ['clientes'],
+        'caja'      => ['apertura_caja', 'cierre_caja', 'movimientos_caja'],
+        'delivery' => ['repartidores', 'entrega', 'vehiculos', 'devoluciones'], // NUEVO
     ],
 
     'Vendedor' => [
@@ -89,6 +90,12 @@ $menu_por_rol = [
         'compras' => ['registrar_compra', 'historial_compras', 'proveedores'], // ← ELIMINADO 'recepcion'
         'inventario' => ['medicamentos', 'lotes', 'stock'],
         'reportes' => ['reporte_inventario'],
+    ],
+
+    // ── NUEVO: Repartidor solo ve su modulo de delivery ──
+    'Repartidor' => [
+        'dashboard' => false,
+        'delivery'  => ['agenda'],
     ]
 ];
 
@@ -101,13 +108,69 @@ function esModuloVisible($rol, $categoria, $submodulo)
     return in_array($submodulo, $menu_por_rol[$rol][$categoria]);
 }
 
+// ── Permisos reales, conectados a la base de datos (Permisos de
+//    Usuario) ── Por ahora cubre 'dashboard' y los del módulo
+//    Delivery ('delivery', 'agenda', 'repartidores', 'entrega',
+//    'vehiculos') — el resto del sistema sigue igual que siempre,
+//    con el arreglo $menu_por_rol de aquí arriba, para no arriesgar
+//    el acceso de todo el sistema de un solo golpe.
+//
+// Jerarquía: si el USUARIO tiene un permiso propio guardado
+// (usuario_permiso), ese manda — sea true o false. Si no tiene uno
+// propio, se usa el valor por defecto de su ROL (rol_permiso: existe
+// la fila = tiene acceso). Si el permiso ni siquiera está en el
+// catálogo todavía, devuelve null para que el que llama decida si
+// usa el sistema viejo como respaldo.
+function tienePermisoReal($conexion, $id_usuario, $id_rol, $nombrePermiso)
+{
+    static $cache = [];
+    $clave = "$id_usuario:$nombrePermiso";
+    if (isset($cache[$clave])) return $cache[$clave];
+
+    $stmt = $conexion->prepare("SELECT id_permiso FROM permisos WHERE nombre = :n");
+    $stmt->execute([':n' => $nombrePermiso]);
+    $id_permiso = $stmt->fetchColumn();
+    if (!$id_permiso) { return $cache[$clave] = null; } // no gestionado por la BD todavía
+
+    $stmt = $conexion->prepare("SELECT permitido FROM usuario_permiso WHERE id_usuario = :u AND id_permiso = :p");
+    $stmt->execute([':u' => $id_usuario, ':p' => $id_permiso]);
+    $override = $stmt->fetchColumn();
+    if ($override !== false) {
+        return $cache[$clave] = filter_var($override, FILTER_VALIDATE_BOOLEAN);
+    }
+
+    $stmt = $conexion->prepare("SELECT 1 FROM rol_permiso WHERE id_rol = :r AND id_permiso = :p");
+    $stmt->execute([':r' => $id_rol, ':p' => $id_permiso]);
+    return $cache[$clave] = (bool) $stmt->fetchColumn();
+}
+
 // Función para verificar si el usuario tiene acceso al módulo
 function tieneAccesoModulo($rol, $modulo)
 {
-    global $menu_por_rol;
+    global $menu_por_rol, $conexion;
 
-    if ($modulo === 'dashboard' || $modulo === 'notificaciones') {
+    if ($modulo === 'notificaciones') {
         return true;
+    }
+
+    // El archivo real se llama delivery/entrega.php (por eso ?mod=entrega
+    // en la URL), pero en la pantalla de Permisos y en la base de datos
+    // ese permiso se llama "entregas" — se traduce aquí para que ambos
+    // apunten al mismo permiso real.
+    $modulo_permiso = ($modulo === 'entrega') ? 'entregas' : $modulo;
+
+    // Se intenta primero con la base de datos real (Permisos de Usuario).
+    // Si el permiso todavía no está en ese catálogo, tienePermisoReal()
+    // devuelve null y aquí abajo se sigue con el sistema viejo — así que
+    // esto es seguro de aplicar a cualquier módulo o submódulo, no solo
+    // a los que ya migré.
+    if (isset($_SESSION['usuario_id'], $_SESSION['id_rol'])) {
+        $real = tienePermisoReal($conexion, $_SESSION['usuario_id'], $_SESSION['id_rol'], $modulo_permiso);
+        if ($real !== null) return $real;
+    }
+
+    if ($modulo === 'dashboard') {
+        return true; // respaldo si por algo no se pudo consultar la BD
     }
 
     if (!isset($menu_por_rol[$rol])) {
@@ -136,6 +199,70 @@ $user_data = $queryUser->fetch(PDO::FETCH_ASSOC);
 $foto_perfil = !empty($user_data['imagen_url']) ? "../" . $user_data['imagen_url'] : "../assets/img/usuarios/default.png";
 $usuario_nombre_real = $user_data['nombre'] ?? $_SESSION['usuario'];
 $rol_usuario = $user_data['nombre_rol'] ?? 'Sin Rol';
+
+// ── Aplicar permisos individuales del usuario (tabla usuario_permiso)
+//    por encima de lo que el rol tendría por defecto. Si el admin
+//    activó o desactivó algo puntual para este usuario en la pantalla
+//    de Permisos, eso manda sobre el valor por defecto del rol.
+//    Va aquí (y no justo después de $menu_por_rol) porque $rol_usuario
+//    todavía no existe más arriba. ──
+$MAPA_PERMISO_A_CATEGORIA = [
+    'registrar_venta' => 'ventas', 'historial_ventas' => 'ventas', 'pagos' => 'ventas', 'facturacion' => 'ventas',
+    'medicamentos' => 'inventario', 'categorias' => 'inventario', 'lotes' => 'inventario', 'stock' => 'inventario', 'vencimientos' => 'inventario',
+    'registrar_compra' => 'compras', 'historial_compras' => 'compras', 'proveedores' => 'compras',
+    'clientes_lista' => 'clientes', 'historial_cliente' => 'clientes',
+    'repartidores' => 'delivery', 'entregas' => 'delivery', 'vehiculos' => 'delivery', 'tracking' => 'delivery', 'incidencias_delivery' => 'delivery',
+    'apertura_caja' => 'caja', 'cierre_caja' => 'caja',
+    'gestion_ropa' => 'ropa', 'tipo_ropa' => 'ropa', 'marcas' => 'ropa', 'fabricantes' => 'ropa', 'colores' => 'ropa', 'tallas' => 'ropa',
+    'sucursales' => 'administracion', 'empresa' => 'administracion', 'usuarios' => 'administracion', 'roles' => 'administracion',
+    'permisos_usuarios' => 'administracion', 'desbloqueo_usuarios' => 'administracion',
+    'sesiones' => 'seguridad', 'auditoria' => 'seguridad', 'logs' => 'seguridad',
+    'reporte_ventas' => 'reportes', 'reporte_inventario' => 'reportes', 'reporte_vencimientos' => 'reportes',
+];
+$MODULOS_NIVEL_SUPERIOR = ['ventas', 'inventario', 'compras', 'clientes', 'delivery', 'caja', 'ropa', 'administracion', 'seguridad', 'reportes'];
+
+if (isset($_SESSION['id_usuario']) && isset($menu_por_rol[$rol_usuario])) {
+    $stmtOverrides = $conexion->prepare("
+        SELECT p.nombre, up.permitido
+        FROM usuario_permiso up
+        JOIN permisos p ON p.id_permiso = up.id_permiso
+        WHERE up.id_usuario = :id
+    ");
+    $stmtOverrides->execute([':id' => $_SESSION['id_usuario']]);
+    $overridesPermisos = $stmtOverrides->fetchAll(PDO::FETCH_KEY_PAIR);
+
+    foreach ($overridesPermisos as $nombrePermiso => $permitido) {
+        $permitido = filter_var($permitido, FILTER_VALIDATE_BOOLEAN);
+
+        // Caso 1: es un módulo de nivel superior (ventas, inventario, etc.)
+        if (in_array($nombrePermiso, $MODULOS_NIVEL_SUPERIOR)) {
+            if (!$permitido) {
+                unset($menu_por_rol[$rol_usuario][$nombrePermiso]);
+            } elseif (!isset($menu_por_rol[$rol_usuario][$nombrePermiso])) {
+                $menu_por_rol[$rol_usuario][$nombrePermiso] = [];
+            }
+            continue;
+        }
+
+        // Caso 2: es un sub-permiso puntual (registrar_venta, medicamentos, etc.)
+        $categoria = $MAPA_PERMISO_A_CATEGORIA[$nombrePermiso] ?? null;
+        if (!$categoria) continue;
+
+        if (!isset($menu_por_rol[$rol_usuario][$categoria])) {
+            $menu_por_rol[$rol_usuario][$categoria] = [];
+        }
+
+        $yaLoTiene = in_array($nombrePermiso, $menu_por_rol[$rol_usuario][$categoria]);
+        if ($permitido && !$yaLoTiene) {
+            $menu_por_rol[$rol_usuario][$categoria][] = $nombrePermiso;
+        } elseif (!$permitido && $yaLoTiene) {
+            $menu_por_rol[$rol_usuario][$categoria] = array_values(array_diff(
+                $menu_por_rol[$rol_usuario][$categoria],
+                [$nombrePermiso]
+            ));
+        }
+    }
+}
 
 $usuario_nombre = $_SESSION['usuario'] ?? 'Usuario';
 
@@ -386,15 +513,17 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                 <ul class="nav-list primary-nav list-unstyled" id="sidebarAccordion">
 
                     <!-- Dashboard -->
+                    <?php if (tieneAccesoModulo($rol_usuario, 'dashboard')): ?>
                     <li class="nav-item">
                         <a href="menuprincipal.php?mod=dashboard" class="nav-link">
                             <span class="material-symbols-rounded">dashboard</span>
                             <span class="nav-label">Dashboard</span>
                         </a>
                     </li>
+                    <?php endif; ?>
 
                     <!-- MÓDULO VENTAS -->
-                    <?php if (!empty($menu_por_rol[$rol_usuario]['ventas'] ?? [])): ?>
+                    <?php if (tieneAccesoModulo($rol_usuario, 'ventas')): ?>
                         <li class="nav-item has-submenu">
                             <a href="#submenuVentas" class="nav-link dropdown-toggle" data-bs-toggle="collapse" data-bs-target="#submenuVentas">
                                 <span class="material-symbols-rounded">point_of_sale</span>
@@ -402,13 +531,16 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                                 <span class="material-symbols-rounded dropdown-arrow">expand_more</span>
                             </a>
                             <ul class="dropdown-menu collapse list-unstyled" id="submenuVentas" data-bs-parent="#sidebarAccordion">
-                                <?php if (in_array('registrar_venta', $menu_por_rol[$rol_usuario]['ventas'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'registrar_venta')): ?>
                                     <li><a href="menuprincipal.php?mod=registrar_venta" class="nav-link dropdown-link"><span class="material-symbols-rounded">add_shopping_cart</span> Registrar Venta</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('historial_ventas', $menu_por_rol[$rol_usuario]['ventas'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'historial_ventas')): ?>
                                     <li><a href="menuprincipal.php?mod=historial_ventas" class="nav-link dropdown-link"><span class="material-symbols-rounded">history</span> Historial de Ventas</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('pagos', $menu_por_rol[$rol_usuario]['ventas'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'clientes')): ?>
+                                    <li><a href="menuprincipal.php?mod=clientes" class="nav-link dropdown-link"><span class="material-symbols-rounded">person</span> Clientes</a></li>
+                                <?php endif; ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'pagos')): ?>
                                     <li><a href="menuprincipal.php?mod=pagos" class="nav-link dropdown-link"><span class="material-symbols-rounded">payments</span> Pagos</a></li>
                                 <?php endif; ?>
                             </ul>
@@ -416,7 +548,7 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                     <?php endif; ?>
 
                     <!-- MÓDULO INVENTARIO -->
-                    <?php if (!empty($menu_por_rol[$rol_usuario]['inventario'] ?? [])): ?>
+                    <?php if (tieneAccesoModulo($rol_usuario, 'inventario')): ?>
                         <li class="nav-item has-submenu">
                             <a href="#submenuInventario" class="nav-link dropdown-toggle" data-bs-toggle="collapse" data-bs-target="#submenuInventario">
                                 <span class="material-symbols-rounded">inventory_2</span>
@@ -424,37 +556,37 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                                 <span class="material-symbols-rounded dropdown-arrow">expand_more</span>
                             </a>
                             <ul class="dropdown-menu collapse list-unstyled" id="submenuInventario" data-bs-parent="#sidebarAccordion">
-                                <?php if (in_array('medicamentos', $menu_por_rol[$rol_usuario]['inventario'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'medicamentos')): ?>
                                     <li><a href="menuprincipal.php?mod=medicamentos" class="nav-link dropdown-link"><span class="material-symbols-rounded">medication</span> Medicamentos</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('categorias', $menu_por_rol[$rol_usuario]['inventario'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'categorias')): ?>
                                     <li><a href="menuprincipal.php?mod=categorias" class="nav-link dropdown-link"><span class="material-symbols-rounded">category</span> Categorías</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('presentaciones', $menu_por_rol[$rol_usuario]['inventario'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'presentaciones')): ?>
                                     <li><a href="menuprincipal.php?mod=presentaciones" class="nav-link dropdown-link"><span class="material-symbols-rounded">view_in_ar</span> Presentaciones</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('laboratorios', $menu_por_rol[$rol_usuario]['inventario'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'laboratorios')): ?>
                                     <li><a href="menuprincipal.php?mod=laboratorios" class="nav-link dropdown-link"><span class="material-symbols-rounded">science</span> Laboratorios</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('lotes', $menu_por_rol[$rol_usuario]['inventario'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'lotes')): ?>
                                     <li><a href="menuprincipal.php?mod=lotes" class="nav-link dropdown-link"><span class="material-symbols-rounded">inventory</span> Lotes</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('stock', $menu_por_rol[$rol_usuario]['inventario'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'stock')): ?>
                                     <li><a href="menuprincipal.php?mod=stock" class="nav-link dropdown-link"><span class="material-symbols-rounded">warehouse</span> Control de Stock</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('movimientos_inventario', $menu_por_rol[$rol_usuario]['inventario'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'movimientos_inventario')): ?>
                                     <li><a href="menuprincipal.php?mod=movimientos_inventario" class="nav-link dropdown-link"><span class="material-symbols-rounded">swap_horiz</span> Movimientos</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('vencimientos', $menu_por_rol[$rol_usuario]['inventario'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'vencimientos')): ?>
                                     <li><a href="menuprincipal.php?mod=vencimientos" class="nav-link dropdown-link"><span class="material-symbols-rounded">event_busy</span> Vencimientos</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('alertas_stock', $menu_por_rol[$rol_usuario]['inventario'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'alertas_stock')): ?>
                                     <li><a href="menuprincipal.php?mod=alertas_stock" class="nav-link dropdown-link"><span class="material-symbols-rounded">warning</span> Alertas</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('devoluciones', $menu_por_rol[$rol_usuario]['inventario'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'devoluciones')): ?>
                                     <li><a href="menuprincipal.php?mod=devoluciones" class="nav-link dropdown-link"><span class="material-symbols-rounded">assignment_return</span> Devoluciones</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('recall', $menu_por_rol[$rol_usuario]['inventario'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'recall')): ?>
                                     <li><a href="menuprincipal.php?mod=recall" class="nav-link dropdown-link"><span class="material-symbols-rounded">report</span> Retiros (Recall)</a></li>
                                 <?php endif; ?>
                             </ul>
@@ -462,7 +594,7 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                     <?php endif; ?>
 
                     <!-- MÓDULO COMPRAS -->
-                    <?php if (!empty($menu_por_rol[$rol_usuario]['compras'] ?? [])): ?>
+                    <?php if (tieneAccesoModulo($rol_usuario, 'compras')): ?>
                         <li class="nav-item has-submenu">
                             <a href="#submenuCompras" class="nav-link dropdown-toggle" data-bs-toggle="collapse" data-bs-target="#submenuCompras">
                                 <span class="material-symbols-rounded">shopping_cart_checkout</span>
@@ -470,13 +602,13 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                                 <span class="material-symbols-rounded dropdown-arrow">expand_more</span>
                             </a>
                             <ul class="dropdown-menu collapse list-unstyled" id="submenuCompras" data-bs-parent="#sidebarAccordion">
-                                <?php if (in_array('registrar_compra', $menu_por_rol[$rol_usuario]['compras'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'registrar_compra')): ?>
                                     <li><a href="menuprincipal.php?mod=registrar_compra" class="nav-link dropdown-link"><span class="material-symbols-rounded">shopping_bag</span> Registrar Compra</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('historial_compras', $menu_por_rol[$rol_usuario]['compras'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'historial_compras')): ?>
                                     <li><a href="menuprincipal.php?mod=historial_compras" class="nav-link dropdown-link"><span class="material-symbols-rounded">receipt_long</span> Historial de Compras</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('proveedores', $menu_por_rol[$rol_usuario]['compras'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'proveedores')): ?>
                                     <li><a href="menuprincipal.php?mod=proveedores" class="nav-link dropdown-link"><span class="material-symbols-rounded">badge</span> Proveedores</a></li>
                                 <?php endif; ?>
                                 <!-- ✅ ELIMINADA LA OPCIÓN "RECEPCIÓN" -->
@@ -484,24 +616,8 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                         </li>
                     <?php endif; ?>
 
-                    <!-- MÓDULO CLIENTES -->
-                    <?php if (!empty($menu_por_rol[$rol_usuario]['clientes'] ?? [])): ?>
-                        <li class="nav-item has-submenu">
-                            <a href="#submenuClientes" class="nav-link dropdown-toggle" data-bs-toggle="collapse" data-bs-target="#submenuClientes">
-                                <span class="material-symbols-rounded">groups</span>
-                                <span class="nav-label">Clientes</span>
-                                <span class="material-symbols-rounded dropdown-arrow">expand_more</span>
-                            </a>
-                            <ul class="dropdown-menu collapse list-unstyled" id="submenuClientes" data-bs-parent="#sidebarAccordion">
-                                <?php if (in_array('clientes', $menu_por_rol[$rol_usuario]['clientes'])): ?>
-                                    <li><a href="menuprincipal.php?mod=clientes" class="nav-link dropdown-link"><span class="material-symbols-rounded">person</span> Lista de Clientes</a></li>
-                                <?php endif; ?>
-                            </ul>
-                        </li>
-                    <?php endif; ?>
-
-                    <!-- MÓDULO DELIVERY (SOLO ADMIN) -->
-                    <?php if (!empty($menu_por_rol[$rol_usuario]['delivery'] ?? [])): ?>
+                    <!-- MÓDULO DELIVERY (Admin, Cajero, Repartidor) -->
+                    <?php if (tieneAccesoModulo($rol_usuario, 'delivery')): ?>
                         <li class="nav-item has-submenu">
                             <a href="#submenuDelivery" class="nav-link dropdown-toggle" data-bs-toggle="collapse" data-bs-target="#submenuDelivery">
                                 <span class="material-symbols-rounded">local_shipping</span>
@@ -509,21 +625,24 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                                 <span class="material-symbols-rounded dropdown-arrow">expand_more</span>
                             </a>
                             <ul class="dropdown-menu collapse list-unstyled" id="submenuDelivery" data-bs-parent="#sidebarAccordion">
-                                <?php if (in_array('repartidores', $menu_por_rol[$rol_usuario]['delivery'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'agenda')): ?>
+                                    <li><a href="menuprincipal.php?mod=agenda" class="nav-link dropdown-link"><span class="material-symbols-rounded">assignment</span> Mi Agenda</a></li>
+                                <?php endif; ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'repartidores')): ?>
                                     <li><a href="menuprincipal.php?mod=repartidores" class="nav-link dropdown-link"><span class="material-symbols-rounded">person</span> Repartidores</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('vehiculos', $menu_por_rol[$rol_usuario]['delivery'])): ?>
-                                    <li><a href="menuprincipal.php?mod=vehiculos" class="nav-link dropdown-link"><span class="material-symbols-rounded">directions_car</span> Vehículos</a></li>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'entrega')): ?>
+                                    <li><a href="menuprincipal.php?mod=entrega" class="nav-link dropdown-link"><span class="material-symbols-rounded">local_shipping</span> Entrega</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('tracking', $menu_por_rol[$rol_usuario]['delivery'])): ?>
-                                    <li><a href="menuprincipal.php?mod=tracking" class="nav-link dropdown-link"><span class="material-symbols-rounded">location_on</span> Tracking</a></li>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'vehiculos')): ?>
+                                    <li><a href="menuprincipal.php?mod=vehiculos" class="nav-link dropdown-link"><span class="material-symbols-rounded">directions_car</span> Vehículos</a></li>
                                 <?php endif; ?>
                             </ul>
                         </li>
                     <?php endif; ?>
 
                     <!-- MÓDULO CAJA -->
-                    <?php if (!empty($menu_por_rol[$rol_usuario]['caja'] ?? [])): ?>
+                    <?php if (tieneAccesoModulo($rol_usuario, 'caja')): ?>
                         <li class="nav-item has-submenu">
                             <a href="#submenuCaja" class="nav-link dropdown-toggle" data-bs-toggle="collapse" data-bs-target="#submenuCaja">
                                 <span class="material-symbols-rounded">payments</span>
@@ -531,13 +650,13 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                                 <span class="material-symbols-rounded dropdown-arrow">expand_more</span>
                             </a>
                             <ul class="dropdown-menu collapse list-unstyled" id="submenuCaja" data-bs-parent="#sidebarAccordion">
-                                <?php if (in_array('apertura_caja', $menu_por_rol[$rol_usuario]['caja'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'apertura_caja')): ?>
                                     <li><a href="menuprincipal.php?mod=apertura_caja" class="nav-link dropdown-link"><span class="material-symbols-rounded">lock_open</span> Apertura</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('cierre_caja', $menu_por_rol[$rol_usuario]['caja'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'cierre_caja')): ?>
                                     <li><a href="menuprincipal.php?mod=cierre_caja" class="nav-link dropdown-link"><span class="material-symbols-rounded">lock</span> Cierre</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('movimientos_caja', $menu_por_rol[$rol_usuario]['caja'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'movimientos_caja')): ?>
                                     <li><a href="menuprincipal.php?mod=movimientos_caja" class="nav-link dropdown-link"><span class="material-symbols-rounded">sync_alt</span> Movimientos</a></li>
                                 <?php endif; ?>
                             </ul>
@@ -545,7 +664,7 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                     <?php endif; ?>
 
                     <!-- MÓDULO ROPA (SOLO ADMIN) -->
-                    <?php if (!empty($menu_por_rol[$rol_usuario]['ropa'] ?? [])): ?>
+                    <?php if (tieneAccesoModulo($rol_usuario, 'ropa')): ?>
                         <li class="nav-item has-submenu">
                             <a href="#submenuRopa" class="nav-link dropdown-toggle" data-bs-toggle="collapse" data-bs-target="#submenuRopa">
                                 <span class="material-symbols-rounded">checkroom</span>
@@ -553,22 +672,22 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                                 <span class="material-symbols-rounded dropdown-arrow">expand_more</span>
                             </a>
                             <ul class="dropdown-menu collapse list-unstyled" id="submenuRopa" data-bs-parent="#sidebarAccordion">
-                                <?php if (in_array('gestion_ropa', $menu_por_rol[$rol_usuario]['ropa'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'gestion_ropa')): ?>
                                     <li><a href="menuprincipal.php?mod=gestion_ropa" class="nav-link dropdown-link"><span class="material-symbols-rounded">apparel</span> Productos</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('tipo_ropa', $menu_por_rol[$rol_usuario]['ropa'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'tipo_ropa')): ?>
                                     <li><a href="menuprincipal.php?mod=tipo_ropa" class="nav-link dropdown-link"><span class="material-symbols-rounded">style</span> Tipos</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('marcas', $menu_por_rol[$rol_usuario]['ropa'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'marcas')): ?>
                                     <li><a href="menuprincipal.php?mod=marcas" class="nav-link dropdown-link"><span class="material-symbols-rounded">sell</span> Marcas</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('fabricantes', $menu_por_rol[$rol_usuario]['ropa'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'fabricantes')): ?>
                                     <li><a href="menuprincipal.php?mod=fabricantes" class="nav-link dropdown-link"><span class="material-symbols-rounded">factory</span> Fabricantes</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('colores', $menu_por_rol[$rol_usuario]['ropa'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'colores')): ?>
                                     <li><a href="menuprincipal.php?mod=colores" class="nav-link dropdown-link"><span class="material-symbols-rounded">palette</span> Colores</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('tallas', $menu_por_rol[$rol_usuario]['ropa'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'tallas')): ?>
                                     <li><a href="menuprincipal.php?mod=tallas" class="nav-link dropdown-link"><span class="material-symbols-rounded">straighten</span> Tallas</a></li>
                                 <?php endif; ?>
                             </ul>
@@ -576,7 +695,7 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                     <?php endif; ?>
 
                     <!-- MÓDULO ADMINISTRACIÓN (SOLO ADMIN) -->
-                    <?php if (!empty($menu_por_rol[$rol_usuario]['administracion'] ?? [])): ?>
+                    <?php if (tieneAccesoModulo($rol_usuario, 'administracion')): ?>
                         <li class="nav-item has-submenu">
                             <a href="#submenuAdmin" class="nav-link dropdown-toggle" data-bs-toggle="collapse" data-bs-target="#submenuAdmin">
                                 <span class="material-symbols-rounded">manage_accounts</span>
@@ -584,31 +703,34 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                                 <span class="material-symbols-rounded dropdown-arrow">expand_more</span>
                             </a>
                             <ul class="dropdown-menu collapse list-unstyled" id="submenuAdmin" data-bs-parent="#sidebarAccordion">
-                                <?php if (in_array('sucursales', $menu_por_rol[$rol_usuario]['administracion'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'sucursales')): ?>
                                     <li><a href="menuprincipal.php?mod=sucursales" class="nav-link dropdown-link"><span class="material-symbols-rounded">store</span> Sucursales</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('empresa', $menu_por_rol[$rol_usuario]['administracion'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'empresa')): ?>
                                     <li><a href="menuprincipal.php?mod=empresa" class="nav-link dropdown-link"><span class="material-symbols-rounded">business</span> Empresa</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('usuarios', $menu_por_rol[$rol_usuario]['administracion'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'usuarios')): ?>
                                     <li><a href="menuprincipal.php?mod=usuarios" class="nav-link dropdown-link"><span class="material-symbols-rounded">group</span> Usuarios</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('roles', $menu_por_rol[$rol_usuario]['administracion'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'roles')): ?>
                                     <li><a href="menuprincipal.php?mod=roles" class="nav-link dropdown-link"><span class="material-symbols-rounded">admin_panel_settings</span> Roles</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('permisos_usuarios', $menu_por_rol[$rol_usuario]['administracion'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'permisos_usuarios')): ?>
                                     <li><a href="menuprincipal.php?mod=permisos_usuarios" class="nav-link dropdown-link"><span class="material-symbols-rounded">shield_person</span> Permisos de Usuarios</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('desbloquear_usuarios', $menu_por_rol[$rol_usuario]['administracion'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'usuarios_clientes')): ?>
+                                    <li><a href="menuprincipal.php?mod=usuarios_clientes" class="nav-link dropdown-link"><span class="material-symbols-rounded">badge</span> Accesos de Clientes</a></li>
+                                <?php endif; ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'desbloquear_usuarios')): ?>
                                     <li><a href="menuprincipal.php?mod=desbloquear_usuarios" class="nav-link dropdown-link"><span class="material-symbols-rounded">lock_open</span> Desbloqueo de Usuarios</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('ofertas', $menu_por_rol[$rol_usuario]['administracion'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'ofertas')): ?>
                                     <li><a href="menuprincipal.php?mod=ofertas" class="nav-link dropdown-link"><span class="material-symbols-rounded">local_offer</span> Ofertas</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('seguros_medicos', $menu_por_rol[$rol_usuario]['administracion'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'seguros_medicos')): ?>
                                     <li><a href="menuprincipal.php?mod=seguros_medicos" class="nav-link dropdown-link"><span class="material-symbols-rounded">health_and_safety</span> Seguros Médicos</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('configuracion', $menu_por_rol[$rol_usuario]['administracion'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'configuracion')): ?>
                                     <li><a href="menuprincipal.php?mod=configuracion" class="nav-link dropdown-link"><span class="material-symbols-rounded">settings</span> Configuración</a></li>
                                 <?php endif; ?>
                             </ul>
@@ -616,7 +738,7 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                     <?php endif; ?>
 
                     <!-- MÓDULO SEGURIDAD (SOLO ADMIN) -->
-                    <?php if (!empty($menu_por_rol[$rol_usuario]['seguridad'] ?? [])): ?>
+                    <?php if (tieneAccesoModulo($rol_usuario, 'seguridad')): ?>
                         <li class="nav-item has-submenu">
                             <a href="#submenuSeguridad" class="nav-link dropdown-toggle" data-bs-toggle="collapse" data-bs-target="#submenuSeguridad">
                                 <span class="material-symbols-rounded">security</span>
@@ -624,10 +746,10 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                                 <span class="material-symbols-rounded dropdown-arrow">expand_more</span>
                             </a>
                             <ul class="dropdown-menu collapse list-unstyled" id="submenuSeguridad" data-bs-parent="#sidebarAccordion">
-                                <?php if (in_array('sesiones', $menu_por_rol[$rol_usuario]['seguridad'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'sesiones')): ?>
                                     <li><a href="menuprincipal.php?mod=sesiones" class="nav-link dropdown-link"><span class="material-symbols-rounded">vpn_key</span> Sesiones Activas</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('auditoria', $menu_por_rol[$rol_usuario]['seguridad'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'auditoria')): ?>
                                     <li><a href="menuprincipal.php?mod=auditoria" class="nav-link dropdown-link"><span class="material-symbols-rounded">policy</span> Auditoría</a></li>
                                 <?php endif; ?>
                             </ul>
@@ -635,7 +757,7 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                     <?php endif; ?>
 
                     <!-- MÓDULO REPORTES -->
-                    <?php if (!empty($menu_por_rol[$rol_usuario]['reportes'] ?? [])): ?>
+                    <?php if (tieneAccesoModulo($rol_usuario, 'reportes')): ?>
                         <li class="nav-item has-submenu">
                             <a href="#submenuReportes" class="nav-link dropdown-toggle" data-bs-toggle="collapse" data-bs-target="#submenuReportes">
                                 <span class="material-symbols-rounded">analytics</span>
@@ -643,19 +765,19 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                                 <span class="material-symbols-rounded dropdown-arrow">expand_more</span>
                             </a>
                             <ul class="dropdown-menu collapse list-unstyled" id="submenuReportes" data-bs-parent="#sidebarAccordion">
-                                <?php if (in_array('reporte_ventas', $menu_por_rol[$rol_usuario]['reportes'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'reporte_ventas')): ?>
                                     <li><a href="menuprincipal.php?mod=reporte_ventas" class="nav-link dropdown-link"><span class="material-symbols-rounded">bar_chart</span> Ventas</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('reporte_inventario', $menu_por_rol[$rol_usuario]['reportes'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'reporte_inventario')): ?>
                                     <li><a href="menuprincipal.php?mod=reporte_inventario" class="nav-link dropdown-link"><span class="material-symbols-rounded">inventory</span> Inventario</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('reporte_vencimientos', $menu_por_rol[$rol_usuario]['reportes'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'reporte_vencimientos')): ?>
                                     <li><a href="menuprincipal.php?mod=reporte_vencimientos" class="nav-link dropdown-link"><span class="material-symbols-rounded">notification_important</span> Vencimientos</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('rentabilidad_medicamentos', $menu_por_rol[$rol_usuario]['reportes'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'rentabilidad_medicamentos')): ?>
                                     <li><a href="menuprincipal.php?mod=rentabilidad_medicamentos" class="nav-link dropdown-link"><span class="material-symbols-rounded">monetization_on</span> Rentabilidad</a></li>
                                 <?php endif; ?>
-                                <?php if (in_array('rotacion_productos', $menu_por_rol[$rol_usuario]['reportes'])): ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'rotacion_productos')): ?>
                                     <li><a href="menuprincipal.php?mod=rotacion_productos" class="nav-link dropdown-link"><span class="material-symbols-rounded">published_with_changes</span> Rotación</a></li>
                                 <?php endif; ?>
                             </ul>
@@ -683,7 +805,11 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                     $folders = ['ventas', 'inventario', 'compras', 'clientes', 'delivery', 'caja', 'ropa', 'administracion', 'seguridad', 'reportes'];
 
                     if ($mod == 'dashboard') {
-                        include 'dashboard.php';
+                        if (tieneAccesoModulo($rol_usuario, 'dashboard')) {
+                            include 'dashboard.php';
+                        } else {
+                            include 'delivery/agenda.php';
+                        }
                         $found = true;
                     } elseif ($mod == 'notificaciones') {
                         if (file_exists("notificaciones.php")) {
@@ -713,7 +839,20 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                         echo "<h2 class='alert alert-danger'>Módulo '$mod' no encontrado</h2>";
                     }
                 } else {
-                    include 'dashboard.php';
+                    // Página de entrada por defecto (sin ?mod= en la URL) — si no
+                    // tiene acceso al Dashboard (ej. un Repartidor), lo mandamos
+                    // directo a su Agenda en vez de mostrarle un Dashboard vacío
+                    // o un mensaje de error justo al entrar.
+                    if (tieneAccesoModulo($rol_usuario, 'dashboard')) {
+                        include 'dashboard.php';
+                    } elseif (tieneAccesoModulo($rol_usuario, 'agenda')) {
+                        include 'delivery/agenda.php';
+                    } else {
+                        echo "<div class='alert alert-info m-4'>
+                                <span class='material-symbols-rounded me-2'>info</span>
+                                Todavía no tienes ningún módulo asignado — pídele a un administrador que revise tus permisos.
+                            </div>";
+                    }
                 }
                 ?>
             </div>

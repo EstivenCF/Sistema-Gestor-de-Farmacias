@@ -1,5 +1,5 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
 include 'conexion.php';
 
 $data = json_decode(file_get_contents('php://input'), true);

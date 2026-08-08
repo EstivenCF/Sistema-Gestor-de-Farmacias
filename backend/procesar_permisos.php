@@ -1,5 +1,5 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
 header('Content-Type: application/json');
 
 require_once 'conexion.php';
@@ -45,14 +45,17 @@ try {
     $stmt_delete = $conexion->prepare($sql_delete);
     $stmt_delete->execute([$id_usuario]);
     
-    // Insertar solo los permisos que están en true
-    $sql_insert = "INSERT INTO usuario_permiso (id_usuario, id_permiso, permitido) VALUES (?, ?, TRUE)";
+    // Guardar el estado de CADA permiso que llegó, sea true o false —
+    // antes solo se guardaban los que estaban en true, así que nunca
+    // se podía negar explícitamente algo que el rol daba por defecto.
+    $sql_insert = "INSERT INTO usuario_permiso (id_usuario, id_permiso, permitido) VALUES (?, ?, ?)";
     $stmt_insert = $conexion->prepare($sql_insert);
     
     $insertados = 0;
     foreach ($permisos as $nombre_permiso => $valor) {
-        if ($valor === true && isset($mapa_permisos[$nombre_permiso])) {
-            $stmt_insert->execute([$id_usuario, $mapa_permisos[$nombre_permiso]]);
+        if (isset($mapa_permisos[$nombre_permiso])) {
+            $permitido = filter_var($valor, FILTER_VALIDATE_BOOLEAN) ? 't' : 'f';
+            $stmt_insert->execute([$id_usuario, $mapa_permisos[$nombre_permiso], $permitido]);
             $insertados++;
         }
     }

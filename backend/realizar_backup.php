@@ -1,5 +1,5 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
 include 'conexion.php';
 
 if (!isset($_SESSION['id_usuario']) || $_SESSION['id_rol'] != 1) {

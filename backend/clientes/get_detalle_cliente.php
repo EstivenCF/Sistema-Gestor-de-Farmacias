@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/../conexion.php';
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 header('Content-Type: application/json');
 
@@ -17,7 +19,7 @@ if (!$id_cliente) {
 
 try {
     // Datos del cliente
-    $stmt = $conexion->prepare("SELECT id_cliente, nombre, direccion, barrio, ciudad, permite_credito, saldo_pendiente, fecha_registro FROM clientes WHERE id_cliente = :id");
+    $stmt = $conexion->prepare("SELECT id_cliente, nombre, direccion, barrio, ciudad, permite_credito, saldo_pendiente, fecha_registro, usuario_portal FROM clientes WHERE id_cliente = :id");
     $stmt->execute([':id' => $id_cliente]);
     $cliente = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$cliente) {
@@ -25,6 +27,7 @@ try {
         exit();
     }
     $cliente['fecha_registro'] = date('d/m/Y', strtotime($cliente['fecha_registro']));
+    $cliente['tiene_acceso_portal'] = !empty($cliente['usuario_portal']);
 
     // Teléfonos
     $stmt = $conexion->prepare("
@@ -48,7 +51,7 @@ try {
 
     // Direcciones
     $stmt = $conexion->prepare("
-        SELECT d.id_direccion, d.direccion, d.barrio, d.ciudad, d.referencia, cd.predeterminada
+        SELECT d.id_direccion, d.direccion, d.barrio, d.ciudad, d.referencia, d.latitud, d.longitud, cd.predeterminada
         FROM cliente_direccion cd
         JOIN direcciones d ON cd.id_direccion = d.id_direccion
         WHERE cd.id_cliente = :id AND d.activo = true

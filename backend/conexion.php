@@ -3,7 +3,7 @@ $host = "localhost";
 $port = "5432";
 $dbname = "Farmacia";
 $user = "postgres";
-$password = "379123"; // 379123 - 2003 //
+$password = "2003"; // 379123 - 2003 //
 
 date_default_timezone_set('America/Santo_Domingo');
 
@@ -25,4 +25,20 @@ try {
 } catch (PDOException $e) {
     die("Error de conexión: " . $e->getMessage());
 }
+
+try {
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
+    $__audit_id_usuario = $_SESSION['id_usuario'] ?? $_SESSION['usuario_id'] ?? null;
+    $__audit_ip = $_SERVER['REMOTE_ADDR'] ?? null;
+
+    if ($__audit_id_usuario) {
+        $stmtAudit = $conexion->prepare("SELECT set_audit_vars(:id, :ip)");
+        $stmtAudit->execute([':id' => $__audit_id_usuario, ':ip' => $__audit_ip]);
+    }
+} catch (Exception $e) {
+    error_log('Auditoría: ' . $e->getMessage());
+}
+
 ?>
