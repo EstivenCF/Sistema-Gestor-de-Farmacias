@@ -89,13 +89,25 @@ try {
         throw new Exception('Ese vehículo ya no está disponible o no coincide con la licencia del repartidor');
     }
 
-    // Asignar/reasignar
-    $stmt = $conexion->prepare("
+    // Asignar/reasignar. Si la entrega todavía no había sido despachada
+    // (estaba PENDIENTE o REPROGRAMADA), al ponerle repartidor+vehículo
+    // debe pasar a ASIGNADA — si no, se queda "atascada" y el cajero no
+    // puede registrar el despacho (registrar_despacho.php exige ASIGNADA).
+    // Si ya estaba ASIGNADA o EN_CAMINO (reasignación de repartidor a
+    // mitad de camino), se deja el estado como está.
+    $ESTADOS_QUE_AVANZAN_A_ASIGNADA = ['PENDIENTE', 'REPROGRAMADA'];
+    $debeMoverAAsignada = in_array($entrega['estado_actual'], $ESTADOS_QUE_AVANZAN_A_ASIGNADA);
+
+    $sql = "
         UPDATE entregas
         SET id_repartidor = :id_rep, id_vehiculo = :id_veh, fecha_asignada = NOW(),
-            modificado_por = :id_usuario, fecha_modificacion = NOW()
-        WHERE id_entrega = :id_entrega
-    ");
+            modificado_por = :id_usuario, fecha_modificacion = NOW()";
+    if ($debeMoverAAsignada) {
+        $sql .= ", id_estado = (SELECT id_estado FROM estado_entrega WHERE nombre = 'ASIGNADA')";
+    }
+    $sql .= " WHERE id_entrega = :id_entrega";
+
+    $stmt = $conexion->prepare($sql);
     $stmt->execute([
         ':id_rep'     => $id_repartidor,
         ':id_veh'     => $id_vehiculo,

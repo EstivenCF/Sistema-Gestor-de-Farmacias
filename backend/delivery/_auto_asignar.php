@@ -54,10 +54,14 @@ function intentarAutoAsignarDesdeCola(PDO $conexion, int $id_repartidor): ?array
     $vehiculo = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$vehiculo) return null; // hay cola pero no tiene vehículo disponible ahora
 
-    // 4. Asignar
+    // 4. Asignar — y pasarla a ASIGNADA (venía de PENDIENTE en el query de
+    // arriba). Sin esto se queda "atascada" en PENDIENTE con repartidor y
+    // vehículo puestos, y nadie puede despacharla (mismo bug que se
+    // arregló en asignar_entrega_manual.php).
     $stmt = $conexion->prepare("
         UPDATE entregas
-        SET id_repartidor = :id_repartidor, id_vehiculo = :id_vehiculo, fecha_asignada = NOW()
+        SET id_repartidor = :id_repartidor, id_vehiculo = :id_vehiculo, fecha_asignada = NOW(),
+            id_estado = (SELECT id_estado FROM estado_entrega WHERE nombre = 'ASIGNADA')
         WHERE id_entrega = :id_entrega
     ");
     $stmt->execute([
@@ -72,7 +76,7 @@ function intentarAutoAsignarDesdeCola(PDO $conexion, int $id_repartidor): ?array
     $stmt = $conexion->prepare("
         INSERT INTO historial_entrega (id_entrega, id_estado, fecha, observacion)
         SELECT :id_entrega, id_estado, NOW(), 'Asignación automática desde la cola de espera'
-        FROM estado_entrega WHERE nombre = 'PENDIENTE'
+        FROM estado_entrega WHERE nombre = 'ASIGNADA'
     ");
     $stmt->execute([':id_entrega' => $id_entrega]);
 

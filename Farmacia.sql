@@ -4038,3 +4038,22 @@ INSERT INTO rol_permiso (id_rol, id_permiso)
 SELECT r.id_rol, p.id_permiso FROM roles r, permisos p
 WHERE p.nombre = 'usuarios_clientes' AND r.nombre = 'Administrador'
 ON CONFLICT DO NOTHING;
+
+
+-- =============================================================================
+-- PATCH 15/15 — "Agendas de Repartidores": pantalla separada para que el
+-- Administrador vea la agenda de CUALQUIER repartidor (filtrando por quien
+-- quiera), sin mezclarla con "Mi Agenda" (esa sigue siendo solo la del propio
+-- repartidor logueado). Ambas pantallas quedan totalmente separadas, cada
+-- una con su propio permiso.
+-- =============================================================================
+
+INSERT INTO permisos (id_modulo, nombre, accion, tipo_accion)
+SELECT id_modulo, 'agendas_repartidores', 'ACCESO', 'SUBMODULO' FROM modulos WHERE nombre='Delivery'
+ON CONFLICT (nombre) DO NOTHING;
+
+-- Por ahora, solo el Administrador la ve por defecto
+INSERT INTO rol_permiso (id_rol, id_permiso)
+SELECT r.id_rol, p.id_permiso FROM roles r, permisos p
+WHERE p.nombre = 'agendas_repartidores' AND r.nombre = 'Administrador'
+ON CONFLICT DO NOTHING;

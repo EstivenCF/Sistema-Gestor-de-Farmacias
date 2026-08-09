@@ -24,19 +24,60 @@ if (!in_array($_SESSION['rol'] ?? '', ['Repartidor', 'Administrador'])) {
 }
 
 try {
-    $id_usuario = $_SESSION['usuario_id'] ?? ($_SESSION['id_usuario'] ?? null);
+    $rol = $_SESSION['rol'] ?? '';
+    $repartidores_disponibles = null;
 
-    $stmt = $conexion->prepare("
-        SELECT r.id_repartidor, r.nombre
-        FROM repartidores r
-        WHERE r.id_usuario = :id_usuario AND r.activo = true
-        LIMIT 1
-    ");
-    $stmt->execute([':id_usuario' => $id_usuario]);
-    $repartidor = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($rol === 'Administrador') {
+        // El administrador puede revisar la agenda de cualquier
+        // repartidor a través del filtro — nunca resuelve "su propio"
+        // perfil porque un administrador no tiene por qué tener uno.
+        $stmt = $conexion->prepare("
+            SELECT id_repartidor, nombre FROM repartidores
+            WHERE activo = true ORDER BY nombre ASC
+        ");
+        $stmt->execute();
+        $repartidores_disponibles = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    if (!$repartidor) {
-        echo json_encode(['success' => false, 'message' => 'Sin perfil de repartidor asignado a este usuario']); exit();
+        $id_repartidor_solicitado = intval($_GET['id_repartidor'] ?? 0);
+        if (!$id_repartidor_solicitado) {
+            // Todavía no eligió a nadie en el filtro — no es un error,
+            // solo no hay nada que mostrar aún.
+            echo json_encode([
+                'success'                  => true,
+                'requiere_seleccion'       => true,
+                'repartidor'               => null,
+                'entregas'                 => [],
+                'stats'                    => ['total'=>0,'completadas'=>0,'en_camino'=>0,'pendientes'=>0,'incidencias'=>0],
+                'repartidores_disponibles' => $repartidores_disponibles,
+                'fecha_hoy'                => date('d/m/Y'),
+            ]);
+            exit();
+        }
+
+        $stmt = $conexion->prepare("SELECT id_repartidor, nombre FROM repartidores WHERE id_repartidor = :id AND activo = true");
+        $stmt->execute([':id' => $id_repartidor_solicitado]);
+        $repartidor = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$repartidor) {
+            echo json_encode(['success' => false, 'message' => 'Ese repartidor no existe o está inactivo']); exit();
+        }
+    } else {
+        // Repartidor: SIEMPRE su propio perfil — nunca se le hace caso
+        // a un id_repartidor que venga en la URL, para que uno no pueda
+        // ver la agenda de otro cambiando el parámetro.
+        $id_usuario = $_SESSION['usuario_id'] ?? ($_SESSION['id_usuario'] ?? null);
+
+        $stmt = $conexion->prepare("
+            SELECT r.id_repartidor, r.nombre
+            FROM repartidores r
+            WHERE r.id_usuario = :id_usuario AND r.activo = true
+            LIMIT 1
+        ");
+        $stmt->execute([':id_usuario' => $id_usuario]);
+        $repartidor = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$repartidor) {
+            echo json_encode(['success' => false, 'message' => 'Sin perfil de repartidor asignado a este usuario']); exit();
+        }
     }
     $id_repartidor = $repartidor['id_repartidor'];
 
@@ -82,17 +123,18 @@ try {
     $incidencias = count(array_filter($entregas, fn($e) => in_array($e['estado_nombre'], ['INTERRUMPIDA','PARCIAL'])));
 
     echo json_encode([
-        'success'    => true,
-        'repartidor' => $repartidor,
-        'entregas'   => $entregas,
-        'stats'      => [
+        'success'                  => true,
+        'repartidor'               => $repartidor,
+        'entregas'                 => $entregas,
+        'stats'                    => [
             'total'       => $total,
             'completadas' => $completadas_hoy,
             'en_camino'   => $en_camino,
             'pendientes'  => $pendientes,
             'incidencias' => $incidencias,
         ],
-        'fecha_hoy'  => date('d/m/Y'),
+        'repartidores_disponibles' => $repartidores_disponibles,
+        'fecha_hoy'                => date('d/m/Y'),
     ]);
 
 } catch (PDOException $e) {

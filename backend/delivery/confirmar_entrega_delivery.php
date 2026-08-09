@@ -55,10 +55,38 @@ if ($resultado === 'EXITOSA') {
 try {
     $conexion->beginTransaction();
 
-    $stmt = $conexion->prepare("SELECT id_vehiculo, id_repartidor, cedula_receptor_autorizado, id_venta, id_cliente FROM entregas WHERE id_entrega = :id");
+    // Solo puede confirmar su propia entrega (si es Repartidor), y solo
+    // si de verdad está EN_CAMINO — si no, cualquiera con el id_entrega
+    // podría confirmar entregas ajenas o repetir una ya cerrada.
+    $stmt = $conexion->prepare("
+        SELECT e.id_vehiculo, e.id_repartidor, e.cedula_receptor_autorizado,
+               e.id_venta, e.id_cliente, se.nombre AS estado_actual
+        FROM entregas e
+        JOIN estado_entrega se ON se.id_estado = e.id_estado
+        WHERE e.id_entrega = :id
+        FOR UPDATE OF e
+    ");
     $stmt->execute([':id' => $id_entrega]);
     $prev = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$prev) { throw new Exception('Entrega no encontrada'); }
+
+    if (($_SESSION['rol'] ?? '') === 'Repartidor') {
+        $stmtProp = $conexion->prepare("
+            SELECT 1 FROM repartidores r
+            WHERE r.id_repartidor = :id_rep AND r.id_usuario = :id_usuario
+        ");
+        $stmtProp->execute([
+            ':id_rep'     => $prev['id_repartidor'],
+            ':id_usuario' => $_SESSION['usuario_id'] ?? ($_SESSION['id_usuario'] ?? 0),
+        ]);
+        if (!$stmtProp->fetchColumn()) {
+            throw new Exception('Esta entrega no está asignada a ti');
+        }
+    }
+
+    if ($prev['estado_actual'] !== 'EN_CAMINO') {
+        throw new Exception('Esta entrega no está EN_CAMINO (está ' . $prev['estado_actual'] . ') — no se puede confirmar');
+    }
 
     $estado_recepcion = 'CONFIRMADO';
     $esExitosa = ($resultado === 'EXITOSA');

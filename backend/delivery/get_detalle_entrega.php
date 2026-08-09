@@ -45,7 +45,11 @@ try {
             se.nombre       AS estado_nombre,
             mf.nombre       AS motivo_fallida_nombre,
             mc.nombre       AS motivo_cancelacion_nombre,
-            u.nombre        AS despachado_por
+            u.nombre        AS despachado_por,
+            (SELECT t.numero FROM cliente_telefono ct
+             JOIN telefonos t ON t.id_telefono = ct.id_telefono
+             WHERE ct.id_cliente = c.id_cliente AND t.activo = TRUE
+             ORDER BY t.id_telefono LIMIT 1) AS cliente_telefono
         FROM entregas e
         JOIN clientes c              ON c.id_cliente   = e.id_cliente
         JOIN estado_entrega se       ON se.id_estado   = e.id_estado
@@ -86,6 +90,7 @@ try {
     $stmt = $conexion->prepare("
         SELECT
             dv.id_detalle, dv.cantidad, dv.precio_unitario,
+            dv.id_lote, dv.id_producto,
             l.numero_lote,
             COALESCE(m.nombre_completo, m.nombre, p.nombre) AS producto_nombre
         FROM detalle_venta dv

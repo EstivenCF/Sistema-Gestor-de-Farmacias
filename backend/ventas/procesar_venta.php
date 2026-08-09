@@ -190,9 +190,14 @@ try {
         // NUEVO: id_vehiculo viene del modal (el repartidor pudo tener varios vehículos disponibles)
         $id_vehiculo = $data['id_vehiculo'] ?? null;
 
+        // NUEVO: hora acordada con el cliente (opcional) — llega como "14:30",
+        // se combina con la fecha de hoy para formar fecha_programada completa.
+        $hora_acordada = trim($data['hora_acordada'] ?? '');
+        $fecha_programada = $hora_acordada !== '' ? (date('Y-m-d') . ' ' . $hora_acordada . ':00') : null;
+
         $sqlEnt = "INSERT INTO entregas 
-            (id_venta, id_cliente, id_sucursal, id_repartidor, id_vehiculo, numero_seguimiento, direccion_entrega, costo_entrega, creado_por, cliente_nombre, id_estado, fecha_asignada)
-            VALUES (:id_venta, :id_cliente, :id_sucursal, :id_repartidor, :id_vehiculo, :numero_seg, :direccion, :costo, :creado_por, :cliente_nombre, :id_estado, NOW())";
+            (id_venta, id_cliente, id_sucursal, id_repartidor, id_vehiculo, numero_seguimiento, direccion_entrega, costo_entrega, creado_por, cliente_nombre, id_estado, fecha_asignada, fecha_programada)
+            VALUES (:id_venta, :id_cliente, :id_sucursal, :id_repartidor, :id_vehiculo, :numero_seg, :direccion, :costo, :creado_por, :cliente_nombre, :id_estado, NOW(), :fecha_programada)";
         $stmtEnt = $conexion->prepare($sqlEnt);
         $stmtEnt->bindValue(':id_venta', $id_venta, PDO::PARAM_INT);
         $stmtEnt->bindValue(':id_cliente', $data['id_cliente'] ?? null, PDO::PARAM_INT);
@@ -205,6 +210,7 @@ try {
         $stmtEnt->bindValue(':creado_por', $data['id_usuario'], PDO::PARAM_INT);
         $stmtEnt->bindValue(':cliente_nombre', $cliente_nombre, PDO::PARAM_STR);
         $stmtEnt->bindValue(':id_estado', $id_estado_pendiente, PDO::PARAM_INT);
+        $stmtEnt->bindValue(':fecha_programada', $fecha_programada, $fecha_programada ? PDO::PARAM_STR : PDO::PARAM_NULL);
         $stmtEnt->execute();
 
         // NUEVO: marcar el vehículo asignado como EN_USO

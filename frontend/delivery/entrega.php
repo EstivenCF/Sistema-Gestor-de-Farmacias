@@ -88,6 +88,7 @@ $base_url = '/sistema-gestor-de-farmacias';
         <input type="hidden" id="meIdEntrega">
         <label class="form-label fw-semibold small">Nuevo estado</label>
         <select class="form-select mb-3" id="meEstado" onchange="toggleCamposEstado()">
+          <option value="ASIGNADA">Asignada (revertir para poder registrar despacho)</option>
           <option value="EN_CAMINO">En camino</option>
           <option value="ENTREGADA">Entregada</option>
           <option value="PARCIAL">Parcial (se entregó solo una parte)</option>

@@ -353,18 +353,16 @@ function vehiculosSegunLicencia(habilidades) {
   return tieneTodos ? 'Todos' : tipos.join(', ');
 }
 
-function calificacionSimulada(id) {
-  const valores = [3, 3.5, 4, 4.5, 5];
-  const seed = (id * 2654435761) % valores.length;
-  return valores[Math.abs(seed) % valores.length];
-}
-function renderEstrellas(valor) {
+function renderEstrellas(valor, totalCalificaciones) {
+  if (!valor || !totalCalificaciones) {
+    return `<span class="text-muted small">Sin calificaciones todavía</span>`;
+  }
   const llenas = Math.round(valor);
   let html = '';
   for (let i = 1; i <= 5; i++) {
     html += `<span class="${i<=llenas?'estrella-llena':'estrella-vacia'}" style="font-size:1rem;">★</span>`;
   }
-  return `<span title="${valor.toFixed(1)} / 5">${html}</span>`;
+  return `<span title="${parseFloat(valor).toFixed(1)} / 5 — ${totalCalificaciones} calificación${totalCalificaciones===1?'':'es'}">${html} <small class="text-muted">(${totalCalificaciones})</small></span>`;
 }
 
 function renderStats(stats) {
@@ -394,11 +392,10 @@ function cargar() {
     const rangoTexto = fi === ff ? fi : `${fi} a ${ff}`;
     const rows = data.repartidores.map(r => {
       const vehiculos = vehiculosSegunLicencia(r.habilidades);
-      const calif = calificacionSimulada(r.id_repartidor);
       return `<tr class="${!r.activo ? 'table-secondary' : ''}">
         <td><span class="avatar">${r.nombre.charAt(0)}</span><strong>${r.nombre}</strong></td>
         <td>${vehiculos}</td>
-        <td>${renderEstrellas(calif)}</td>
+        <td>${renderEstrellas(r.calificacion_promedio, r.total_calificaciones)}</td>
         <td class="text-center"><span class="badge-st st-${r.estado_actual}">${ESTADO_LABEL[r.estado_actual] || r.estado_actual}</span></td>
         <td class="text-center">${r.entregas_filtro}</td>
         <td class="text-center">

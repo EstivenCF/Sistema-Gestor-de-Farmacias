@@ -1903,6 +1903,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (result.isConfirmed) { carrito = []; actualizarCarrito(); }
                 });
             }
+            // El costo de envío depende de la sucursal (se calcula por
+            // distancia entre la sucursal y la dirección). Si el usuario
+            // abre el modal de Delivery ANTES de elegir sucursal (rol sin
+            // sucursal fija), calcularCostoEnvioAutomatico() se ejecuta con
+            // idSucursal vacío y se queda pegado en "Selecciona una
+            // dirección..." — recalcular aquí también, ahora que ya hay
+            // sucursal, para que no se quede en 0.
+            calcularCostoEnvioAutomatico();
         });
     }
     

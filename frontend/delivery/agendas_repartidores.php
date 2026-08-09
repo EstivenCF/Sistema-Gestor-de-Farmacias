@@ -1,8 +1,11 @@
 <?php
-// frontend/delivery/agenda.php — se carga DENTRO de menuprincipal.php,
-// igual que el resto de las pantallas reales del sistema. El acceso ya
-// lo filtra menuprincipal.php según el rol (solo Repartidor y
-// Administrador ven este enlace en el menú).
+// frontend/delivery/agendas_repartidores.php — se carga DENTRO de
+// menuprincipal.php, igual que el resto de las pantallas reales del
+// sistema. Pantalla SEPARADA de "Mi Agenda" (agenda.php) — esta es
+// para que el Administrador filtre y vea la agenda de CUALQUIER
+// repartidor, sin mezclarse con la vista propia del repartidor.
+// El acceso lo filtra menuprincipal.php vía el permiso
+// 'agendas_repartidores' (por defecto solo Administrador).
 require_once __DIR__ . '/../../backend/conexion.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 $base_url = '/sistema-gestor-de-farmacias';
@@ -44,8 +47,8 @@ $base_url = '/sistema-gestor-de-farmacias';
 </style>
 
 <div class="container-fluid p-0">
-  <h2 class="mb-0 text-success"><span class="material-symbols-rounded align-middle me-2">local_shipping</span> Mi Agenda de Hoy</h2>
-  <p class="text-muted mb-3">Tus entregas asignadas y en curso ahora mismo</p>
+  <h2 class="mb-0 text-success"><span class="material-symbols-rounded align-middle me-2">group</span> Agendas de Repartidores</h2>
+  <p class="text-muted mb-3">Selecciona un repartidor para ver y actualizar su agenda del día</p>
 
   <div class="row g-3 mb-3" id="statsRow">
     <div class="col-6 col-md-3">
@@ -66,8 +69,14 @@ $base_url = '/sistema-gestor-de-farmacias';
     </div>
   </div>
 
-  <div class="card-d p-2 mb-3 d-flex flex-row justify-content-between align-items-center px-3">
-    <strong id="fechaHoyTexto"><span class="material-symbols-rounded align-middle me-1">calendar_today</span> —</strong>
+  <div class="card-d p-3 mb-3 d-flex flex-row justify-content-between align-items-center flex-wrap gap-2">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <label class="form-label fw-semibold small mb-0">Ver agenda de:</label>
+      <select class="form-select form-select-sm" id="filtroRepartidor" style="min-width:220px;" onchange="cargarAgenda()">
+        <option value="">Selecciona un repartidor...</option>
+      </select>
+      <strong id="fechaHoyTexto" class="text-muted small"><span class="material-symbols-rounded align-middle me-1" style="font-size:1rem;">calendar_today</span> —</strong>
+    </div>
     <button class="btn btn-sm btn-outline-success" onclick="cargarAgenda()"><span class="material-symbols-rounded align-middle" style="font-size:1rem;">refresh</span> Actualizar</button>
   </div>
 
@@ -143,17 +152,34 @@ document.addEventListener('DOMContentLoaded', () => {
   modalEntrega = new bootstrap.Modal('#modalEntrega');
   modalProblema = new bootstrap.Modal('#modalProblema');
   cargarAgenda();
-  setInterval(cargarAgenda, 60000);
+  // Ojo: NO hay auto-refresh cada 60s aquí a propósito — si el admin está
+  // a mitad de revisar el detalle de una entrega, no queremos que el
+  // <select> se repueble y le cambie la selección debajo de las manos.
 });
 
+let repartidoresCache = [];
+
 function cargarAgenda() {
-  fetch(BASE_URL + '/backend/delivery/get_agenda_repartidor.php').then(r=>r.json()).then(data => {
+  const sel = document.getElementById('filtroRepartidor');
+  const idRepartidor = sel ? sel.value : '';
+  const url = BASE_URL + '/backend/delivery/get_agenda_repartidor.php' + (idRepartidor ? `?id_repartidor=${idRepartidor}` : '');
+
+  fetch(url).then(r=>r.json()).then(data => {
     if (!data.success) {
       document.getElementById('tablaContainer').innerHTML = `<div class="alert alert-danger m-3">${data.message}</div>`;
       return;
     }
+
+    if (data.repartidores_disponibles) {
+      repartidoresCache = data.repartidores_disponibles;
+      const valorActual = sel.value;
+      sel.innerHTML = '<option value="">Selecciona un repartidor...</option>' +
+        repartidoresCache.map(r => `<option value="${r.id_repartidor}">${r.nombre}</option>`).join('');
+      if (valorActual) sel.value = valorActual;
+    }
+
     entregasCache = data.entregas;
-    document.getElementById('fechaHoyTexto').innerHTML = `<span class="material-symbols-rounded align-middle me-1">calendar_today</span> ${data.fecha_hoy}`;
+    document.getElementById('fechaHoyTexto').innerHTML = `<span class="material-symbols-rounded align-middle me-1" style="font-size:1rem;">calendar_today</span> ${data.fecha_hoy}`;
     const s = data.stats;
     document.getElementById('statTotal').textContent = s.total;
     document.getElementById('statComp').textContent = s.completadas;
@@ -161,8 +187,12 @@ function cargarAgenda() {
     document.getElementById('statPend').textContent = s.pendientes;
 
     const tc = document.getElementById('tablaContainer');
+    if (data.requiere_seleccion) {
+      tc.innerHTML = `<div class="empty-state"><span class="material-symbols-rounded" style="font-size:3rem;">person_search</span><br>Selecciona un repartidor arriba para ver su agenda.</div>`;
+      return;
+    }
     if (!data.entregas.length) {
-      tc.innerHTML = `<div class="empty-state"><span class="material-symbols-rounded" style="font-size:3rem;">inbox</span><br>No tienes entregas asignadas por ahora.</div>`;
+      tc.innerHTML = `<div class="empty-state"><span class="material-symbols-rounded" style="font-size:3rem;">inbox</span><br>${data.repartidor?.nombre || 'Este repartidor'} no tiene entregas activas ahora mismo.</div>`;
       return;
     }
     const rows = data.entregas.map(e => `

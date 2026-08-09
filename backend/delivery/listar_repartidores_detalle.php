@@ -44,7 +44,19 @@ try {
                 JOIN estado_entrega se ON se.id_estado = e.id_estado
                 WHERE e.id_repartidor = r.id_repartidor
                   AND se.nombre IN ('PENDIENTE','ASIGNADA','EN_CAMINO')
-            ) AS entregas_activas
+            ) AS entregas_activas,
+            (
+                SELECT ROUND(AVG(ce.puntuacion_general)::numeric, 1)
+                FROM calificaciones_entrega ce
+                JOIN entregas e ON e.id_entrega = ce.id_entrega
+                WHERE e.id_repartidor = r.id_repartidor
+            ) AS calificacion_promedio,
+            (
+                SELECT COUNT(*)
+                FROM calificaciones_entrega ce
+                JOIN entregas e ON e.id_entrega = ce.id_entrega
+                WHERE e.id_repartidor = r.id_repartidor
+            ) AS total_calificaciones
         FROM repartidores r
         LEFT JOIN usuarios u ON u.id_usuario = r.id_usuario
         $whereActivo

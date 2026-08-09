@@ -377,6 +377,10 @@ foreach ($todos_permisos_catalogo as $p) {
                                                 <label class="form-check-label small" for="perm_agenda">Mi Agenda (repartidor)</label>
                                             </div>
                                             <div class="form-check form-switch mb-1">
+                                                <input class="form-check-input subpermiso-switch" type="checkbox" data-permiso="agendas_repartidores" id="perm_agendas_repartidores" <?php echo isset($permisos_actuales_map['agendas_repartidores']) ? 'checked' : ''; ?>>
+                                                <label class="form-check-label small" for="perm_agendas_repartidores">Agendas de Repartidores (admin)</label>
+                                            </div>
+                                            <div class="form-check form-switch mb-1">
                                                 <input class="form-check-input subpermiso-switch" type="checkbox" data-permiso="repartidores" id="perm_repartidores" <?php echo isset($permisos_actuales_map['repartidores']) ? 'checked' : ''; ?>>
                                                 <label class="form-check-label small" for="perm_repartidores">Repartidores</label>
                                             </div>
@@ -387,14 +391,6 @@ foreach ($todos_permisos_catalogo as $p) {
                                             <div class="form-check form-switch mb-1">
                                                 <input class="form-check-input subpermiso-switch" type="checkbox" data-permiso="vehiculos" id="perm_vehiculos" <?php echo isset($permisos_actuales_map['vehiculos']) ? 'checked' : ''; ?>>
                                                 <label class="form-check-label small" for="perm_vehiculos">Vehículos</label>
-                                            </div>
-                                            <div class="form-check form-switch mb-1">
-                                                <input class="form-check-input subpermiso-switch" type="checkbox" data-permiso="tracking" id="perm_tracking" <?php echo isset($permisos_actuales_map['tracking']) ? 'checked' : ''; ?>>
-                                                <label class="form-check-label small" for="perm_tracking">Tracking</label>
-                                            </div>
-                                            <div class="form-check form-switch mb-1">
-                                                <input class="form-check-input subpermiso-switch" type="checkbox" data-permiso="incidencias_delivery" id="perm_incidencias_delivery" <?php echo isset($permisos_actuales_map['incidencias_delivery']) ? 'checked' : ''; ?>>
-                                                <label class="form-check-label small" for="perm_incidencias_delivery">Incidencias</label>
                                             </div>
                                         </div>
                                     </div>

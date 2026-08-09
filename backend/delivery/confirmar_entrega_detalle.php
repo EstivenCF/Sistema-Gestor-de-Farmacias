@@ -24,10 +24,14 @@ $data = json_decode(file_get_contents('php://input'), true);
 $id_entrega = intval($data['id_entrega'] ?? 0);
 $lineas = $data['lineas'] ?? [];
 $nombre_quien_recibe = trim($data['nombre_quien_recibe'] ?? '');
+$identificacion_quien_recibe = trim($data['identificacion_quien_recibe'] ?? '');
 $id_usuario = $_SESSION['usuario_id'] ?? ($_SESSION['id_usuario'] ?? 0);
 
 if (!$id_entrega || empty($lineas) || !$id_usuario) {
     echo json_encode(['success' => false, 'message' => 'Faltan datos para confirmar la entrega']); exit();
+}
+if ($nombre_quien_recibe === '' || $identificacion_quien_recibe === '') {
+    echo json_encode(['success' => false, 'message' => 'Debes indicar el nombre y la cédula de quien recibió el pedido']); exit();
 }
 
 try {
@@ -72,11 +76,13 @@ try {
         ? ", es_entrega_parcial = TRUE, detalle_parcial = :detalle_parcial"
         : "";
     $sql = "UPDATE entregas SET id_estado = :id_estado, fecha_entrega_real = NOW(), fecha_entrega = NOW(),
-            nombre_quien_recibe = :nombre_recibe, fecha_modificacion = NOW() $camposExtra WHERE id_entrega = :id";
+            nombre_quien_recibe = :nombre_recibe, identificacion_quien_recibe = :identificacion_recibe,
+            fecha_modificacion = NOW() $camposExtra WHERE id_entrega = :id";
     $stmt = $conexion->prepare($sql);
     $params = [
         ':id_estado' => $id_estado_final,
         ':nombre_recibe' => $nombre_quien_recibe ?: null,
+        ':identificacion_recibe' => $identificacion_quien_recibe ?: null,
         ':id' => $id_entrega,
     ];
     if ($hay_faltante) {
