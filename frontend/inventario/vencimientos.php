@@ -111,6 +111,52 @@ try {
         </div>
     </div>
 
+    <!-- NUEVO (Tarea 5): CLASIFICACIÓN DE RIESGO ESTRATÉGICO -->
+    <div class="row mb-4">
+        <div class="col-12 mb-2">
+            <h6 class="text-muted text-uppercase small fw-bold">
+                <span class="material-symbols-rounded align-middle me-1" style="font-size:18px;">insights</span>
+                Clasificación de riesgo del proceso estratégico
+            </h6>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm" style="border-left: 4px solid #dc3545 !important;">
+                <div class="card-body py-3">
+                    <small class="text-muted d-block">Riesgo Crítico</small>
+                    <h4 class="mb-0 text-danger" id="statRiesgoCritico">0</h4>
+                    <small class="text-muted">lotes</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm" style="border-left: 4px solid #fd7e14 !important;">
+                <div class="card-body py-3">
+                    <small class="text-muted d-block">Riesgo Moderado</small>
+                    <h4 class="mb-0" style="color:#fd7e14;" id="statRiesgoModerado">0</h4>
+                    <small class="text-muted">lotes</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm" style="border-left: 4px solid #198754 !important;">
+                <div class="card-body py-3">
+                    <small class="text-muted d-block">Riesgo Bajo</small>
+                    <h4 class="mb-0 text-success" id="statRiesgoBajo">0</h4>
+                    <small class="text-muted">lotes</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm" style="border-left: 4px solid #0d6efd !important;">
+                <div class="card-body py-3">
+                    <small class="text-muted d-block">Valor Total en Riesgo</small>
+                    <h4 class="mb-0 text-primary" id="statValorRiesgo">RD$ 0</h4>
+                    <small class="text-muted">lotes activos con stock</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- FILTROS (automáticos) -->
     <div class="card shadow-sm border-0 mb-4">
         <div class="card-body">
@@ -177,12 +223,15 @@ try {
                             <th>Fecha Vencimiento</th>
                             <th>Días Restantes</th>
                             <th>Estado</th>
+                            <th class="text-center">Riesgo</th>
+                            <th class="text-end">Valor en Riesgo</th>
+                            <th class="text-center">Rotación (IRV)</th>
                             <th class="text-center">Acciones</th>
                         </tr>
                     </thead>
                     <tbody id="tablaVencimientosBody">
                         <tr>
-                            <td colspan="9" class="text-center text-muted py-4">
+                            <td colspan="12" class="text-center text-muted py-4">
                                 <div class="spinner-border text-danger" role="status"></div>
                                 <p class="mt-2">Cargando lotes...</p>
                             </td>
@@ -232,11 +281,13 @@ const RUTAS_API = {
     listarVencimientos: BASE_URL + '/backend/inventario/listar_vencimientos.php',
     detalleLote: BASE_URL + '/backend/inventario/detalle_lote.php',
     estadisticas: BASE_URL + '/backend/inventario/estadisticas_vencimientos.php',
-    marcarVencidos: BASE_URL + '/backend/inventario/marcar_lotes_vencidos.php'
+    marcarVencidos: BASE_URL + '/backend/inventario/marcar_lotes_vencidos.php',
+    evaluarRiesgo: BASE_URL + '/backend/inventario/evaluar_riesgo_vencimiento.php' // NUEVO - Tarea 5
 };
 
 // Variables globales
 let vencimientosData = [];
+let riesgoMap = {}; // NUEVO - Tarea 5: mapa "id_lote-id_sucursal" -> datos de riesgo/IRV
 let paginaActual = 1;
 let filasPorPagina = 10;
 let timeoutBusqueda;
@@ -255,18 +306,21 @@ document.addEventListener('DOMContentLoaded', function() {
         paginaActual = 1;
         cargarVencimientos();
         actualizarEstadisticas();
+        actualizarRiesgoKPIs();
     });
     
     document.getElementById('filtroMedicamento').addEventListener('change', function() {
         paginaActual = 1;
         cargarVencimientos();
         actualizarEstadisticas();
+        actualizarRiesgoKPIs();
     });
     
     document.getElementById('filtroSucursal').addEventListener('change', function() {
         paginaActual = 1;
         cargarVencimientos();
         actualizarEstadisticas();
+        actualizarRiesgoKPIs();
     });
     
     const buscarInput = document.getElementById('buscarVencimiento');
@@ -276,11 +330,13 @@ document.addEventListener('DOMContentLoaded', function() {
             paginaActual = 1;
             cargarVencimientos();
             actualizarEstadisticas();
+            actualizarRiesgoKPIs();
         }, 500);
     });
     
     cargarVencimientos();
     actualizarEstadisticas();
+    actualizarRiesgoKPIs();
 });
 
 function limpiarFiltros() {
@@ -292,6 +348,7 @@ function limpiarFiltros() {
     paginaActual = 1;
     cargarVencimientos();
     actualizarEstadisticas();
+    actualizarRiesgoKPIs();
 }
 
 function actualizarEstadisticas() {
@@ -320,7 +377,7 @@ function actualizarEstadisticas() {
 
 function cargarVencimientos() {
     const tbody = document.getElementById('tablaVencimientosBody');
-    tbody.innerHTML = `<tr><td colspan="9" class="text-center"><div class="spinner-border text-danger"></div><p>Cargando...</p></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="12" class="text-center"><div class="spinner-border text-danger"></div><p>Cargando...</p></td></tr>`;
     
     const periodo = document.getElementById('filtroPeriodo').value;
     const medicamento = document.getElementById('filtroMedicamento').value;
@@ -331,27 +388,67 @@ function cargarVencimientos() {
     if (medicamento) url += `&medicamento=${medicamento}`;
     if (sucursal) url += `&sucursal=${sucursal}`;
     if (busqueda) url += `&busqueda=${encodeURIComponent(busqueda)}`;
-    
+
+    // NUEVO (Tarea 5): se pide en paralelo el detalle de riesgo/IRV. Es un
+    // endpoint aparte (no reemplaza a listar_vencimientos.php) para no tocar
+    // la paginación ni los filtros de período que ya funcionaban.
+    let urlRiesgo = `${RUTAS_API.evaluarRiesgo}?`;
+    if (sucursal) urlRiesgo += `sucursal=${sucursal}&`;
+    if (busqueda) urlRiesgo += `busqueda=${encodeURIComponent(busqueda)}&`;
+
+    Promise.all([
+        fetch(url).then(r => r.json()),
+        fetch(urlRiesgo).then(r => r.json())
+    ])
+        .then(([data, dataRiesgo]) => {
+            if (data.success) {
+                vencimientosData = data.lotes;
+
+                // Construir el mapa de riesgo por "id_lote-id_sucursal"
+                riesgoMap = {};
+                if (dataRiesgo.success) {
+                    dataRiesgo.lotes.forEach(r => {
+                        riesgoMap[`${r.id_lote}-${r.id_sucursal}`] = r;
+                    });
+                }
+
+                renderizarTabla(vencimientosData);
+                actualizarPaginacion(data.total);
+            } else {
+                tbody.innerHTML = `<tr><td colspan="12" class="text-center text-danger">Error: ${data.message}</td></tr>`;
+            }
+        })
+        .catch(() => {
+            tbody.innerHTML = `<tr><td colspan="12" class="text-center text-danger">Error de conexión</td></tr>`;
+        });
+}
+
+// NUEVO (Tarea 5): tarjetas KPI de clasificación de riesgo estratégico
+function actualizarRiesgoKPIs() {
+    const sucursal = document.getElementById('filtroSucursal').value;
+    const busqueda = document.getElementById('buscarVencimiento').value;
+
+    let url = `${RUTAS_API.evaluarRiesgo}?`;
+    if (sucursal) url += `sucursal=${sucursal}&`;
+    if (busqueda) url += `busqueda=${encodeURIComponent(busqueda)}&`;
+
     fetch(url)
         .then(r => r.json())
         .then(data => {
             if (data.success) {
-                vencimientosData = data.lotes;
-                renderizarTabla(vencimientosData);
-                actualizarPaginacion(data.total);
-            } else {
-                tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger">Error: ${data.message}</td></tr>`;
+                document.getElementById('statRiesgoCritico').textContent = data.totales_por_riesgo.CRITICO || 0;
+                document.getElementById('statRiesgoModerado').textContent = data.totales_por_riesgo.MODERADO || 0;
+                document.getElementById('statRiesgoBajo').textContent = data.totales_por_riesgo.BAJO || 0;
+                document.getElementById('statValorRiesgo').textContent = 'RD$ ' + Number(data.valor_total_en_riesgo || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 });
             }
         })
-        .catch(() => {
-            tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger">Error de conexión</td></tr>`;
-        });
+        .catch(error => console.error('Error KPIs riesgo:', error));
 }
 
 function renderizarTabla(lotes) {
     const tbody = document.getElementById('tablaVencimientosBody');
     if (!lotes || lotes.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted">No hay lotes en este período</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="12" class="text-center text-muted">No hay lotes en este período</td></tr>`;
         return;
     }
     
@@ -409,6 +506,26 @@ function renderizarTabla(lotes) {
             estadoLoteBadge = '<span class="badge bg-dark">DAÑADO</span>';
         }
         
+        // NUEVO (Tarea 5): datos de riesgo estratégico para este lote+sucursal
+        const riesgo = riesgoMap[`${l.id_lote}-${l.id_sucursal}`];
+        let riesgoCelda = '<span class="badge bg-secondary">Sin evaluar</span>';
+        let valorRiesgoCelda = '-';
+        let irvCelda = '<span class="text-muted small">-</span>';
+
+        if (riesgo) {
+            const coloresRiesgo = { CRITICO: 'bg-danger', MODERADO: 'bg-warning text-dark', BAJO: 'bg-success' };
+            riesgoCelda = `<span class="badge ${coloresRiesgo[riesgo.nivel_riesgo] || 'bg-secondary'}">${riesgo.nivel_riesgo}</span>`;
+            valorRiesgoCelda = `<strong>RD$ ${Number(riesgo.valor_en_riesgo).toLocaleString('es-DO', {minimumFractionDigits: 2})}</strong>`;
+
+            if (riesgo.irv === null) {
+                irvCelda = '<span class="text-muted small">Sin datos</span>';
+            } else {
+                const claseIrv = riesgo.estado_venta === 'BAJA_ROTACION' ? 'text-danger fw-bold' : 'text-success fw-bold';
+                const etiquetaIrv = riesgo.estado_venta === 'BAJA_ROTACION' ? 'Baja rotación' : 'Rotación normal';
+                irvCelda = `<span class="${claseIrv}">${riesgo.irv}%</span><br><small class="text-muted">${etiquetaIrv}</small>`;
+            }
+        }
+
         html += `<tr class="${filaClass}">
             <td class="ps-4"><code>${escapeHtml(l.numero_lote)}</code></td>
             <td><strong>${escapeHtml(l.medicamento_nombre)}</strong><br><small class="text-muted">${escapeHtml(l.presentacion || '')}</small></td>
@@ -426,10 +543,16 @@ function renderizarTabla(lotes) {
                 ${diasBadge}
             </td>
             <td class="text-center">${estadoLoteBadge}</td>
+            <td class="text-center">${riesgoCelda}</td>
+            <td class="text-end">${valorRiesgoCelda}</td>
+            <td class="text-center">${irvCelda}</td>
             <td class="text-center">
-                <button class="btn btn-sm btn-light text-info" onclick="verDetalleLote(${l.id_lote})" title="Ver detalles">
+                <button class="btn btn-sm btn-light text-info me-1" onclick="verDetalleLote(${l.id_lote})" title="Ver detalles básicos">
                     <span class="material-symbols-rounded">visibility</span>
                 </button>
+                <a href="menuprincipal.php?mod=detalle_riesgo_lote&id_lote=${l.id_lote}&id_sucursal=${l.id_sucursal}" class="btn btn-sm btn-light text-danger" title="Ver riesgo y valor económico">
+                    <span class="material-symbols-rounded">troubleshoot</span>
+                </a>
             </td>
         </tr>`;
     });

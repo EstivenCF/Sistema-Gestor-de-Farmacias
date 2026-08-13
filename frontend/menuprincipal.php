@@ -53,7 +53,8 @@ $menu_por_rol = [
     'Administrador' => [
         'dashboard' => true,
         'ventas' => ['registrar_venta', 'historial_ventas', 'pagos'],
-        'inventario' => ['medicamentos', 'categorias', 'presentaciones', 'laboratorios', 'principios_activos', 'lotes', 'stock', 'movimientos_inventario', 'vencimientos', 'alertas_stock', 'devoluciones', 'recall'],
+        'inventario' => ['medicamentos', 'categorias', 'presentaciones', 'laboratorios', 'principios_activos', 'lotes', 'stock', 'movimientos_inventario', 'vencimientos', 'alertas_stock', 'devoluciones', 'recall',
+            'detalle_riesgo_lote', 'generar_accion_recuperacion', 'redistribuir_stock_riesgo', 'diagnostico_causa_raiz'], // NUEVO: proceso estratégico de vencimientos (Tarea 5)
         'compras' => ['registrar_compra', 'historial_compras', 'proveedores', 'recepcion'],
         'clientes' => ['clientes'],
         'delivery' => ['repartidores', 'entrega', 'vehiculos', 'agendas_repartidores'],
@@ -81,8 +82,10 @@ $menu_por_rol = [
 
     'Encargado Inventario' => [
         'dashboard' => true,
-        'inventario' => ['medicamentos', 'categorias', 'presentaciones', 'laboratorios', 'principios_activos', 'lotes', 'stock', 'movimientos_inventario', 'vencimientos', 'alertas_stock', 'devoluciones'],
+        'inventario' => ['medicamentos', 'categorias', 'presentaciones', 'laboratorios', 'principios_activos', 'lotes', 'stock', 'movimientos_inventario', 'vencimientos', 'alertas_stock', 'devoluciones',
+            'detalle_riesgo_lote', 'generar_accion_recuperacion', 'redistribuir_stock_riesgo', 'diagnostico_causa_raiz'], // NUEVO: proceso estratégico de vencimientos (Tarea 5)
         'reportes' => ['reporte_inventario', 'reporte_vencimientos'],
+        'administracion' => ['ofertas'], // NUEVO: acceso puntual, solo para cerrar el flujo de Promoción (Tarea 5); NO se le da el resto de administracion
     ],
 
     'Gestor Compras' => [

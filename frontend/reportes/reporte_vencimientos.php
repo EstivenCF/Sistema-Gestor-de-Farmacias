@@ -106,6 +106,90 @@ $medicamentos = $conexion->query("SELECT id_medicamento, nombre_completo FROM me
 $laboratorios = $conexion->query("SELECT id_laboratorio, nombre FROM laboratorios WHERE activo = TRUE ORDER BY nombre")->fetchAll();
 $categorias = $conexion->query("SELECT id_categoria, nombre FROM categorias WHERE activo = TRUE ORDER BY nombre")->fetchAll();
 $estados_lote = ['ACTIVO', 'VENCIDO', 'RETIRADO', 'MERMA', 'DAÑADO'];
+
+// =============================================================================
+// NUEVO (Tarea 5) - Indicadores gerenciales del proceso estratégico (Pantalla #07)
+// Reutiliza la librería del proceso para el valor en riesgo ACTUAL (mismo
+// cálculo que usan las Pantallas #02/#03), y consulta accion_recuperacion
+// para medir qué tan efectivas fueron las acciones ya ejecutadas.
+// =============================================================================
+require_once __DIR__ . '/../../backend/inventario/riesgo_vencimiento_lib.php';
+$umbralesProceso = obtenerUmbralesVencimiento($conexion);
+$lotesEnRiesgoActual = listarLotesEnRiesgo($conexion, $umbralesProceso);
+$valorTotalEnRiesgoActual = array_sum(array_column($lotesEnRiesgoActual, 'valor_en_riesgo'));
+
+// Valor recuperado: solo acciones ya COMPLETADAS (promociones "en curso" no
+// cuentan todavía, porque su resultado real aún no se conoce)
+$valorRecuperado = (float)$conexion->query("
+    SELECT COALESCE(SUM(valor_recuperado_estimado), 0) FROM accion_recuperacion WHERE estado = 'COMPLETADA'
+")->fetchColumn();
+
+// Valor en acciones que ya se están ejecutando pero aún no cierran (promociones activas)
+$valorEnCurso = (float)$conexion->query("
+    SELECT COALESCE(SUM(valor_en_riesgo), 0) FROM accion_recuperacion WHERE estado = 'EN_EJECUCION'
+")->fetchColumn();
+
+// Pérdida confirmada: acciones marcadas explícitamente SIN_EFECTO, más lotes
+// que ya vencieron sin ninguna acción COMPLETADA que los haya cubierto.
+$valorPerdidaConfirmada = (float)$conexion->query("
+    SELECT COALESCE(SUM(ar.valor_en_riesgo), 0)
+    FROM accion_recuperacion ar
+    WHERE ar.estado = 'SIN_EFECTO' OR ar.tipo_accion = 'PROVISION_PERDIDA'
+")->fetchColumn();
+
+$valorLotesVencidosSinAccion = (float)$conexion->query("
+    SELECT COALESCE(SUM(l.cantidad_actual * l.costo_unitario), 0)
+    FROM lotes l
+    WHERE l.estado = 'VENCIDO'
+      AND NOT EXISTS (
+          SELECT 1 FROM accion_recuperacion ar
+          WHERE ar.id_lote = l.id_lote AND ar.estado = 'COMPLETADA'
+      )
+")->fetchColumn();
+$valorPerdidaConfirmada += $valorLotesVencidosSinAccion;
+
+// Efectividad: de lo que YA se cerró (recuperado + perdido), qué % se salvó.
+// No incluye lo que sigue PENDIENTE/EN_EJECUCION porque su resultado aún no se conoce.
+$totalCerrado = $valorRecuperado + $valorPerdidaConfirmada;
+$efectividadRecuperacion = $totalCerrado > 0 ? round(($valorRecuperado / $totalCerrado) * 100, 1) : 0;
+
+// Acciones de recuperación por tipo (para el gráfico de barras horizontal)
+$accionesPorTipo = $conexion->query("
+    SELECT tipo_accion, COUNT(*) AS total
+    FROM accion_recuperacion
+    GROUP BY tipo_accion
+    ORDER BY total DESC
+")->fetchAll(PDO::FETCH_ASSOC);
+
+// Categorías con mayor pérdida (mismo criterio que la pérdida confirmada de arriba)
+$categoriasConMayorPerdida = $conexion->query("
+    SELECT cat.nombre AS categoria, SUM(valor_perdido) AS valor_perdido
+    FROM (
+        SELECT m.id_categoria, ar.valor_en_riesgo AS valor_perdido
+        FROM accion_recuperacion ar
+        JOIN lotes l ON ar.id_lote = l.id_lote
+        JOIN medicamentos m ON l.id_medicamento = m.id_medicamento
+        WHERE ar.estado = 'SIN_EFECTO'
+        UNION ALL
+        SELECT m.id_categoria, (l.cantidad_actual * l.costo_unitario) AS valor_perdido
+        FROM lotes l
+        JOIN medicamentos m ON l.id_medicamento = m.id_medicamento
+        WHERE l.estado = 'VENCIDO'
+          AND NOT EXISTS (SELECT 1 FROM accion_recuperacion ar2 WHERE ar2.id_lote = l.id_lote AND ar2.estado = 'COMPLETADA')
+    ) perdidas
+    JOIN categorias cat ON perdidas.id_categoria = cat.id_categoria
+    GROUP BY cat.nombre
+    ORDER BY valor_perdido DESC
+    LIMIT 5
+")->fetchAll(PDO::FETCH_ASSOC);
+$valorPerdidaTotalCategorias = array_sum(array_column($categoriasConMayorPerdida, 'valor_perdido')) ?: 1;
+
+$etiquetasTipoAccion = [
+    'PROMOCION' => 'Promociones', 'REDISTRIBUCION' => 'Redistribuciones', 'COMBO' => 'Combos',
+    'DEVOLUCION_PROVEEDOR' => 'Devoluciones a proveedor', 'DONACION' => 'Donaciones',
+    'PROVISION_PERDIDA' => 'Provisión de pérdida', 'DESTRUCCION' => 'Destrucciones',
+];
+$maxAcciones = !empty($accionesPorTipo) ? max(array_column($accionesPorTipo, 'total')) : 1;
 ?>
 
 <div class="reporte-vencimientos-container">
@@ -161,6 +245,110 @@ $estados_lote = ['ACTIVO', 'VENCIDO', 'RETIRADO', 'MERMA', 'DAÑADO'];
                     <span class="material-symbols-rounded text-primary">inventory</span>
                     <h5 class="mt-2 mb-0"><?php echo $total_lotes; ?></h5>
                     <small class="text-muted">Total lotes registrados</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- NUEVO (Tarea 5): Indicadores gerenciales del proceso estratégico -->
+    <div class="mb-4">
+        <h5 class="text-muted text-uppercase small fw-bold mb-3">
+            <span class="material-symbols-rounded align-middle me-1" style="font-size:18px;">insights</span>
+            Indicadores gerenciales - Proceso estratégico de vencimientos
+        </h5>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-3 col-sm-6">
+                <div class="card shadow-sm border-0 rounded-4 h-100" style="border-left:4px solid #dc3545 !important;">
+                    <div class="card-body">
+                        <small class="text-muted d-block">Valor total en riesgo (actual)</small>
+                        <h4 class="mb-0 text-danger">RD$ <?php echo number_format($valorTotalEnRiesgoActual, 2); ?></h4>
+                        <small class="text-muted">lotes activos con stock, hoy</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="card shadow-sm border-0 rounded-4 h-100" style="border-left:4px solid #198754 !important;">
+                    <div class="card-body">
+                        <small class="text-muted d-block">Valor recuperado</small>
+                        <h4 class="mb-0 text-success">RD$ <?php echo number_format($valorRecuperado, 2); ?></h4>
+                        <small class="text-muted">acciones completadas</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="card shadow-sm border-0 rounded-4 h-100" style="border-left:4px solid #0d6efd !important;">
+                    <div class="card-body">
+                        <small class="text-muted d-block">Efectividad de recuperación</small>
+                        <h4 class="mb-0 text-primary"><?php echo $efectividadRecuperacion; ?>%</h4>
+                        <small class="text-muted">de lo ya cerrado (recuperado vs. perdido)</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="card shadow-sm border-0 rounded-4 h-100" style="border-left:4px solid #6c757d !important;">
+                    <div class="card-body">
+                        <small class="text-muted d-block">Pérdida confirmada</small>
+                        <h4 class="mb-0">RD$ <?php echo number_format($valorPerdidaConfirmada, 2); ?></h4>
+                        <small class="text-muted">sin efecto o vencidos sin acción</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <?php if ($valorEnCurso > 0): ?>
+            <div class="alert alert-info small py-2 mb-3">
+                <span class="material-symbols-rounded align-middle me-1" style="font-size:16px;">hourglass_top</span>
+                Hay <strong>RD$ <?php echo number_format($valorEnCurso, 2); ?></strong> en acciones actualmente EN EJECUCIÓN (promociones activas cuyo resultado aún no se puede medir).
+            </div>
+        <?php endif; ?>
+
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <div class="card shadow-sm border-0 rounded-4 h-100">
+                    <div class="card-body">
+                        <h6 class="card-title">Acciones de recuperación por tipo</h6>
+                        <?php if (empty($accionesPorTipo)): ?>
+                            <p class="text-muted small mb-0">Todavía no se ha registrado ninguna acción de recuperación.</p>
+                        <?php else: ?>
+                            <?php foreach ($accionesPorTipo as $a): ?>
+                                <div class="mb-2">
+                                    <div class="d-flex justify-content-between small">
+                                        <span><?php echo $etiquetasTipoAccion[$a['tipo_accion']] ?? $a['tipo_accion']; ?></span>
+                                        <strong><?php echo $a['total']; ?></strong>
+                                    </div>
+                                    <div class="progress" style="height:8px;">
+                                        <div class="progress-bar bg-primary" style="width: <?php echo round(($a['total'] / $maxAcciones) * 100); ?>%"></div>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card shadow-sm border-0 rounded-4 h-100">
+                    <div class="card-body">
+                        <h6 class="card-title">Categorías con mayor pérdida</h6>
+                        <?php if (empty($categoriasConMayorPerdida)): ?>
+                            <p class="text-muted small mb-0">No hay pérdidas confirmadas registradas todavía.</p>
+                        <?php else: ?>
+                            <table class="table table-sm mb-0">
+                                <thead><tr><th>Categoría</th><th class="text-end">Valor perdido</th><th class="text-end">Participación</th></tr></thead>
+                                <tbody>
+                                    <?php foreach ($categoriasConMayorPerdida as $c): ?>
+                                        <tr>
+                                            <td><?php echo htmlspecialchars($c['categoria']); ?></td>
+                                            <td class="text-end">RD$ <?php echo number_format($c['valor_perdido'], 2); ?></td>
+                                            <td class="text-end">
+                                                <span class="badge bg-danger bg-opacity-75"><?php echo round(($c['valor_perdido'] / $valorPerdidaTotalCategorias) * 100); ?>%</span>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        <?php endif; ?>
+                    </div>
                 </div>
             </div>
         </div>
