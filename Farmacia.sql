@@ -209,45 +209,55 @@ CREATE TABLE IF NOT EXISTS ropa_detalle (
 -- 2. INSERCIÓN DE DATOS (ENFOQUE MÉDICO)
 -- =============================================
 
-TRUNCATE TABLE tipo_ropa RESTART IDENTITY CASCADE;
+-- Sembrado seguro: solo si la tabla está completamente vacía. Antes esto
+-- llevaba un TRUNCATE ... CASCADE que, al volver a correr este archivo
+-- sobre una base ya en uso, BORRABA todos los productos de ropa reales
+-- que ya tuvieras cargados (el CASCADE se llevaba también ropa_detalle).
 
--- Tipos de prendas clínicas
-INSERT INTO tipo_ropa (nombre, descripcion) VALUES
-('Uniforme Médico', 'Batas, pijamas y uniformes para personal médico'),
-('Maternidad', 'Ropa para embarazadas y lactancia'),
-('Ortopedia', 'Fajas, soportes y prendas ortopédicas'),
-('Calzado', 'Zapatos clínicos y ortopédicos'),
-('Accesorios', 'Gorros, mascarillas y otros accesorios');
+INSERT INTO tipo_ropa (nombre, descripcion)
+SELECT * FROM (VALUES
+    ('Uniforme Médico', 'Batas, pijamas y uniformes para personal médico'),
+    ('Maternidad', 'Ropa para embarazadas y lactancia'),
+    ('Ortopedia', 'Fajas, soportes y prendas ortopédicas'),
+    ('Calzado', 'Zapatos clínicos y ortopédicos'),
+    ('Accesorios', 'Gorros, mascarillas y otros accesorios')
+) AS v(nombre, descripcion)
+WHERE NOT EXISTS (SELECT 1 FROM tipo_ropa);
 
 -- Marcas reconocidas en el sector salud
-INSERT INTO marcas (nombre, descripcion) VALUES
-('Figs', 'Línea premium de scrubs con diseño técnico.'),
-('Cherokee', 'Estándar mundial en uniformes de alta durabilidad.'),
-('Dickies Medical', 'Ropa de trabajo médica funcional y resistente.'),
-('Grey’s Anatomy', 'Uniformes de tela suave y diseño elegante para profesionales.'),
-('Healing Hands', 'Marca enfocada en comodidad y telas elásticas.');
+INSERT INTO marcas (nombre, descripcion)
+SELECT * FROM (VALUES
+    ('Figs', 'Línea premium de scrubs con diseño técnico.'),
+    ('Cherokee', 'Estándar mundial en uniformes de alta durabilidad.'),
+    ('Dickies Medical', 'Ropa de trabajo médica funcional y resistente.'),
+    ('Grey''s Anatomy', 'Uniformes de tela suave y diseño elegante para profesionales.'),
+    ('Healing Hands', 'Marca enfocada en comodidad y telas elásticas.')
+) AS v(nombre, descripcion)
+WHERE NOT EXISTS (SELECT 1 FROM marcas);
 
 -- Fabricantes de textiles médicos
-INSERT INTO fabricantes (nombre, pais, contacto) VALUES
-('Medline Industries', 'Estados Unidos', 'sales@medline.com'),
-('Barco Uniforms', 'Estados Unidos', 'info@barcouniforms.com'),
-('Textiles Médicos S.A.', 'Colombia', 'ventas@textilesmedicos.co'),
-('Global Scrub Corp', 'México', 'contacto@globalscrub.mx'),
-('EuroUniforms', 'España', 'atencion@eurouniforms.es');
+INSERT INTO fabricantes (nombre, pais, contacto)
+SELECT * FROM (VALUES
+    ('Medline Industries', 'Estados Unidos', 'sales@medline.com'),
+    ('Barco Uniforms', 'Estados Unidos', 'info@barcouniforms.com'),
+    ('Textiles Médicos S.A.', 'Colombia', 'ventas@textilesmedicos.co'),
+    ('Global Scrub Corp', 'México', 'contacto@globalscrub.mx'),
+    ('EuroUniforms', 'España', 'atencion@eurouniforms.es')
+) AS v(nombre, pais, contacto)
+WHERE NOT EXISTS (SELECT 1 FROM fabricantes);
 
 -- Colores institucionales y de especialidad
-INSERT INTO colores (nombre) VALUES
-('Azul Navy'),
-('Azul Quirúrgico'),
-('Verde Caribe'),
-('Blanco Clínico'),
-('Gris Oxford'),
-('Vino (Burgundy)'),
-('Verde Quirúrgico');
+INSERT INTO colores (nombre)
+SELECT * FROM (VALUES
+    ('Azul Navy'), ('Azul Quirúrgico'), ('Verde Caribe'), ('Blanco Clínico'),
+    ('Gris Oxford'), ('Vino (Burgundy)'), ('Verde Quirúrgico')
+) AS v(nombre)
+WHERE NOT EXISTS (SELECT 1 FROM colores);
 
 -- Tallas estándar
-INSERT INTO tallas (nombre) VALUES
-('XXS'), ('XS'), ('S'), ('M'), ('L'), ('XL'), ('XXL');
+INSERT INTO tallas (nombre)
+SELECT * FROM (VALUES ('XXS'), ('XS'), ('S'), ('M'), ('L'), ('XL'), ('XXL')) AS v(nombre)
+WHERE NOT EXISTS (SELECT 1 FROM tallas);
 
 CREATE TABLE IF NOT EXISTS clientes (
     id_cliente SERIAL PRIMARY KEY,
@@ -543,6 +553,7 @@ ADD COLUMN IF NOT EXISTS punto_reorden INT DEFAULT 5;
 -- 2. Modificar la UNIQUE constraint para incluir talla y color
 -- (Primero eliminar la existente, luego crear una nueva)
 ALTER TABLE inventario_productos DROP CONSTRAINT IF EXISTS inventario_productos_id_producto_id_sucursal_key;
+ALTER TABLE inventario_productos DROP CONSTRAINT IF EXISTS inventario_productos_unique;
 ALTER TABLE inventario_productos ADD CONSTRAINT inventario_productos_unique 
 UNIQUE (id_producto, id_sucursal, id_talla, id_color);
 
@@ -1944,6 +1955,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS tg_actualizar_stock_lote ON inventario;
 CREATE TRIGGER tg_actualizar_stock_lote
 AFTER INSERT OR UPDATE OR DELETE ON inventario
 FOR EACH ROW EXECUTE FUNCTION actualizar_stock_lote();
@@ -2701,6 +2713,19 @@ ORDER BY p.nombre;
 -- 16. DATOS DE PRUEBA (con ON CONFLICT)
 -- =============================================================================
 
+-- GUARDA DE RE-EJECUCIÓN: todo este bloque de datos de ejemplo asume una
+-- base de datos recién creada (usa IDs 1,2,3... a mano para relacionar
+-- clientes, ventas, lotes, etc. entre sí). Por eso NO se puede volver a
+-- correr fila por fila con ON CONFLICT como el resto del script: al
+-- reinsertar, los IDs nuevos (autogenerados) ya no coinciden con los IDs
+-- viejos, así que en vez de omitir la fila, o la duplica o choca contra
+-- una restricción UNIQUE real (nombre, código, número de documento, etc.).
+-- Se soluciona ejecutando este bloque UNA sola vez: se usa version_esquema
+-- como marca de que esta base ya tiene los datos de ejemplo cargados.
+DO $$
+BEGIN
+IF NOT EXISTS (SELECT 1 FROM version_esquema WHERE version = '3.0.0') THEN
+
 INSERT INTO unidades_medida (nombre, abreviatura) VALUES
 ('Miligramos', 'mg'), ('Gramos', 'g'), ('Mililitros', 'ml'), ('Tabletas', 'tab'), ('Cápsulas', 'cap')
 ON CONFLICT (id_unidad) DO NOTHING;
@@ -2980,6 +3005,9 @@ ON CONFLICT (id_poliza) DO NOTHING;
 INSERT INTO version_esquema (version, descripcion) VALUES ('3.0.0', 'Versión completa con lotes corregidos')
 ON CONFLICT (id_version) DO NOTHING;
 
+END IF;
+END $$;
+
 -- =============================================================================
 -- 17. ACTUALIZACIONES FINALES
 -- =============================================================================
@@ -2990,6 +3018,7 @@ UPDATE medicamentos SET nombre_completo = TRIM(CONCAT_WS(' ', nombre, concentrac
 WHERE nombre_completo IS NULL;
 
 ALTER TABLE lotes DROP CONSTRAINT IF EXISTS chk_cantidades;
+ALTER TABLE lotes DROP CONSTRAINT IF EXISTS chk_cantidad_actual_positiva;
 ALTER TABLE lotes ADD CONSTRAINT chk_cantidad_actual_positiva CHECK (cantidad_actual >= 0);
 
 ALTER TABLE detalle_compra ALTER COLUMN id_lote DROP NOT NULL;
@@ -3619,6 +3648,61 @@ DROP TRIGGER IF EXISTS trg_auditoria_movimiento_caja ON movimiento_caja;
 CREATE TRIGGER trg_auditoria_movimiento_caja AFTER INSERT OR UPDATE OR DELETE ON movimiento_caja
     FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_movimiento');
 
+-- Calificaciones de clientes (la nota que deja el cliente por su entrega)
+DROP TRIGGER IF EXISTS trg_auditoria_calificaciones_entrega ON calificaciones_entrega;
+CREATE TRIGGER trg_auditoria_calificaciones_entrega AFTER INSERT OR UPDATE OR DELETE ON calificaciones_entrega
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_calificacion');
+
+-- Despacho de entregas (lo que sale de la sucursal)
+DROP TRIGGER IF EXISTS trg_auditoria_despacho_entrega ON despacho_entrega;
+CREATE TRIGGER trg_auditoria_despacho_entrega AFTER INSERT OR UPDATE OR DELETE ON despacho_entrega
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_despacho');
+
+DROP TRIGGER IF EXISTS trg_auditoria_detalle_despacho ON detalle_despacho;
+CREATE TRIGGER trg_auditoria_detalle_despacho AFTER INSERT OR UPDATE OR DELETE ON detalle_despacho
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_detalle');
+
+-- Conciliación de entregas (lo que regresa el repartidor)
+DROP TRIGGER IF EXISTS trg_auditoria_conciliacion_entrega ON conciliacion_entrega;
+CREATE TRIGGER trg_auditoria_conciliacion_entrega AFTER INSERT OR UPDATE OR DELETE ON conciliacion_entrega
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_conciliacion');
+
+DROP TRIGGER IF EXISTS trg_auditoria_detalle_conciliacion ON detalle_conciliacion;
+CREATE TRIGGER trg_auditoria_detalle_conciliacion AFTER INSERT OR UPDATE OR DELETE ON detalle_conciliacion
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_detalle');
+
+-- Incidencias durante una entrega
+DROP TRIGGER IF EXISTS trg_auditoria_incidencias_entrega ON incidencias_entrega;
+CREATE TRIGGER trg_auditoria_incidencias_entrega AFTER INSERT OR UPDATE OR DELETE ON incidencias_entrega
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_incidencia');
+
+-- Crédito de clientes
+DROP TRIGGER IF EXISTS trg_auditoria_limites_credito_cliente ON limites_credito_cliente;
+CREATE TRIGGER trg_auditoria_limites_credito_cliente AFTER INSERT OR UPDATE OR DELETE ON limites_credito_cliente
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_limite');
+
+DROP TRIGGER IF EXISTS trg_auditoria_configuracion_credito ON configuracion_credito;
+CREATE TRIGGER trg_auditoria_configuracion_credito AFTER INSERT OR UPDATE OR DELETE ON configuracion_credito
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_config');
+
+-- Seguros médicos de clientes
+DROP TRIGGER IF EXISTS trg_auditoria_polizas ON polizas;
+CREATE TRIGGER trg_auditoria_polizas AFTER INSERT OR UPDATE OR DELETE ON polizas
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_poliza');
+
+DROP TRIGGER IF EXISTS trg_auditoria_autorizaciones_seguro ON autorizaciones_seguro;
+CREATE TRIGGER trg_auditoria_autorizaciones_seguro AFTER INSERT OR UPDATE OR DELETE ON autorizaciones_seguro
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_autorizacion');
+
+-- Órdenes de compra (antes de que se conviertan en una compra recibida)
+DROP TRIGGER IF EXISTS trg_auditoria_ordenes_compra ON ordenes_compra;
+CREATE TRIGGER trg_auditoria_ordenes_compra AFTER INSERT OR UPDATE OR DELETE ON ordenes_compra
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_orden');
+
+DROP TRIGGER IF EXISTS trg_auditoria_detalle_orden_compra ON detalle_orden_compra;
+CREATE TRIGGER trg_auditoria_detalle_orden_compra AFTER INSERT OR UPDATE OR DELETE ON detalle_orden_compra
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_detalle');
+
 
 -- =============================================================================
 -- PATCH 9/9 — CATÁLOGO DE MÓDULOS Y PERMISOS (estaban completamente vacíos,
@@ -4057,3 +4141,151 @@ INSERT INTO rol_permiso (id_rol, id_permiso)
 SELECT r.id_rol, p.id_permiso FROM roles r, permisos p
 WHERE p.nombre = 'agendas_repartidores' AND r.nombre = 'Administrador'
 ON CONFLICT DO NOTHING;
+
+-- =============================================================================
+-- PATCH 16/16 — Redespacho tras entrega PARCIAL: una entrega puede pasar por
+-- varias RONDAS de despacho/confirmación hasta quedar completamente
+-- entregada (o fallida/cancelada). despacho_entrega y conciliacion_entrega
+-- dejan de ser "1 fila por entrega" para pasar a "1 fila por RONDA",
+-- conservando el historial completo de qué se despachó y qué se entregó
+-- en cada intento (importante para trazabilidad de medicamentos por lote).
+-- =============================================================================
+
+ALTER TABLE despacho_entrega
+    ADD COLUMN IF NOT EXISTS id_ronda INT NOT NULL DEFAULT 1;
+ALTER TABLE despacho_entrega DROP CONSTRAINT IF EXISTS uq_despacho_entrega;
+ALTER TABLE despacho_entrega DROP CONSTRAINT IF EXISTS uq_despacho_entrega_ronda;
+ALTER TABLE despacho_entrega
+    ADD CONSTRAINT uq_despacho_entrega_ronda UNIQUE (id_entrega, id_ronda);
+
+ALTER TABLE conciliacion_entrega
+    ADD COLUMN IF NOT EXISTS id_ronda INT NOT NULL DEFAULT 1;
+ALTER TABLE conciliacion_entrega DROP CONSTRAINT IF EXISTS uq_conciliacion_entrega;
+ALTER TABLE conciliacion_entrega DROP CONSTRAINT IF EXISTS uq_conciliacion_entrega_ronda;
+ALTER TABLE conciliacion_entrega
+    ADD CONSTRAINT uq_conciliacion_entrega_ronda UNIQUE (id_entrega, id_ronda);
+
+-- =============================================================================
+-- PATCH 17/17 — Preguntas de calificación configurables: el administrador
+-- puede agregar/editar/desactivar las preguntas del formulario que el
+-- cliente llena al calificar su entrega (por estrellas o texto libre), en
+-- vez de tenerlas fijas en el código. Se agrega también una pantalla para
+-- ver todas las calificaciones hechas por los clientes.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS preguntas_calificacion (
+    id_pregunta     SERIAL PRIMARY KEY,
+    categoria       VARCHAR(50)  NOT NULL DEFAULT 'General',
+    texto           VARCHAR(300) NOT NULL,
+    tipo_respuesta  VARCHAR(20)  NOT NULL DEFAULT 'ESTRELLAS' CHECK (tipo_respuesta IN ('ESTRELLAS','TEXTO')),
+    obligatoria     BOOLEAN      NOT NULL DEFAULT TRUE,
+    orden           INT          NOT NULL DEFAULT 0,
+    activo          BOOLEAN      NOT NULL DEFAULT TRUE,
+    fecha_creacion  TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS respuestas_calificacion (
+    id_respuesta      SERIAL PRIMARY KEY,
+    id_calificacion   INT NOT NULL REFERENCES calificaciones_entrega(id_calificacion) ON DELETE CASCADE,
+    id_pregunta       INT REFERENCES preguntas_calificacion(id_pregunta) ON DELETE SET NULL,
+    -- Se guarda una "foto" de la pregunta al momento de responder, para que
+    -- si el administrador la edita o la borra después, la respuesta vieja
+    -- siga mostrando exactamente lo que se le preguntó al cliente ese día.
+    texto_pregunta    VARCHAR(300) NOT NULL,
+    categoria         VARCHAR(50)  NOT NULL DEFAULT 'General',
+    tipo_respuesta    VARCHAR(20)  NOT NULL,
+    valor_estrellas   SMALLINT CHECK (valor_estrellas BETWEEN 1 AND 5),
+    valor_texto       TEXT,
+    fecha_respuesta   TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_respuestas_calificacion_calificacion ON respuestas_calificacion(id_calificacion);
+
+-- Sembrar las preguntas que ya existían fijas en el formulario, para que
+-- el comportamiento no cambie hasta que el administrador decida editarlas.
+-- Solo se siembra si la tabla está completamente vacía (primera vez).
+INSERT INTO preguntas_calificacion (categoria, texto, tipo_respuesta, obligatoria, orden)
+SELECT * FROM (VALUES
+    ('Repartidor',  'Atención y trato',                        'ESTRELLAS', TRUE,  1),
+    ('Medicamento', 'Estado en que llegó el producto',         'ESTRELLAS', TRUE,  2),
+    ('Medicamento', 'Presentación / empaque',                  'ESTRELLAS', TRUE,  3),
+    ('General',     '¿Llegó a tiempo?',                        'ESTRELLAS', TRUE,  4),
+    ('General',     'Calificación general del servicio',       'ESTRELLAS', TRUE,  5),
+    ('General',     '¿Algo más que quieras contarnos?',        'TEXTO',     FALSE, 6)
+) AS v(categoria, texto, tipo_respuesta, obligatoria, orden)
+WHERE NOT EXISTS (SELECT 1 FROM preguntas_calificacion);
+
+-- Permiso para la pantalla nueva "Calificaciones de Clientes" (Delivery)
+INSERT INTO permisos (id_modulo, nombre, accion, tipo_accion)
+SELECT id_modulo, 'calificaciones_clientes', 'ACCESO', 'SUBMODULO' FROM modulos WHERE nombre='Delivery'
+ON CONFLICT (nombre) DO NOTHING;
+
+INSERT INTO rol_permiso (id_rol, id_permiso)
+SELECT r.id_rol, p.id_permiso FROM roles r, permisos p
+WHERE p.nombre = 'calificaciones_clientes' AND r.nombre = 'Administrador'
+ON CONFLICT DO NOTHING;
+
+-- =============================================================================
+-- PATCH 18/18 — Secciones de calificación administrables: "categoría" deja
+-- de ser texto libre por pregunta y pasa a ser su propia tabla
+-- (categorias_calificacion), para que el administrador pueda crear,
+-- renombrar y eliminar secciones completas (por ejemplo: Repartidor,
+-- Producto, Envío), y cada pregunta se asigna a una de esas secciones.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS categorias_calificacion (
+    id_categoria SERIAL PRIMARY KEY,
+    nombre       VARCHAR(50) UNIQUE NOT NULL,
+    orden        INT NOT NULL DEFAULT 0,
+    activo       BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+ALTER TABLE preguntas_calificacion
+    ADD COLUMN IF NOT EXISTS id_categoria INT REFERENCES categorias_calificacion(id_categoria);
+
+-- Sembrar las 3 secciones por defecto, solo si no hay ninguna todavía.
+INSERT INTO categorias_calificacion (nombre, orden)
+SELECT * FROM (VALUES ('Repartidor', 1), ('Producto', 2), ('Envío', 3)) AS v(nombre, orden)
+WHERE NOT EXISTS (SELECT 1 FROM categorias_calificacion);
+
+-- Vincular las preguntas que ya existan (de PATCH 17, con categoría en
+-- texto libre "Repartidor"/"Medicamento"/"General") a la sección nueva
+-- que le corresponde. Si una pregunta ya tiene id_categoria, no se toca.
+UPDATE preguntas_calificacion pc
+SET id_categoria = cc.id_categoria
+FROM categorias_calificacion cc
+WHERE pc.id_categoria IS NULL
+  AND (
+        (pc.categoria = 'Repartidor'  AND cc.nombre = 'Repartidor') OR
+        (pc.categoria = 'Medicamento' AND cc.nombre = 'Producto')   OR
+        (pc.categoria = 'General'     AND cc.nombre = 'Envío')
+      );
+
+-- Cualquier pregunta que se haya quedado sin sección (categoría con un
+-- texto distinto a los 3 casos de arriba) se manda a la primera sección
+-- activa, para que no quede huérfana.
+UPDATE preguntas_calificacion pc
+SET id_categoria = (SELECT id_categoria FROM categorias_calificacion WHERE activo = TRUE ORDER BY orden LIMIT 1)
+WHERE pc.id_categoria IS NULL;
+
+-- =============================================================================
+-- PATCH 19/19 — AUDITORÍA: agregar a la lista de tablas vigiladas el
+-- módulo de calificaciones de clientes (preguntas, secciones y respuestas),
+-- que se agregó en PATCH 17/18 después de que se conectó fn_auditoria_generica
+-- por primera vez, así que se había quedado afuera. También se conecta
+-- set_audit_vars() desde PHP (ver backend/conexion.php) para que estas filas
+-- de auditoría, y las de todo el resto del sistema, queden con el usuario y
+-- la IP real de quien hizo el cambio, en vez de en blanco.
+-- =============================================================================
+
+DROP TRIGGER IF EXISTS trg_auditoria_preguntas_calificacion ON preguntas_calificacion;
+CREATE TRIGGER trg_auditoria_preguntas_calificacion AFTER INSERT OR UPDATE OR DELETE ON preguntas_calificacion
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_pregunta');
+
+DROP TRIGGER IF EXISTS trg_auditoria_categorias_calificacion ON categorias_calificacion;
+CREATE TRIGGER trg_auditoria_categorias_calificacion AFTER INSERT OR UPDATE OR DELETE ON categorias_calificacion
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_categoria');
+
+DROP TRIGGER IF EXISTS trg_auditoria_respuestas_calificacion ON respuestas_calificacion;
+CREATE TRIGGER trg_auditoria_respuestas_calificacion AFTER INSERT OR UPDATE OR DELETE ON respuestas_calificacion
+    FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_respuesta');

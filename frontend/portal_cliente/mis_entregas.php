@@ -81,34 +81,12 @@ $nombre_cliente = $_SESSION['nombre_cliente_portal'] ?? 'Cliente';
         <input type="hidden" id="califIdEntrega">
         <p class="text-muted small">Tu repartidor marcó este pedido como entregado. Confírmalo y cuéntanos cómo te fue — nos ayuda muchísimo.</p>
 
-        <div class="bloque-calif">
-          <strong class="d-block mb-2"><span class="material-symbols-rounded align-middle">two_wheeler</span> El repartidor</strong>
-          <label class="small text-muted d-block mb-1">Atención y trato</label>
-          <div class="estrellas" data-campo="atencion">★★★★★</div>
-        </div>
+        <div id="califPreguntas"><div class="text-center py-3"><div class="spinner-border text-success spinner-border-sm"></div></div></div>
 
-        <div class="bloque-calif">
-          <strong class="d-block mb-2"><span class="material-symbols-rounded align-middle">medication</span> El medicamento</strong>
-          <label class="small text-muted d-block mb-1">Estado en que llegó el producto</label>
-          <div class="estrellas mb-2" data-campo="estado_producto">★★★★★</div>
-          <label class="small text-muted d-block mb-1">Presentación / empaque</label>
-          <div class="estrellas" data-campo="presentacion">★★★★★</div>
+        <div class="form-check form-switch mt-2">
+          <input class="form-check-input" type="checkbox" id="califPersonaCorrecta" checked>
+          <label class="form-check-label small" for="califPersonaCorrecta">Se entregó a la persona correcta</label>
         </div>
-
-        <div class="bloque-calif">
-          <strong class="d-block mb-2"><span class="material-symbols-rounded align-middle">fact_check</span> En general</strong>
-          <label class="small text-muted d-block mb-1">¿Llegó a tiempo?</label>
-          <div class="estrellas mb-2" data-campo="puntualidad">★★★★★</div>
-          <div class="form-check form-switch mb-2">
-            <input class="form-check-input" type="checkbox" id="califPersonaCorrecta" checked>
-            <label class="form-check-label small" for="califPersonaCorrecta">Se entregó a la persona correcta</label>
-          </div>
-          <label class="small text-muted d-block mb-1">Calificación general del servicio</label>
-          <div class="estrellas" data-campo="puntuacion_general">★★★★★</div>
-        </div>
-
-        <label class="small text-muted d-block mb-1">¿Algo más que quieras contarnos? (opcional)</label>
-        <textarea class="form-control" id="califComentario" rows="2"></textarea>
       </div>
       <div class="modal-footer">
         <button class="btn btn-success w-100" onclick="enviarCalificacion()">
@@ -122,27 +100,54 @@ $nombre_cliente = $_SESSION['nombre_cliente_portal'] ?? 'Cliente';
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 let modalCancelar, modalCalificar;
-const puntajes = { atencion: 0, estado_producto: 0, presentacion: 0, puntualidad: 0, puntuacion_general: 0 };
+let preguntasCalifCache = [];   // catálogo activo, traído del servidor
+const respuestasCliente = {};   // id_pregunta -> valor (int 1-5 o string)
 
 document.addEventListener('DOMContentLoaded', () => {
   modalCancelar = new bootstrap.Modal('#modalCancelar');
   modalCalificar = new bootstrap.Modal('#modalCalificar');
   cargar();
   cargarMotivos();
+});
 
-  document.querySelectorAll('.estrellas').forEach(cont => {
-    const campo = cont.dataset.campo;
-    const letras = cont.querySelectorAll(':scope');
-    cont.innerHTML = [1,2,3,4,5].map(i => `<span data-val="${i}">★</span>`).join('');
+function cargarPreguntasCalificacion() {
+  return fetch('../../backend/portal_cliente/listar_preguntas_calificacion.php')
+    .then(r => r.json())
+    .then(data => {
+      preguntasCalifCache = (data.success && data.preguntas) ? data.preguntas : [];
+    });
+}
+
+function renderPreguntasCalificacion() {
+  const grupos = {};
+  preguntasCalifCache.forEach(p => { (grupos[p.categoria] = grupos[p.categoria] || []).push(p); });
+
+  const iconoCategoria = { 'Repartidor': 'two_wheeler', 'Producto': 'medication', 'Medicamento': 'medication', 'Envío': 'local_shipping' };
+
+  const html = Object.entries(grupos).map(([categoria, preguntas]) => `
+    <div class="bloque-calif">
+      <strong class="d-block mb-2"><span class="material-symbols-rounded align-middle">${iconoCategoria[categoria] || 'fact_check'}</span> ${categoria}</strong>
+      ${preguntas.map(p => `
+        <label class="small text-muted d-block mb-1">${p.texto}${p.obligatoria ? '' : ' (opcional)'}</label>
+        ${p.tipo_respuesta === 'ESTRELLAS'
+          ? `<div class="estrellas mb-2" data-id-pregunta="${p.id_pregunta}">${[1,2,3,4,5].map(i => `<span data-val="${i}">★</span>`).join('')}</div>`
+          : `<textarea class="form-control mb-2" rows="2" data-id-pregunta="${p.id_pregunta}" onchange="respuestasCliente[${p.id_pregunta}] = this.value.trim()"></textarea>`}
+      `).join('')}
+    </div>`).join('');
+
+  document.getElementById('califPreguntas').innerHTML = html || '<p class="text-muted small">No hay preguntas configuradas todavía.</p>';
+
+  document.querySelectorAll('#califPreguntas .estrellas').forEach(cont => {
+    const idPregunta = cont.dataset.idPregunta;
     cont.querySelectorAll('span').forEach(sp => {
       sp.addEventListener('click', () => {
         const val = parseInt(sp.dataset.val);
-        puntajes[campo] = val;
+        respuestasCliente[idPregunta] = val;
         cont.querySelectorAll('span').forEach(s2 => s2.classList.toggle('activa', parseInt(s2.dataset.val) <= val));
       });
     });
   });
-});
+}
 
 function cerrarSesion() {
   fetch('../../backend/portal_cliente/logout.php').finally(() => window.location.href = 'login.php');
@@ -227,24 +232,36 @@ function confirmarCancelacion() {
 
 function abrirCalificar(idEntrega) {
   document.getElementById('califIdEntrega').value = idEntrega;
-  document.getElementById('califComentario').value = '';
   document.getElementById('califPersonaCorrecta').checked = true;
-  Object.keys(puntajes).forEach(k => puntajes[k] = 0);
-  document.querySelectorAll('.estrellas span').forEach(s => s.classList.remove('activa'));
+  Object.keys(respuestasCliente).forEach(k => delete respuestasCliente[k]);
+  document.getElementById('califPreguntas').innerHTML = '<div class="text-center py-3"><div class="spinner-border text-success spinner-border-sm"></div></div>';
   modalCalificar.show();
+  cargarPreguntasCalificacion().then(renderPreguntasCalificacion);
 }
 
 function enviarCalificacion() {
-  const faltantes = Object.entries(puntajes).filter(([k,v]) => v === 0);
-  if (faltantes.length) {
-    Swal.fire('Falta calificar', 'Por favor califica todos los bloques con estrellas antes de enviar.', 'warning');
-    return;
+  const respuestas = [];
+  for (const p of preguntasCalifCache) {
+    const valor = respuestasCliente[p.id_pregunta];
+    if (p.tipo_respuesta === 'ESTRELLAS') {
+      if (!valor) {
+        if (p.obligatoria) { Swal.fire('Falta calificar', `Por favor califica: "${p.texto}"`, 'warning'); return; }
+        continue;
+      }
+      respuestas.push({ id_pregunta: p.id_pregunta, valor_estrellas: valor });
+    } else {
+      if (!valor) {
+        if (p.obligatoria) { Swal.fire('Falta responder', `Por favor responde: "${p.texto}"`, 'warning'); return; }
+        continue;
+      }
+      respuestas.push({ id_pregunta: p.id_pregunta, valor_texto: valor });
+    }
   }
+
   const payload = {
     id_entrega: parseInt(document.getElementById('califIdEntrega').value),
-    ...puntajes,
     persona_correcta: document.getElementById('califPersonaCorrecta').checked,
-    comentario: document.getElementById('califComentario').value.trim(),
+    respuestas,
   };
   fetch('../../backend/portal_cliente/confirmar_y_calificar.php', {
     method: 'POST', headers: {'Content-Type':'application/json'},

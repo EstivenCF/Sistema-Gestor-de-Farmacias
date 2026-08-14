@@ -461,7 +461,7 @@ function cargar() {
                 </button>
                 ${puedeActualizar ? `<button class="btn btn-sm btn-outline-warning me-1" onclick='abrirModalAsignar(${e.id_entrega}, "${e.numero_seguimiento}", ${enCola})' title="${enCola ? 'Asignar repartidor' : 'Reasignar a otro repartidor'}"><span class="material-symbols-rounded" style="font-size:1rem;">${enCola ? 'person_add' : 'sync_alt'}</span></button>` : ''}
                 ${puedeActualizar ? `<button class="btn btn-sm btn-outline-primary me-1" onclick="abrirModalEstado(${e.id_entrega})" title="Actualizar estado"><span class="material-symbols-rounded" style="font-size:1rem;">edit</span></button>` : ''}
-                ${e.estado_nombre === 'ASIGNADA' ? `<button class="btn btn-sm btn-outline-success me-1" onclick="abrirModalDespacho(${e.id_entrega})" title="Registrar despacho"><span class="material-symbols-rounded" style="font-size:1rem;">inventory</span></button>` : ''}
+                ${['ASIGNADA','PARCIAL'].includes(e.estado_nombre) ? `<button class="btn btn-sm btn-outline-success me-1" onclick="abrirModalDespacho(${e.id_entrega})" title="${e.estado_nombre === 'PARCIAL' ? 'Despachar lo pendiente' : 'Registrar despacho'}"><span class="material-symbols-rounded" style="font-size:1rem;">inventory</span></button>` : ''}
                 ${e.estado_nombre === 'ENTREGADA' ? `<button class="btn btn-sm btn-outline-success" onclick="abrirModalConciliacion(${e.id_entrega})" title="Conciliar entrega"><span class="material-symbols-rounded" style="font-size:1rem;">fact_check</span></button>` : ''}
           </td>
         </tr>`;
@@ -538,18 +538,24 @@ function abrirModalDespacho(id) {
       }
       const e = data.entrega;
       despachoEntregaActual = id;
-      const filas = (data.productos || []).map((p, i) => `
+      const esRedespacho = (e.ronda_actual || 1) > 1;
+      const productosPendientes = (data.productos || []).filter(p => (p.cantidad_pendiente ?? p.cantidad) > 0);
+      const filas = productosPendientes.map((p, i) => {
+        const pend = p.cantidad_pendiente ?? p.cantidad;
+        return `
         <tr>
           <td class="text-center">${i + 1}</td>
           <td>${p.producto_nombre}</td>
           <td>${p.numero_lote || '—'}</td>
           <td class="text-center">${p.cantidad}</td>
+          <td class="text-center">${pend}</td>
           <td class="text-center">
             <input type="number" class="form-control form-control-sm text-center despacho-cantidad" style="width:80px;margin:0 auto;"
-                   value="${p.cantidad}" min="0" max="${p.cantidad}"
+                   value="${pend}" min="0" max="${pend}"
                    data-id-lote="${p.id_lote || ''}" data-id-producto="${p.id_producto || ''}">
           </td>
-        </tr>`).join('');
+        </tr>`;
+      }).join('');
 
       document.getElementById('despachoBody').innerHTML = `
         <div class="card-d p-3 mb-3" style="background:#f8f9fa;">
@@ -560,9 +566,10 @@ function abrirModalDespacho(id) {
             Fecha: <strong>${new Date().toLocaleDateString('es-DO')}</strong>
           </span>
         </div>
+        ${esRedespacho ? `<div class="alert alert-warning py-2 px-3 mb-3" style="font-size:.82rem;"><span class="material-symbols-rounded align-middle" style="font-size:1rem;">history</span> Esta entrega quedó <strong>Parcial</strong> — este es el despacho de la ronda ${e.ronda_actual}, solo por lo que todavía falta.</div>` : ''}
         <p class="fw-semibold small mb-2"><span class="material-symbols-rounded align-middle" style="font-size:1rem;">inventory_2</span> Productos a Despachar</p>
         <table class="table tabla-despacho mb-3">
-          <thead><tr><th class="text-center">#</th><th>Producto</th><th>Lote</th><th class="text-center">Cant. Pedida</th><th class="text-center">Cant. a Despachar</th></tr></thead>
+          <thead><tr><th class="text-center">#</th><th>Producto</th><th>Lote</th><th class="text-center">Cant. Pedida</th><th class="text-center">Pendiente</th><th class="text-center">Cant. a Despachar</th></tr></thead>
           <tbody>${filas}</tbody>
         </table>
         <label class="form-label small fw-semibold">Observaciones del despacho</label>

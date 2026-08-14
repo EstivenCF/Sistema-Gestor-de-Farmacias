@@ -13,6 +13,12 @@
 //   3. Se guarda el desglose en conciliacion_entrega / detalle_conciliacion
 //      (existían pero no se usaban desde el flujo real) para tener
 //      trazabilidad de qué se confirmó por producto.
+//   4. Redespacho tras PARCIAL: una entrega puede tener varias RONDAS de
+//      despacho/confirmación. Esta ronda solo se evalúa contra lo que de
+//      verdad se despachó en la ronda actual, y el estado final
+//      (ENTREGADA vs PARCIAL) se decide contra el pedido completo menos
+//      todo lo ya entregado en rondas anteriores — así se sabe si con
+//      esta ronda el pedido quedó, por fin, completo.
 
 require_once __DIR__ . '/../conexion.php';
 require_once __DIR__ . '/_auto_asignar.php';
@@ -106,12 +112,17 @@ try {
         }
     }
 
+    // Ronda de despacho que se está confirmando ahora (la más reciente)
+    $stmt = $conexion->prepare("SELECT COALESCE(MAX(id_ronda), 1) FROM despacho_entrega WHERE id_entrega = :id");
+    $stmt->execute([':id' => $id_entrega]);
+    $id_ronda_actual = (int) $stmt->fetchColumn();
+
     if ($esExitosa) {
         if (!empty($prev['cedula_receptor_autorizado']) && trim($prev['cedula_receptor_autorizado']) !== $cedula_receptor) {
             $estado_recepcion = 'EN_DISPUTA';
         }
 
-        // Verdad del servidor: lo realmente pedido, con nombre de producto para el resumen
+        // Verdad del servidor: lo realmente pedido (pedido COMPLETO de la venta)
         $stmt = $conexion->prepare("
             SELECT dv.id_detalle, dv.id_lote, dv.id_producto, dv.cantidad,
                    COALESCE(m.nombre_completo, m.nombre, p.nombre) AS producto_nombre
@@ -127,32 +138,78 @@ try {
             $pedidoReal[$row['id_detalle']] = $row;
         }
 
+        // Lo ya entregado en rondas ANTERIORES (no incluye la de ahora,
+        // porque su conciliación todavía no existe)
+        $stmt = $conexion->prepare("
+            SELECT dc.id_lote, dc.id_producto, SUM(dc.cantidad_entregada) AS entregado
+            FROM detalle_conciliacion dc
+            JOIN conciliacion_entrega ce ON ce.id_conciliacion = dc.id_conciliacion
+            WHERE ce.id_entrega = :id
+            GROUP BY dc.id_lote, dc.id_producto
+        ");
+        $stmt->execute([':id' => $id_entrega]);
+        $entregadoPrevioPorClave = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $clave = $row['id_lote'] !== null ? 'L' . $row['id_lote'] : 'P' . $row['id_producto'];
+            $entregadoPrevioPorClave[$clave] = (int) $row['entregado'];
+        }
+
+        // Lo que de verdad se despachó en ESTA ronda (lo que el repartidor
+        // tiene físicamente en sus manos ahora)
+        $stmt = $conexion->prepare("
+            SELECT dd.id_lote, dd.id_producto, SUM(dd.cantidad_despachada) AS despachado
+            FROM detalle_despacho dd
+            JOIN despacho_entrega de ON de.id_despacho = dd.id_despacho
+            WHERE de.id_entrega = :id AND de.id_ronda = :ronda
+            GROUP BY dd.id_lote, dd.id_producto
+        ");
+        $stmt->execute([':id' => $id_entrega, ':ronda' => $id_ronda_actual]);
+        $despachadoRondaPorClave = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $clave = $row['id_lote'] !== null ? 'L' . $row['id_lote'] : 'P' . $row['id_producto'];
+            $despachadoRondaPorClave[$clave] = (int) $row['despachado'];
+        }
+
         $todoCompleto = true;
         $faltantes = [];
 
-        foreach ($productosInput as $p) {
-            $id_detalle = intval($p['id_detalle'] ?? 0);
-            if (!isset($pedidoReal[$id_detalle])) continue; // ignora líneas que no pertenecen a esta venta
+        foreach ($pedidoReal as $id_detalle => $real) {
+            $clave = $real['id_lote'] !== null ? 'L' . $real['id_lote'] : 'P' . $real['id_producto'];
+            $pedida_total = (int) $real['cantidad'];
+            $entregado_previo = $entregadoPrevioPorClave[$clave] ?? 0;
+            $pendiente_antes = max(0, $pedida_total - $entregado_previo);
+            $despachado_este_round = $despachadoRondaPorClave[$clave] ?? 0;
 
-            $real = $pedidoReal[$id_detalle];
-            $cant_pedida = (int) $real['cantidad'];
-            $cant_entregada = max(0, min($cant_pedida, intval($p['cantidad_entregada'] ?? 0)));
+            // Tope real: nunca más de lo pendiente NI más de lo que se
+            // despachó en esta ronda — jamás lo que mande el navegador.
+            $tope = min($pendiente_antes, $despachado_este_round);
 
-            if ($cant_entregada < $cant_pedida) {
+            $inputLine = null;
+            foreach ($productosInput as $p) {
+                if (intval($p['id_detalle'] ?? 0) === (int) $id_detalle) { $inputLine = $p; break; }
+            }
+            $cant_entregada_round = $inputLine ? max(0, min($tope, intval($inputLine['cantidad_entregada'] ?? 0))) : 0;
+
+            $pendiente_despues = $pendiente_antes - $cant_entregada_round;
+            if ($pendiente_despues > 0) {
                 $todoCompleto = false;
-                $faltantes[] = "{$real['producto_nombre']}: $cant_entregada de $cant_pedida";
+                $faltantes[] = "{$real['producto_nombre']}: " . ($pedida_total - $pendiente_despues) . " de $pedida_total";
             }
 
-            $itemsConciliacion[] = [
-                'id_lote'     => $real['id_lote'],
-                'id_producto' => $real['id_producto'],
-                'pedida'      => $cant_pedida,
-                'entregada'   => $cant_entregada,
-            ];
+            // Solo se guarda en la conciliación de esta ronda lo que tuvo
+            // movimiento en ella (se despachó y/o se reportó entregado ahora)
+            if ($despachado_este_round > 0 || $cant_entregada_round > 0) {
+                $itemsConciliacion[] = [
+                    'id_lote'     => $real['id_lote'],
+                    'id_producto' => $real['id_producto'],
+                    'pedida'      => $despachado_este_round,
+                    'entregada'   => $cant_entregada_round,
+                ];
+            }
         }
 
         if (empty($itemsConciliacion)) {
-            throw new Exception('No se reconoció ningún producto válido de esta venta');
+            throw new Exception('No se reconoció ningún producto válido de esta venta, o no había nada despachado en esta ronda');
         }
 
         // Si no se entregó nada de nada, esto NO es una entrega parcial —
@@ -215,19 +272,20 @@ try {
     $stmt->execute([
         ':id'        => $id_entrega,
         ':id_estado' => $id_estado_nuevo,
-        ':obs'       => $obsFinal ?: "Confirmado por repartidor: $resultado",
+        ':obs'       => $obsFinal ?: "Confirmado por repartidor: $resultado (ronda $id_ronda_actual)",
         ':id_usuario'=> $_SESSION['usuario_id'] ?? ($_SESSION['id_usuario'] ?? null),
     ]);
 
-    // Trazabilidad por producto (solo si hubo entrega, completa o parcial)
+    // Trazabilidad por producto de ESTA ronda (solo si hubo entrega, completa o parcial)
     if ($esExitosa && !empty($itemsConciliacion)) {
         $stmt = $conexion->prepare("
-            INSERT INTO conciliacion_entrega (id_entrega, tiene_diferencia, observaciones_repartidor, estado)
-            VALUES (:id_entrega, :tiene_diferencia, :obs, 'PENDIENTE')
+            INSERT INTO conciliacion_entrega (id_entrega, id_ronda, tiene_diferencia, observaciones_repartidor, estado)
+            VALUES (:id_entrega, :id_ronda, :tiene_diferencia, :obs, 'PENDIENTE')
             RETURNING id_conciliacion
         ");
         $stmt->execute([
             ':id_entrega'      => $id_entrega,
+            ':id_ronda'        => $id_ronda_actual,
             ':tiene_diferencia'=> $es_parcial ? 't' : 'f',
             ':obs'             => $observaciones ?: null,
         ]);
@@ -248,8 +306,10 @@ try {
         }
     }
 
-    // Liberar el vehículo
-    if (!empty($prev['id_vehiculo'])) {
+    // Liberar el vehículo — solo en estados verdaderamente finales. Si
+    // quedó PARCIAL, el repartidor todavía tiene que volver por lo que
+    // falta, así que el vehículo sigue reservado para esa segunda ronda.
+    if (!empty($prev['id_vehiculo']) && $nuevo_estado_nombre !== 'PARCIAL') {
         $stmt = $conexion->prepare("UPDATE vehiculos SET estado = 'DISPONIBLE' WHERE id_vehiculo = :id AND estado = 'EN_USO'");
         $stmt->execute([':id' => $prev['id_vehiculo']]);
     }
@@ -277,15 +337,19 @@ try {
     // El repartidor acaba de quedar libre: intentar tomar la entrega
     // más antigua de la cola de espera, si hay alguna. Esto va en su
     // propia transacción — si algo sale mal aquí, NO afecta el éxito
-    // de la confirmación que ya se guardó arriba.
+    // de la confirmación que ya se guardó arriba. Si quedó PARCIAL, el
+    // repartidor NO está libre todavía (debe volver por lo pendiente),
+    // así que no se le asigna nada nuevo de la cola.
     $asignacionAutomatica = null;
-    try {
-        $conexion->beginTransaction();
-        $asignacionAutomatica = intentarAutoAsignarDesdeCola($conexion, (int)$prev['id_repartidor']);
-        $conexion->commit();
-    } catch (Exception $eAuto) {
-        if ($conexion->inTransaction()) $conexion->rollBack();
-        // No se propaga: la confirmación de arriba ya es válida.
+    if ($nuevo_estado_nombre !== 'PARCIAL') {
+        try {
+            $conexion->beginTransaction();
+            $asignacionAutomatica = intentarAutoAsignarDesdeCola($conexion, (int)$prev['id_repartidor']);
+            $conexion->commit();
+        } catch (Exception $eAuto) {
+            if ($conexion->inTransaction()) $conexion->rollBack();
+            // No se propaga: la confirmación de arriba ya es válida.
+        }
     }
 
     echo json_encode([

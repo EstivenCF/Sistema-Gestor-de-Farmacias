@@ -43,7 +43,10 @@ try {
         ? ($tiene_diferencia ? 'REQUERIDO_AJUSTE' : 'VALIDADO')
         : 'RECHAZADO';
 
-    $stmtChk = $conexion->prepare("SELECT id_conciliacion FROM conciliacion_entrega WHERE id_entrega = :id");
+    // Si hubo varias rondas (por una entrega Parcial redespachada), se
+    // valida/cierra siempre la de la ÚLTIMA ronda — la que de verdad
+    // terminó el pedido.
+    $stmtChk = $conexion->prepare("SELECT id_conciliacion FROM conciliacion_entrega WHERE id_entrega = :id ORDER BY id_ronda DESC LIMIT 1");
     $stmtChk->execute([':id' => $id_entrega]);
     $id_conciliacion = $stmtChk->fetchColumn();
 

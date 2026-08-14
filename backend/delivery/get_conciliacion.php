@@ -20,22 +20,30 @@ if (!$id_entrega) {
 }
 
 try {
+    // Una entrega puede tener varias RONDAS de despacho/conciliación si
+    // pasó por una entrega Parcial y se redespachó lo pendiente. Aquí se
+    // toma siempre la ÚLTIMA ronda (la que terminó de cerrar el pedido),
+    // en vez de una fila cualquiera sin orden definido.
     $stmt = $conexion->prepare("
         SELECT
             e.id_entrega, e.numero_seguimiento, e.fecha_entrega_real, e.nombre_quien_recibe,
             se.nombre AS estado_nombre,
             r.nombre AS repartidor_nombre,
             v.tipo AS vehiculo_tipo, v.placa AS vehiculo_placa,
-            de.id_despacho, de.fecha_despacho,
+            de.id_despacho, de.fecha_despacho, de.id_ronda AS ronda,
             cu.nombre AS despachado_por,
             ce.id_conciliacion, ce.estado AS estado_conciliacion, ce.observaciones_repartidor
         FROM entregas e
         JOIN estado_entrega se ON se.id_estado = e.id_estado
         LEFT JOIN repartidores r ON r.id_repartidor = e.id_repartidor
         LEFT JOIN vehiculos v ON v.id_vehiculo = e.id_vehiculo
-        LEFT JOIN despacho_entrega de ON de.id_entrega = e.id_entrega
+        LEFT JOIN LATERAL (
+            SELECT * FROM despacho_entrega WHERE id_entrega = e.id_entrega ORDER BY id_ronda DESC LIMIT 1
+        ) de ON true
         LEFT JOIN usuarios cu ON cu.id_usuario = de.id_usuario_cajero
-        LEFT JOIN conciliacion_entrega ce ON ce.id_entrega = e.id_entrega
+        LEFT JOIN LATERAL (
+            SELECT * FROM conciliacion_entrega WHERE id_entrega = e.id_entrega ORDER BY id_ronda DESC LIMIT 1
+        ) ce ON true
         WHERE e.id_entrega = :id
     ");
     $stmt->execute([':id' => $id_entrega]);

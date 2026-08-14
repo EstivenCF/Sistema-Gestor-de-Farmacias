@@ -381,6 +381,10 @@ foreach ($todos_permisos_catalogo as $p) {
                                                 <label class="form-check-label small" for="perm_agendas_repartidores">Agendas de Repartidores (admin)</label>
                                             </div>
                                             <div class="form-check form-switch mb-1">
+                                                <input class="form-check-input subpermiso-switch" type="checkbox" data-permiso="calificaciones_clientes" id="perm_calificaciones_clientes" <?php echo isset($permisos_actuales_map['calificaciones_clientes']) ? 'checked' : ''; ?>>
+                                                <label class="form-check-label small" for="perm_calificaciones_clientes">Calificaciones de Clientes (admin)</label>
+                                            </div>
+                                            <div class="form-check form-switch mb-1">
                                                 <input class="form-check-input subpermiso-switch" type="checkbox" data-permiso="repartidores" id="perm_repartidores" <?php echo isset($permisos_actuales_map['repartidores']) ? 'checked' : ''; ?>>
                                                 <label class="form-check-label small" for="perm_repartidores">Repartidores</label>
                                             </div>

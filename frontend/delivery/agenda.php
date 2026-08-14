@@ -207,6 +207,7 @@ function abrirDetalle(id) {
         id_detalle: p.id_detalle,
         producto_nombre: p.producto_nombre || 'Producto',
         cantidad: parseInt(p.cantidad),
+        cantidad_pendiente: parseInt(p.cantidad_pendiente ?? p.cantidad),
       }));
       document.getElementById('metSeguimiento').textContent = entregaActual.numero_seguimiento || 'Detalle de la entrega';
       renderModalEntrega();
@@ -393,10 +394,10 @@ function renderTablaCantidades() {
     <div class="met-cant-row">
       <div style="font-size:.8rem;">
         <div class="fw-semibold">${p.producto_nombre}</div>
-        <div class="text-muted">Pedido: ${p.cantidad} uds.</div>
+        <div class="text-muted">Pedido: ${p.cantidad} uds.${p.cantidad_pendiente < p.cantidad ? ' (pendiente: ' + p.cantidad_pendiente + ')' : ''}</div>
       </div>
       <input type="number" class="form-control form-control-sm" style="width:80px;" id="cant_${i}"
-             min="0" max="${p.cantidad}" value="${p.cantidad}" oninput="verificarParcial()">
+             min="0" max="${p.cantidad_pendiente}" value="${p.cantidad_pendiente}" oninput="verificarParcial()">
     </div>`).join('');
   document.getElementById('tablaCantidades').innerHTML = rows;
   verificarParcial();
@@ -409,10 +410,10 @@ function verificarParcial() {
     if (!inp) return;
     let val = parseInt(inp.value);
     if (isNaN(val) || val < 0) val = 0;
-    if (val > p.cantidad) val = p.cantidad;
+    if (val > p.cantidad_pendiente) val = p.cantidad_pendiente;
     inp.value = val;
     totalEntregado += val;
-    if (val < p.cantidad) hayParcial = true;
+    if (val < p.cantidad_pendiente) hayParcial = true;
   });
   const hint = document.getElementById('hintParcial');
   if (totalEntregado === 0) {
@@ -465,7 +466,7 @@ function confirmarResultadoEntrega() {
     payload.cedula_receptor = cedula_receptor;
     payload.observaciones = document.getElementById('observaciones').value.trim();
     payload.productos = productos;
-    tituloConfirm = productos.some((p, i) => p.cantidad_entregada < productosActual[i].cantidad) ? '¿Confirmar entrega parcial?' : '¿Confirmar entrega completa?';
+    tituloConfirm = productos.some((p, i) => p.cantidad_entregada < productosActual[i].cantidad_pendiente) ? '¿Confirmar entrega parcial?' : '¿Confirmar entrega completa?';
   }
 
   Swal.fire({

@@ -11,6 +11,12 @@
 //      (lotes se relaciona con medicamentos, no con productos).
 //   Además consultaba tablas huérfanas (despacho_entrega,
 //   agenda_delivery_entrega) que ya no se usan en el flujo actual.
+//
+// ACTUALIZACIÓN — Redespacho tras entrega PARCIAL: cada producto ahora
+// trae también "cantidad_pendiente" (lo pedido menos lo ya entregado en
+// rondas anteriores) y la entrega trae "ronda_actual", para que las
+// pantallas de despacho y de confirmación de resultado usen SIEMPRE lo
+// que de verdad falta, no el total original del pedido.
 
 require_once __DIR__ . '/../conexion.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
@@ -36,6 +42,7 @@ try {
             e.nombre_quien_recibe, e.identificacion_quien_recibe,
             e.observaciones, e.comentario_cliente, e.calificacion,
             e.cancelado_por, e.comentario_cancelacion, e.confirmado_por_cliente,
+            e.motivo_interrupcion, e.detalle_parcial,
             c.nombre        AS cliente_nombre,
             c.id_cliente,
             r.nombre        AS repartidor_nombre,
@@ -49,7 +56,8 @@ try {
             (SELECT t.numero FROM cliente_telefono ct
              JOIN telefonos t ON t.id_telefono = ct.id_telefono
              WHERE ct.id_cliente = c.id_cliente AND t.activo = TRUE
-             ORDER BY t.id_telefono LIMIT 1) AS cliente_telefono
+             ORDER BY t.id_telefono LIMIT 1) AS cliente_telefono,
+            (SELECT COUNT(*) FROM despacho_entrega de WHERE de.id_entrega = e.id_entrega) + 1 AS ronda_actual
         FROM entregas e
         JOIN clientes c              ON c.id_cliente   = e.id_cliente
         JOIN estado_entrega se       ON se.id_estado   = e.id_estado
@@ -102,6 +110,30 @@ try {
     ");
     $stmt->execute([':id_venta' => $entrega['id_venta']]);
     $productos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Cuánto se ha entregado ya de cada producto, sumando todas las
+    // rondas de conciliación que existan para esta entrega.
+    $stmt = $conexion->prepare("
+        SELECT dc.id_lote, dc.id_producto, SUM(dc.cantidad_entregada) AS entregado
+        FROM detalle_conciliacion dc
+        JOIN conciliacion_entrega ce ON ce.id_conciliacion = dc.id_conciliacion
+        WHERE ce.id_entrega = :id
+        GROUP BY dc.id_lote, dc.id_producto
+    ");
+    $stmt->execute([':id' => $id_entrega]);
+    $entregadoPorClave = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $clave = $row['id_lote'] !== null ? 'L' . $row['id_lote'] : 'P' . $row['id_producto'];
+        $entregadoPorClave[$clave] = (int) $row['entregado'];
+    }
+
+    foreach ($productos as &$p) {
+        $clave = $p['id_lote'] !== null ? 'L' . $p['id_lote'] : 'P' . $p['id_producto'];
+        $entregado_previo = $entregadoPorClave[$clave] ?? 0;
+        $p['cantidad_entregada_previa'] = $entregado_previo;
+        $p['cantidad_pendiente'] = max(0, (int) $p['cantidad'] - $entregado_previo);
+    }
+    unset($p);
 
     // Historial de cambios de estado de esta entrega
     $stmt = $conexion->prepare("

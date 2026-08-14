@@ -57,7 +57,7 @@ $menu_por_rol = [
             'detalle_riesgo_lote', 'generar_accion_recuperacion', 'redistribuir_stock_riesgo', 'diagnostico_causa_raiz'], // NUEVO: proceso estratégico de vencimientos (Tarea 5)
         'compras' => ['registrar_compra', 'historial_compras', 'proveedores', 'recepcion'],
         'clientes' => ['clientes'],
-        'delivery' => ['repartidores', 'entrega', 'vehiculos', 'agendas_repartidores'],
+        'delivery' => ['repartidores', 'entrega', 'vehiculos', 'agendas_repartidores', 'calificaciones_clientes'],
         'caja' => ['apertura_caja', 'cierre_caja', 'movimientos_caja'],
         'ropa' => ['gestion_ropa', 'tipo_ropa', 'marcas', 'fabricantes', 'colores', 'tallas'],
         'administracion' => ['sucursales', 'empresa', 'usuarios', 'consulta_usuarios', 'roles', 'permisos_usuarios', 'desbloquear_usuarios', 'configuracion', 'ofertas', 'seguros_medicos'],
@@ -214,7 +214,7 @@ $MAPA_PERMISO_A_CATEGORIA = [
     'medicamentos' => 'inventario', 'categorias' => 'inventario', 'lotes' => 'inventario', 'stock' => 'inventario', 'vencimientos' => 'inventario',
     'registrar_compra' => 'compras', 'historial_compras' => 'compras', 'proveedores' => 'compras',
     'clientes_lista' => 'clientes', 'historial_cliente' => 'clientes',
-    'repartidores' => 'delivery', 'entregas' => 'delivery', 'vehiculos' => 'delivery', 'tracking' => 'delivery', 'incidencias_delivery' => 'delivery', 'agendas_repartidores' => 'delivery',
+    'repartidores' => 'delivery', 'entregas' => 'delivery', 'vehiculos' => 'delivery', 'tracking' => 'delivery', 'incidencias_delivery' => 'delivery', 'agendas_repartidores' => 'delivery', 'calificaciones_clientes' => 'delivery',
     'apertura_caja' => 'caja', 'cierre_caja' => 'caja',
     'gestion_ropa' => 'ropa', 'tipo_ropa' => 'ropa', 'marcas' => 'ropa', 'fabricantes' => 'ropa', 'colores' => 'ropa', 'tallas' => 'ropa',
     'sucursales' => 'administracion', 'empresa' => 'administracion', 'usuarios' => 'administracion', 'roles' => 'administracion',
@@ -637,6 +637,9 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                                 <?php endif; ?>
                                 <?php if (tieneAccesoModulo($rol_usuario, 'agendas_repartidores')): ?>
                                     <li><a href="menuprincipal.php?mod=agendas_repartidores" class="nav-link dropdown-link"><span class="material-symbols-rounded">group</span> Agendas de Repartidores</a></li>
+                                <?php endif; ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'calificaciones_clientes')): ?>
+                                    <li><a href="menuprincipal.php?mod=calificaciones_clientes" class="nav-link dropdown-link"><span class="material-symbols-rounded">reviews</span> Calificaciones de Clientes</a></li>
                                 <?php endif; ?>
                                 <?php if (tieneAccesoModulo($rol_usuario, 'repartidores')): ?>
                                     <li><a href="menuprincipal.php?mod=repartidores" class="nav-link dropdown-link"><span class="material-symbols-rounded">person</span> Repartidores</a></li>

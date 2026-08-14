@@ -46,10 +46,27 @@ try {
                   AND se.nombre IN ('PENDIENTE','ASIGNADA','EN_CAMINO')
             ) AS entregas_activas,
             (
-                SELECT ROUND(AVG(ce.puntuacion_general)::numeric, 1)
-                FROM calificaciones_entrega ce
-                JOIN entregas e ON e.id_entrega = ce.id_entrega
-                WHERE e.id_repartidor = r.id_repartidor
+                -- Promedio general del repartidor: combina calificaciones
+                -- viejas (columna fija puntuacion_general) con las nuevas
+                -- (preguntas configurables de categoria General por
+                -- estrellas), para no perder el historial al cambiar de
+                -- sistema.
+                SELECT ROUND(AVG(valor)::numeric, 1) FROM (
+                    -- Legado: el campo atencion era especificamente la nota del
+                    -- repartidor en el formulario viejo.
+                    SELECT ce.atencion AS valor
+                    FROM calificaciones_entrega ce
+                    JOIN entregas e ON e.id_entrega = ce.id_entrega
+                    WHERE e.id_repartidor = r.id_repartidor AND ce.atencion IS NOT NULL
+                    UNION ALL
+                    -- Nuevo: cualquier pregunta de estrellas de la seccion Repartidor
+                    SELECT rc.valor_estrellas AS valor
+                    FROM respuestas_calificacion rc
+                    JOIN calificaciones_entrega ce ON ce.id_calificacion = rc.id_calificacion
+                    JOIN entregas e ON e.id_entrega = ce.id_entrega
+                    WHERE e.id_repartidor = r.id_repartidor
+                      AND rc.categoria = 'Repartidor' AND rc.tipo_respuesta = 'ESTRELLAS'
+                ) prom
             ) AS calificacion_promedio,
             (
                 SELECT COUNT(*)

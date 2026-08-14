@@ -436,7 +436,7 @@ function exportarPDF() {
     body: ultimoResultado.repartidores.map(r => [
       r.nombre,
       vehiculosSegunLicencia(r.habilidades),
-      calificacionSimulada(r.id_repartidor).toFixed(1) + ' / 5',
+      (r.calificacion_promedio ? parseFloat(r.calificacion_promedio).toFixed(1) : 'Sin calificaciones') + (r.calificacion_promedio ? ' / 5' : ''),
       ESTADO_LABEL[r.estado_actual] || r.estado_actual,
       r.entregas_filtro,
     ]),

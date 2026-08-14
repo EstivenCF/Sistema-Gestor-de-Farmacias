@@ -8,6 +8,8 @@ if (!isset($rol_usuario) || $rol_usuario !== 'Administrador') {
     exit;
 }
 
+$base_url = '/sistema-gestor-de-farmacias';
+
 // Procesar guardado de configuración
 $mensaje = '';
 $tipo_mensaje = '';
@@ -980,6 +982,48 @@ function getConfig($clave, $default = '') {
                     </div>
                 </div>
             </div>
+
+            <!-- Preguntas del formulario de calificación (independiente del
+                 form principal de esta página: tiene sus propios botones y
+                 sus propias llamadas al servidor, para no mezclarse con el
+                 guardado de "Configuración del Sistema"). -->
+            <div class="row mt-3">
+                <div class="col-12">
+                    <div class="config-card">
+                        <div class="config-card-header d-flex justify-content-between align-items-center">
+                            <h5><i class="fas fa-layer-group"></i> Secciones del Formulario de Calificación</h5>
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="abrirModalCategoria()">
+                                <i class="fas fa-plus me-1"></i> Agregar sección
+                            </button>
+                        </div>
+                        <div class="config-card-body">
+                            <p class="text-muted small mb-2">Las secciones agrupan las preguntas del formulario (por ejemplo: Repartidor, Producto, Envío). Puedes crear secciones nuevas, renombrarlas o eliminarlas — para eliminar una sección primero tiene que quedar sin preguntas.</p>
+                            <div id="listaCategoriasCalif" class="d-flex flex-wrap gap-2">
+                                <div class="text-center py-2"><i class="fas fa-spinner fa-spin"></i></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mt-3">
+                <div class="col-12">
+                    <div class="config-card">
+                        <div class="config-card-header d-flex justify-content-between align-items-center">
+                            <h5><i class="fas fa-star"></i> Preguntas del Formulario de Calificación de Clientes</h5>
+                            <button type="button" class="btn btn-sm btn-primary" onclick="abrirModalPregunta()">
+                                <i class="fas fa-plus me-1"></i> Agregar pregunta
+                            </button>
+                        </div>
+                        <div class="config-card-body">
+                            <p class="text-muted small mb-3">Estas son las preguntas que el cliente ve al calificar una entrega, agrupadas por sección. Puedes cambiar el texto, el tipo de respuesta (estrellas o texto libre), el orden, si es obligatoria, y desactivar las que ya no quieras usar.</p>
+                            <div id="tablaPreguntasCalif">
+                                <div class="text-center py-3"><i class="fas fa-spinner fa-spin"></i></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
         
         <!-- Pestaña: Apariencia -->
@@ -1019,7 +1063,85 @@ function getConfig($clave, $default = '') {
     </form>
 </div>
 
+<!-- MODAL: agregar/editar pregunta de calificación (independiente del form principal) -->
+<div class="modal fade" id="modalPreguntaCalif" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="tituloModalPregunta">Nueva pregunta</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="pcIdPregunta">
+        <div class="mb-3">
+          <label class="form-label">Sección</label>
+          <select id="pcCategoria" class="form-select"></select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Texto de la pregunta</label>
+          <textarea id="pcTexto" class="form-control" rows="2" placeholder="Ej: ¿Cómo fue la atención del repartidor?"></textarea>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Tipo de respuesta</label>
+          <select id="pcTipo" class="form-select">
+            <option value="ESTRELLAS">Estrellas (1 a 5)</option>
+            <option value="TEXTO">Texto libre</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Orden (las preguntas se muestran de menor a mayor)</label>
+          <input type="number" id="pcOrden" class="form-control" value="0" min="0">
+        </div>
+        <div class="form-check form-switch mb-2">
+          <input class="form-check-input" type="checkbox" id="pcObligatoria" checked>
+          <label class="form-check-label" for="pcObligatoria">Obligatoria</label>
+        </div>
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="pcActivo" checked>
+          <label class="form-check-label" for="pcActivo">Activa (visible para los clientes)</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" onclick="guardarPreguntaCalif()">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: agregar/editar sección de calificación -->
+<div class="modal fade" id="modalCategoriaCalif" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="tituloModalCategoria">Nueva sección</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="ccIdCategoria">
+        <div class="mb-3">
+          <label class="form-label">Nombre de la sección</label>
+          <input type="text" id="ccNombre" class="form-control" placeholder="Ej: Repartidor, Producto, Envío">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Orden</label>
+          <input type="number" id="ccOrden" class="form-control" value="0" min="0">
+        </div>
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="ccActivo" checked>
+          <label class="form-check-label" for="ccActivo">Activa</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" onclick="guardarCategoriaCalif()">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
+const BASE_URL = '<?php echo $base_url; ?>';
     // Manejo de pestañas
     document.querySelectorAll('.config-tab').forEach(tab => {
         tab.addEventListener('click', function() {
@@ -1043,4 +1165,234 @@ function getConfig($clave, $default = '') {
     document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
         new bootstrap.Tooltip(el);
     });
+</script>
+
+<script>
+// ══════════════ Secciones y preguntas del formulario de calificación ══════════════
+// Independiente del <form id="configForm"> de arriba: tiene sus propios
+// botones (type="button") y sus propias llamadas fetch, para no mezclarse
+// con el guardado de "Configuración del Sistema".
+let modalPreguntaCalif, modalCategoriaCalif;
+let preguntasCalifCache = [];
+let categoriasCalifCache = [];
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Esta pantalla se carga DENTRO de menuprincipal.php, y estos modales
+    // quedan anidados en el contenedor del módulo. Si algún ancestro tiene
+    // CSS "transform" (frecuente en layouts con sidebar animado), el
+    // "position: fixed" de Bootstrap se rompe y el modal sale cortado /
+    // fuera de centro en vez de cubrir toda la pantalla. Se soluciona
+    // moviendo el modal para que sea hijo directo de <body>.
+    [document.getElementById('modalPreguntaCalif'), document.getElementById('modalCategoriaCalif')].forEach(el => {
+        if (el && el.parentElement !== document.body) document.body.appendChild(el);
+    });
+    modalPreguntaCalif = new bootstrap.Modal('#modalPreguntaCalif');
+    modalCategoriaCalif = new bootstrap.Modal('#modalCategoriaCalif');
+    cargarCategoriasCalif().then(cargarPreguntasCalif);
+});
+
+// ---------- Secciones (categorías) ----------
+
+function cargarCategoriasCalif() {
+    return fetch(BASE_URL + '/backend/administracion/listar_categorias_calificacion.php')
+        .then(r => r.json())
+        .then(data => {
+            const cont = document.getElementById('listaCategoriasCalif');
+            if (!data.success) { cont.innerHTML = `<div class="alert alert-danger">${data.message}</div>`; return; }
+            categoriasCalifCache = data.categorias;
+            if (!categoriasCalifCache.length) {
+                cont.innerHTML = '<p class="text-muted small mb-0">No hay secciones todavía. Agrega la primera.</p>';
+                return;
+            }
+            cont.innerHTML = categoriasCalifCache.map(c => `
+                <span class="badge ${c.activo ? 'bg-primary' : 'bg-secondary'} d-flex align-items-center gap-2" style="font-size:.85rem;padding:.5em .8em;">
+                    ${c.nombre} <small class="opacity-75">(${c.total_preguntas})</small>
+                    <i class="fas fa-edit" style="cursor:pointer;" onclick="editarCategoriaCalif(${c.id_categoria})" title="Editar"></i>
+                    <i class="fas fa-trash" style="cursor:pointer;" onclick="eliminarCategoriaCalif(${c.id_categoria})" title="Eliminar"></i>
+                </span>`).join('');
+        })
+        .catch(() => { document.getElementById('listaCategoriasCalif').innerHTML = '<div class="alert alert-danger">Error de conexión.</div>'; });
+}
+
+function abrirModalCategoria() {
+    document.getElementById('tituloModalCategoria').textContent = 'Nueva sección';
+    document.getElementById('ccIdCategoria').value = '';
+    document.getElementById('ccNombre').value = '';
+    document.getElementById('ccOrden').value = categoriasCalifCache.length ? Math.max(...categoriasCalifCache.map(c => c.orden)) + 1 : 1;
+    document.getElementById('ccActivo').checked = true;
+    modalCategoriaCalif.show();
+}
+
+function editarCategoriaCalif(idCategoria) {
+    const c = categoriasCalifCache.find(x => x.id_categoria === idCategoria);
+    if (!c) return;
+    document.getElementById('tituloModalCategoria').textContent = 'Editar sección';
+    document.getElementById('ccIdCategoria').value = c.id_categoria;
+    document.getElementById('ccNombre').value = c.nombre;
+    document.getElementById('ccOrden').value = c.orden;
+    document.getElementById('ccActivo').checked = (c.activo === true || c.activo === 't');
+    modalCategoriaCalif.show();
+}
+
+function guardarCategoriaCalif() {
+    const nombre = document.getElementById('ccNombre').value.trim();
+    if (!nombre) { alert('La sección necesita un nombre.'); return; }
+    fetch(BASE_URL + '/backend/administracion/guardar_categoria_calificacion.php', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            id_categoria: document.getElementById('ccIdCategoria').value ? parseInt(document.getElementById('ccIdCategoria').value) : null,
+            nombre: nombre,
+            orden: parseInt(document.getElementById('ccOrden').value || 0),
+            activo: document.getElementById('ccActivo').checked,
+        })
+    }).then(r => r.json()).then(data => {
+        if (data.success) {
+            modalCategoriaCalif.hide();
+            cargarCategoriasCalif().then(cargarPreguntasCalif);
+        } else alert('Error: ' + data.message);
+    }).catch(() => alert('Error de conexión.'));
+}
+
+function eliminarCategoriaCalif(idCategoria) {
+    const c = categoriasCalifCache.find(x => x.id_categoria === idCategoria);
+    if (!c) return;
+    if (!confirm(`¿Eliminar la sección "${c.nombre}"? Solo se puede borrar si ya no tiene preguntas.`)) return;
+    fetch(BASE_URL + '/backend/administracion/eliminar_categoria_calificacion.php', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ id_categoria: idCategoria })
+    }).then(r => r.json()).then(data => {
+        if (data.success) cargarCategoriasCalif().then(cargarPreguntasCalif);
+        else alert('No se pudo eliminar: ' + data.message);
+    }).catch(() => alert('Error de conexión.'));
+}
+
+// ---------- Preguntas ----------
+
+function cargarPreguntasCalif() {
+    fetch(BASE_URL + '/backend/administracion/listar_preguntas_calificacion.php')
+        .then(r => r.json())
+        .then(data => {
+            const cont = document.getElementById('tablaPreguntasCalif');
+            if (!data.success) { cont.innerHTML = `<div class="alert alert-danger">${data.message}</div>`; return; }
+            preguntasCalifCache = data.preguntas;
+
+            if (!categoriasCalifCache.length) {
+                cont.innerHTML = '<p class="text-muted text-center py-3">Primero crea al menos una sección arriba.</p>';
+                return;
+            }
+
+            cont.innerHTML = categoriasCalifCache.map(cat => {
+                const preguntas = preguntasCalifCache.filter(p => p.categoria === cat.nombre);
+                const filas = preguntas.length ? preguntas.map(p => `
+                    <tr class="${!(p.activo === true || p.activo === 't') ? 'table-secondary' : ''}">
+                        <td>${p.orden}</td>
+                        <td>${p.texto}</td>
+                        <td>${p.tipo_respuesta === 'ESTRELLAS' ? '<i class="fas fa-star text-warning"></i> Estrellas' : '<i class="fas fa-align-left"></i> Texto libre'}</td>
+                        <td class="text-center">${(p.obligatoria === true || p.obligatoria === 't') ? '<i class="fas fa-check text-success"></i>' : '<i class="fas fa-minus text-muted"></i>'}</td>
+                        <td class="text-center">
+                            <div class="form-check form-switch d-flex justify-content-center">
+                                <input class="form-check-input" type="checkbox" ${(p.activo === true || p.activo === 't') ? 'checked' : ''} onchange="toggleActivoPregunta(${p.id_pregunta}, this.checked)">
+                            </div>
+                        </td>
+                        <td class="text-center">
+                            <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="editarPreguntaCalif(${p.id_pregunta})" title="Editar"><i class="fas fa-edit"></i></button>
+                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="eliminarPreguntaCalif(${p.id_pregunta})" title="Eliminar"><i class="fas fa-trash"></i></button>
+                        </td>
+                    </tr>`).join('') : `<tr><td colspan="6" class="text-muted text-center small py-2">Sin preguntas en esta sección todavía.</td></tr>`;
+
+                return `
+                    <h6 class="mt-3 mb-2 text-primary">${cat.nombre}</h6>
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-2">
+                            <thead><tr><th style="width:70px;">Orden</th><th>Pregunta</th><th style="width:140px;">Tipo</th><th class="text-center" style="width:100px;">Obligatoria</th><th class="text-center" style="width:80px;">Activa</th><th class="text-center" style="width:70px;">Acción</th></tr></thead>
+                            <tbody>${filas}</tbody>
+                        </table>
+                    </div>`;
+            }).join('');
+        })
+        .catch(() => { document.getElementById('tablaPreguntasCalif').innerHTML = '<div class="alert alert-danger">Error de conexión.</div>'; });
+}
+
+function pobladorCategoriasSelect(seleccionado) {
+    return categoriasCalifCache.map(c => `<option value="${c.id_categoria}" ${c.id_categoria === seleccionado ? 'selected' : ''}>${c.nombre}</option>`).join('');
+}
+
+function abrirModalPregunta() {
+    if (!categoriasCalifCache.length) { alert('Primero crea al menos una sección.'); return; }
+    document.getElementById('tituloModalPregunta').textContent = 'Nueva pregunta';
+    document.getElementById('pcIdPregunta').value = '';
+    document.getElementById('pcCategoria').innerHTML = pobladorCategoriasSelect(categoriasCalifCache[0].id_categoria);
+    document.getElementById('pcTexto').value = '';
+    document.getElementById('pcTipo').value = 'ESTRELLAS';
+    document.getElementById('pcOrden').value = preguntasCalifCache.length ? Math.max(...preguntasCalifCache.map(p => p.orden)) + 1 : 1;
+    document.getElementById('pcObligatoria').checked = true;
+    document.getElementById('pcActivo').checked = true;
+    modalPreguntaCalif.show();
+}
+
+function eliminarPreguntaCalif(idPregunta) {
+    const p = preguntasCalifCache.find(x => x.id_pregunta === idPregunta);
+    if (!p) return;
+    if (!confirm(`¿Eliminar la pregunta "${p.texto}"? Las respuestas que ya dieron los clientes a esta pregunta se conservan, solo deja de aparecer en el formulario.`)) return;
+    fetch(BASE_URL + '/backend/administracion/eliminar_pregunta_calificacion.php', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ id_pregunta: idPregunta })
+    }).then(r => r.json()).then(data => {
+        if (data.success) cargarPreguntasCalif();
+        else alert('No se pudo eliminar: ' + data.message);
+    }).catch(() => alert('Error de conexión.'));
+}
+
+function editarPreguntaCalif(idPregunta) {
+    const p = preguntasCalifCache.find(x => x.id_pregunta === idPregunta);
+    if (!p) return;
+    document.getElementById('tituloModalPregunta').textContent = 'Editar pregunta';
+    document.getElementById('pcIdPregunta').value = p.id_pregunta;
+    document.getElementById('pcCategoria').innerHTML = pobladorCategoriasSelect(p.id_categoria);
+    document.getElementById('pcTexto').value = p.texto;
+    document.getElementById('pcTipo').value = p.tipo_respuesta;
+    document.getElementById('pcOrden').value = p.orden;
+    document.getElementById('pcObligatoria').checked = (p.obligatoria === true || p.obligatoria === 't');
+    document.getElementById('pcActivo').checked = (p.activo === true || p.activo === 't');
+    modalPreguntaCalif.show();
+}
+
+function toggleActivoPregunta(idPregunta, activo) {
+    const p = preguntasCalifCache.find(x => x.id_pregunta === idPregunta);
+    if (!p) return;
+    guardarPreguntaCalifPayload({
+        id_pregunta: p.id_pregunta, id_categoria: p.id_categoria, texto: p.texto,
+        tipo_respuesta: p.tipo_respuesta, obligatoria: (p.obligatoria === true || p.obligatoria === 't'),
+        orden: p.orden, activo: activo,
+    });
+}
+
+function guardarPreguntaCalif() {
+    const texto = document.getElementById('pcTexto').value.trim();
+    if (!texto) { alert('La pregunta necesita un texto.'); return; }
+    guardarPreguntaCalifPayload({
+        id_pregunta: document.getElementById('pcIdPregunta').value ? parseInt(document.getElementById('pcIdPregunta').value) : null,
+        id_categoria: parseInt(document.getElementById('pcCategoria').value),
+        texto: texto,
+        tipo_respuesta: document.getElementById('pcTipo').value,
+        obligatoria: document.getElementById('pcObligatoria').checked,
+        orden: parseInt(document.getElementById('pcOrden').value || 0),
+        activo: document.getElementById('pcActivo').checked,
+    }, true);
+}
+
+function guardarPreguntaCalifPayload(payload, cerrarModal) {
+    fetch(BASE_URL + '/backend/administracion/guardar_pregunta_calificacion.php', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    }).then(r => r.json()).then(data => {
+        if (data.success) {
+            if (cerrarModal) modalPreguntaCalif.hide();
+            cargarPreguntasCalif();
+        } else {
+            alert('Error: ' + data.message);
+            cargarPreguntasCalif(); // por si el switch quedó desincronizado
+        }
+    }).catch(() => alert('Error de conexión.'));
+}
 </script>
