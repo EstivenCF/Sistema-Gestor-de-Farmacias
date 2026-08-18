@@ -28,6 +28,7 @@ $base_url = '/sistema-gestor-de-farmacias';
   .st-REPROGRAMADA{background:#E9D8FD;color:#6B21A8;}
   .st-CANCELADA{background:#F1F1F1;color:#555;}
   .st-FALLIDA{background:#FDEAEA;color:#DC3545;}
+  .st-DEVUELTA{background:#F8D7DA;color:#842029;}
   .empty-state{text-align:center;padding:3rem 1rem;color:#aaa;}
 
   /* ── Modal fusionado de entrega ── */
@@ -142,6 +143,7 @@ const BADGE = {
   'REPROGRAMADA':'<span class="badge-st st-REPROGRAMADA">Reprogramada</span>',
   'CANCELADA':'<span class="badge-st st-CANCELADA">Cancelada</span>',
   'FALLIDA':'<span class="badge-st st-FALLIDA">Fallida</span>',
+  'DEVUELTA':'<span class="badge-st st-DEVUELTA">Devolución</span>',
 };
 
 document.addEventListener('DOMContentLoaded', () => {

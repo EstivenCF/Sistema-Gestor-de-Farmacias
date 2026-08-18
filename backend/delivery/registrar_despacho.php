@@ -36,7 +36,7 @@ try {
     $conexion->beginTransaction();
 
     $stmt = $conexion->prepare("
-        SELECT e.id_entrega, e.id_venta, se.nombre AS estado_actual
+        SELECT e.id_entrega, e.id_venta, e.fecha_asignada, se.nombre AS estado_actual
         FROM entregas e JOIN estado_entrega se ON se.id_estado = e.id_estado
         WHERE e.id_entrega = :id FOR UPDATE OF e
     ");
@@ -61,19 +61,41 @@ try {
         $pedidoPorClave[$clave] = ($pedidoPorClave[$clave] ?? 0) + (int) $row['cantidad'];
     }
 
-    // Cuánto se ha entregado ya, sumando TODAS las rondas anteriores
+    // Cuánto se ha entregado ya, sumando TODAS las rondas anteriores de
+    // este mismo ciclo. Si la entrega fue reabierta tras una devolución
+    // total (fecha_asignada se refresca al reasignar), solo cuenta lo
+    // conciliado DESDE esa fecha — la ronda vieja ya quedó cerrada aparte.
     $stmt = $conexion->prepare("
         SELECT dc.id_lote, dc.id_producto, SUM(dc.cantidad_entregada) AS entregado
         FROM detalle_conciliacion dc
         JOIN conciliacion_entrega ce ON ce.id_conciliacion = dc.id_conciliacion
         WHERE ce.id_entrega = :id
+          AND ce.fecha_conciliacion >= COALESCE(:fecha_asignada::timestamp, '-infinity')
         GROUP BY dc.id_lote, dc.id_producto
     ");
-    $stmt->execute([':id' => $id_entrega]);
+    $stmt->execute([':id' => $id_entrega, ':fecha_asignada' => $entrega['fecha_asignada']]);
     $entregadoPorClave = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $clave = $row['id_lote'] !== null ? 'L' . $row['id_lote'] : 'P' . $row['id_producto'];
         $entregadoPorClave[$clave] = (int) $row['entregado'];
+    }
+
+    // Cuánto ya se registró como devuelto en esta misma ronda — un
+    // producto que el cliente ya devolvió no se puede volver a ofrecer
+    // como "pendiente" para despachar de nuevo en la misma ronda.
+    $stmt = $conexion->prepare("
+        SELECT dd.id_lote, SUM(dd.cantidad) AS devuelto
+        FROM detalle_devolucion dd
+        JOIN devoluciones d ON d.id_devolucion = dd.id_devolucion
+        WHERE d.id_entrega = :id
+          AND d.fecha_solicitud >= COALESCE(:fecha_asignada::timestamp, '-infinity')
+        GROUP BY dd.id_lote
+    ");
+    $stmt->execute([':id' => $id_entrega, ':fecha_asignada' => $entrega['fecha_asignada']]);
+    $devueltoPorLote = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        if ($row['id_lote'] === null) continue;
+        $devueltoPorLote['L' . $row['id_lote']] = (int) $row['devuelto'];
     }
 
     // Próxima ronda de despacho para esta entrega. Se toma el máximo entre
@@ -99,7 +121,8 @@ try {
         $clave = $id_lote !== null && $id_lote !== '' ? 'L' . $id_lote : 'P' . $id_producto;
         $pedida_total = $pedidoPorClave[$clave] ?? 0;
         $entregado_previo = $entregadoPorClave[$clave] ?? 0;
-        $pendiente = max(0, $pedida_total - $entregado_previo);
+        $devuelto_previo = $devueltoPorLote[$clave] ?? 0;
+        $pendiente = max(0, $pedida_total - $entregado_previo - $devuelto_previo);
 
         $cantidad = min($pendiente, intval($l['cantidad_despachada'] ?? 0));
         if ($cantidad <= 0) continue;

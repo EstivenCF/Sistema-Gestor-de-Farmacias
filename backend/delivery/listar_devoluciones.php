@@ -2,6 +2,13 @@
 // backend/delivery/listar_devoluciones.php
 // NUEVO — para la pantalla "Devoluciones" (reemplaza a Tracking).
 // Usa la tabla devoluciones que ya existía en el sistema.
+//
+// ACTUALIZACIÓN: antes esta pantalla mostraba TODAS las devoluciones del
+// sistema (también las que un cajero registra en el mostrador, sin
+// relación con Delivery), porque no había forma de saber cuáles venían
+// de una entrega. Ahora que devoluciones.id_entrega existe (se agregó
+// junto con la función de "Registrar devolución" del repartidor), esta
+// pantalla filtra solo las que de verdad están ligadas a una entrega.
 
 require_once __DIR__ . '/../conexion.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
@@ -14,10 +21,10 @@ if (!isset($_SESSION['id_sesion'])) {
 $busqueda = trim($_GET['q'] ?? '');
 
 try {
-    $where = '';
+    $where = 'WHERE d.id_entrega IS NOT NULL';
     $params = [];
     if ($busqueda !== '') {
-        $where = "WHERE d.numero_documento ILIKE :q OR c.nombre ILIKE :q OR v.numero_documento ILIKE :q";
+        $where .= " AND (d.numero_documento ILIKE :q OR c.nombre ILIKE :q OR v.numero_documento ILIKE :q)";
         $params[':q'] = "%$busqueda%";
     }
 
@@ -29,13 +36,15 @@ try {
             ed.nombre AS estado_nombre,
             c.nombre  AS cliente_nombre,
             v.numero_documento AS venta_documento,
-            u.nombre  AS solicitado_por
+            u.nombre  AS solicitado_por,
+            e.numero_seguimiento AS entrega_seguimiento
         FROM devoluciones d
         LEFT JOIN tipo_devolucion td   ON td.id_tipo   = d.id_tipo
         LEFT JOIN estado_devolucion ed ON ed.id_estado = d.id_estado
         LEFT JOIN clientes c           ON c.id_cliente = d.id_cliente
         LEFT JOIN ventas v             ON v.id_venta   = d.id_venta
         LEFT JOIN usuarios u           ON u.id_usuario = d.id_usuario
+        LEFT JOIN entregas e            ON e.id_entrega = d.id_entrega
         $where
         ORDER BY d.fecha_solicitud DESC
         LIMIT 200

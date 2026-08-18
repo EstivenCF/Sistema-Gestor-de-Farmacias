@@ -57,6 +57,7 @@ function cargar() {
       const rows = data.devoluciones.map(d => `
         <tr>
           <td class="fw-semibold text-primary">${d.numero_documento}</td>
+          <td>${d.entrega_seguimiento || '—'}</td>
           <td>${d.venta_documento || '—'}</td>
           <td>${d.cliente_nombre || 'Consumidor Final'}</td>
           <td><span class="badge-st">${d.tipo_nombre || '—'}</span></td>
@@ -73,7 +74,7 @@ function cargar() {
         </tr>`).join('');
       document.getElementById('tabla').innerHTML = `
         <table class="table table-hover mb-0">
-          <thead><tr><th>Documento</th><th>Factura</th><th>Cliente</th><th>Tipo</th><th>Motivo</th><th>Estado</th><th>Reembolso</th><th>Fecha</th><th>Solicitado por</th><th class="text-center">Detalle</th></tr></thead>
+          <thead><tr><th>Documento</th><th>Seguimiento</th><th>Factura</th><th>Cliente</th><th>Tipo</th><th>Motivo</th><th>Estado</th><th>Reembolso</th><th>Fecha</th><th>Solicitado por</th><th class="text-center">Detalle</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`;
     });
@@ -109,6 +110,7 @@ function verDetalleDevolucion(id) {
       document.getElementById('detalleBody').innerHTML = `
         <div class="row g-2 mb-3" style="font-size:.85rem;">
           <div class="col-6"><strong>Documento:</strong> ${d.numero_documento}</div>
+          <div class="col-6"><strong>Seguimiento (entrega):</strong> ${d.entrega_seguimiento || '—'}</div>
           <div class="col-6"><strong>Factura original:</strong> ${d.venta_documento || '—'}</div>
           <div class="col-6"><strong>Cliente:</strong> ${d.cliente_nombre || 'Consumidor Final'}</div>
           <div class="col-6"><strong>Tipo:</strong> ${d.tipo_nombre || '—'}</div>

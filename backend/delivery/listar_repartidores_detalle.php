@@ -19,7 +19,7 @@ if (!isset($_SESSION['id_sesion'])) {
 }
 
 $filtro = trim($_GET['filtro'] ?? 'ENTREGADA');
-$FILTROS_VALIDOS = ['ENTREGADA','FALLIDA','PARCIAL','INTERRUMPIDA','CANCELADA','REPROGRAMADA','DEVOLUCIONES'];
+$FILTROS_VALIDOS = ['ENTREGADA','FALLIDA','PARCIAL','DEVUELTA','INTERRUMPIDA','CANCELADA','REPROGRAMADA','DEVOLUCIONES'];
 if (!in_array($filtro, $FILTROS_VALIDOS)) $filtro = 'ENTREGADA';
 
 $fecha_inicio = $_GET['fecha_inicio'] ?? date('Y-m-d');

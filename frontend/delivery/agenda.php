@@ -25,6 +25,7 @@ $base_url = '/sistema-gestor-de-farmacias';
   .st-REPROGRAMADA{background:#E9D8FD;color:#6B21A8;}
   .st-CANCELADA{background:#F1F1F1;color:#555;}
   .st-FALLIDA{background:#FDEAEA;color:#DC3545;}
+  .st-DEVUELTA{background:#F8D7DA;color:#842029;}
   .empty-state{text-align:center;padding:3rem 1rem;color:#aaa;}
 
   /* ── Modal fusionado de entrega ── */
@@ -116,9 +117,38 @@ $base_url = '/sistema-gestor-de-farmacias';
   </div>
 </div>
 
+<!-- MODAL: registrar devolución de producto(s) en esta entrega -->
+<div class="modal fade" id="modalDevolucion" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h6 class="modal-title mb-0"><span class="material-symbols-rounded align-middle me-1">assignment_return</span> Registrar devolución</h6>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small">Indica qué producto(s) devolvió el cliente en el momento de la entrega (ej: llegó vencido) y la cantidad. Esto queda registrado como una devolución en Inventario.</p>
+        <label class="fw-semibold mb-2 small">Cantidad devuelta por producto:</label>
+        <div id="tablaDevolucion" class="mb-3"></div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Motivo: <span class="text-danger">*</span></label>
+          <select id="motivoDevolucionSelect" class="form-select form-select-sm"><option value="">Cargando motivos...</option></select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold small">Explicación detallada (opcional):</label>
+          <textarea id="detalleDevolucion" class="form-control form-control-sm" rows="2" placeholder="Ej: el cliente mostró la fecha de vencimiento en la caja"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger btn-sm" onclick="registrarDevolucion()"><span class="material-symbols-rounded align-middle" style="font-size:1rem;">check</span> Registrar devolución</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const BASE_URL = '<?php echo $base_url; ?>';
-let modalEntrega, modalProblema;
+let modalEntrega, modalProblema, modalDevolucion;
 let entregasCache = [];
 let entregaActual = null;   // datos de la entrega abierta en modalEntrega
 let productosActual = [];   // productos de esa entrega (id_detalle, cantidad, producto_nombre)
@@ -133,15 +163,17 @@ const BADGE = {
   'REPROGRAMADA':'<span class="badge-st st-REPROGRAMADA">Reprogramada</span>',
   'CANCELADA':'<span class="badge-st st-CANCELADA">Cancelada</span>',
   'FALLIDA':'<span class="badge-st st-FALLIDA">Fallida</span>',
+  'DEVUELTA':'<span class="badge-st st-DEVUELTA">Devolución</span>',
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-  ['modalEntrega', 'modalProblema'].forEach(id => {
+  ['modalEntrega', 'modalProblema', 'modalDevolucion'].forEach(id => {
     const el = document.getElementById(id);
     if (el && el.parentElement !== document.body) document.body.appendChild(el);
   });
   modalEntrega = new bootstrap.Modal('#modalEntrega');
   modalProblema = new bootstrap.Modal('#modalProblema');
+  modalDevolucion = new bootstrap.Modal('#modalDevolucion');
   cargarAgenda();
   setInterval(cargarAgenda, 60000);
 });
@@ -247,6 +279,11 @@ function renderModalEntrega() {
       <div class="met-info-row"><span class="met-info-label">Dirección:</span><span class="met-info-val">${e.direccion_entrega}${e.barrio_entrega ? ', '+e.barrio_entrega : ''}${e.referencia_entrega ? ' — '+e.referencia_entrega : ''}</span></div>
       ${e.observaciones ? `<div class="met-info-row"><span class="met-info-label">Nota:</span><span class="met-info-val">${e.observaciones}</span></div>` : ''}
       <div class="met-info-row" style="border-bottom:none;"><span class="met-info-label">Productos:</span><div class="met-info-val w-100 mt-1">${productosHtml}</div></div>
+      <div class="d-flex justify-content-end mt-2">
+        <button class="btn btn-outline-danger btn-sm" onclick="abrirModalDevolucion()">
+          <span class="material-symbols-rounded align-middle" style="font-size:1rem;">assignment_return</span> Registrar devolución
+        </button>
+      </div>
     </div>
     <div class="card-d p-3">
       <h6 class="fw-bold text-success mb-2"><span class="material-symbols-rounded align-middle me-1" style="font-size:1.1rem;">map</span>Vista del mapa / dirección</h6>
@@ -289,6 +326,7 @@ function renderPanelDerecho() {
     if (e.nombre_quien_recibe) filas.push(['Recibió', e.nombre_quien_recibe + (e.identificacion_quien_recibe ? ' ('+e.identificacion_quien_recibe+')' : '')]);
     if (e.motivo_fallida_nombre) filas.push(['Motivo', e.motivo_fallida_nombre]);
     if (e.motivo_cancelacion_nombre) filas.push(['Motivo de cancelación', e.motivo_cancelacion_nombre]);
+    if (e.detalle_parcial) filas.push(['Detalle', e.detalle_parcial]);
     if (e.calificacion) filas.push(['Calificación del cliente', '★'.repeat(e.calificacion)]);
     cont.innerHTML = `
       <div class="card-d p-3">
@@ -486,6 +524,87 @@ function confirmarResultadoEntrega() {
         cargarAgenda();
       } else Swal.fire('Error', data.message, 'error');
     }).catch(() => Swal.fire('Error', 'Error de conexión.', 'error'));
+  });
+}
+
+// ══════════════ Modal: registrar devolución en la entrega ══════════════
+
+function abrirModalDevolucion() {
+  if (!productosActual.length) {
+    Swal.fire('Sin productos', 'Esta entrega no tiene productos para devolver.', 'info');
+    return;
+  }
+  const rows = productosActual.map((p, i) => `
+    <div class="met-cant-row">
+      <div style="font-size:.8rem;">
+        <div class="fw-semibold">${p.producto_nombre}</div>
+        <div class="text-muted">Pedido: ${p.cantidad} uds.</div>
+      </div>
+      <input type="number" class="form-control form-control-sm" style="width:80px;" id="devcant_${i}"
+             min="0" max="${p.cantidad}" value="0">
+    </div>`).join('');
+  document.getElementById('tablaDevolucion').innerHTML = rows;
+  document.getElementById('detalleDevolucion').value = '';
+  document.getElementById('motivoDevolucionSelect').innerHTML = '<option value="">Cargando motivos...</option>';
+  cargarMotivosDevolucion();
+  modalDevolucion.show();
+}
+
+function cargarMotivosDevolucion() {
+  fetch(BASE_URL + '/backend/delivery/listar_motivos_devolucion_delivery.php').then(r=>r.json()).then(data => {
+    const sel = document.getElementById('motivoDevolucionSelect');
+    if (!sel) return;
+    if (!data.success || !data.motivos.length) { sel.innerHTML = '<option value="">No se pudieron cargar</option>'; return; }
+    sel.innerHTML = '<option value="">Selecciona un motivo...</option>' + data.motivos.map(m => `<option value="${m.id_motivo}">${m.nombre}</option>`).join('');
+  });
+}
+
+function registrarDevolucion() {
+  const id_motivo = document.getElementById('motivoDevolucionSelect').value;
+  if (!id_motivo) { Swal.fire('Falta información', 'Selecciona el motivo de la devolución.', 'warning'); return; }
+
+  const items = productosActual.map((p, i) => ({
+    id_detalle: p.id_detalle,
+    cantidad: parseInt(document.getElementById('devcant_' + i)?.value || 0)
+  })).filter(i => i.cantidad > 0);
+
+  if (!items.length) { Swal.fire('Falta información', 'Indica la cantidad de al menos un producto devuelto.', 'warning'); return; }
+
+  const detalle = document.getElementById('detalleDevolucion').value.trim();
+
+  Swal.fire({ title: '¿Registrar esta devolución?', text: 'Esta acción quedará registrada en Inventario > Devoluciones.', icon: 'warning', showCancelButton: true, confirmButtonText: 'Sí, registrar', cancelButtonText: 'Cancelar', confirmButtonColor: '#DC3545' })
+  .then(r => {
+    if (!r.isConfirmed) return;
+    fetch(BASE_URL + '/backend/delivery/registrar_devolucion_entrega.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_entrega: entregaActual.id_entrega, id_motivo: parseInt(id_motivo), detalle, items })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        modalDevolucion.hide();
+        if (data.entrega_cerrada) {
+          // No quedó nada pendiente por confirmar — el cliente devolvió
+          // todo el pedido, así que la entrega se cerró sola.
+          modalEntrega.hide();
+          Swal.fire({
+            title: '¡Devolución registrada!',
+            text: `Documento ${data.numero_documento}. Como el cliente devolvió todo el pedido, la entrega se cerró automáticamente.`,
+            icon: 'success',
+          });
+          cargarAgenda();
+        } else {
+          // Todavía queda algo pendiente por confirmar en esta entrega —
+          // se refresca el detalle para que las cantidades disponibles ya
+          // no incluyan lo que se acaba de devolver.
+          Swal.fire({title: '¡Devolución registrada!', text: `Documento ${data.numero_documento} — quedó en Inventario > Devoluciones para su aprobación.`, icon: 'success', timer: 2500, showConfirmButton: false});
+          abrirDetalle(entregaActual.id_entrega);
+        }
+      } else {
+        Swal.fire('Error', data.message, 'error');
+      }
+    })
+    .catch(() => Swal.fire('Error', 'Error de conexión.', 'error'));
   });
 }
 

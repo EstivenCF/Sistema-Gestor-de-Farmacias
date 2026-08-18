@@ -4289,3 +4289,55 @@ CREATE TRIGGER trg_auditoria_categorias_calificacion AFTER INSERT OR UPDATE OR D
 DROP TRIGGER IF EXISTS trg_auditoria_respuestas_calificacion ON respuestas_calificacion;
 CREATE TRIGGER trg_auditoria_respuestas_calificacion AFTER INSERT OR UPDATE OR DELETE ON respuestas_calificacion
     FOR EACH ROW EXECUTE FUNCTION fn_auditoria_generica('id_respuesta');
+
+-- =============================================================================
+-- PATCH 20/20 — DEVOLUCIÓN EN LA ENTREGA: el repartidor ahora puede marcar
+-- que el cliente devolvió uno o más productos en el momento de la entrega
+-- (ej: llegó vencido y el cliente se dio cuenta ahí mismo). Se reutiliza el
+-- MISMO sistema de Devoluciones que ya existe en Inventario (tabla
+-- devoluciones/detalle_devolucion) — no se crea un módulo aparte — para que
+-- lo que registre el repartidor aparezca automáticamente en Inventario >
+-- Devoluciones, tal como ya pasa con las devoluciones que registra un cajero.
+-- =============================================================================
+
+-- Catálogo de razones específicas para una devolución hecha en el momento
+-- de la entrega (independiente de tipo_devolucion, que es la clasificación
+-- general CLIENTE/PROVEEDOR/MERMA/AJUSTE que ya usa el resto del sistema).
+CREATE TABLE IF NOT EXISTS motivo_devolucion_delivery (
+    id_motivo SERIAL PRIMARY KEY,
+    nombre    VARCHAR(100) NOT NULL UNIQUE,
+    activo    BOOLEAN NOT NULL DEFAULT TRUE,
+    orden     INT DEFAULT 0
+);
+
+INSERT INTO motivo_devolucion_delivery (nombre, orden) VALUES
+    ('Producto vencido o próximo a vencer',      1),
+    ('Producto dañado o en mal estado',          2),
+    ('Empaque abierto o manipulado',             3),
+    ('Producto equivocado (no es lo que pidió)', 4),
+    ('Cliente cambió de opinión',                5),
+    ('Otro',                                    99)
+ON CONFLICT (nombre) DO NOTHING;
+
+-- Trazabilidad: de qué entrega y de qué razón del catálogo salió la
+-- devolución, sin dejar de llenar el campo "motivo" en texto libre que ya
+-- usan las pantallas existentes de Devoluciones (Inventario y Delivery).
+ALTER TABLE devoluciones
+    ADD COLUMN IF NOT EXISTS id_entrega INT REFERENCES entregas(id_entrega),
+    ADD COLUMN IF NOT EXISTS id_motivo_devolucion_delivery INT REFERENCES motivo_devolucion_delivery(id_motivo);
+
+CREATE INDEX IF NOT EXISTS idx_devoluciones_id_entrega ON devoluciones(id_entrega);
+
+-- =============================================================================
+-- PATCH 21/21 — Estado propio para "todo el pedido fue devuelto": el
+-- cierre automático de PATCH 20 usaba 'PARCIAL', pero PARCIAL en el resto
+-- del sistema significa "se entregó una parte y falta redespachar el
+-- resto" — get_agenda_repartidor.php la trata como entrega ACTIVA (sigue
+-- apareciendo en "Mi Agenda" esperando una segunda ronda que en este caso
+-- nunca va a llegar, porque el cliente no quiere nada del pedido). Se
+-- agrega 'DEVUELTA' como estado terminal aparte, para que quede claro que
+-- ahí no hay nada más que hacer del lado de logística.
+-- =============================================================================
+
+INSERT INTO estado_entrega (nombre) VALUES ('DEVUELTA')
+ON CONFLICT (nombre) DO NOTHING;

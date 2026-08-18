@@ -66,7 +66,7 @@ try {
     // podría confirmar entregas ajenas o repetir una ya cerrada.
     $stmt = $conexion->prepare("
         SELECT e.id_vehiculo, e.id_repartidor, e.cedula_receptor_autorizado,
-               e.id_venta, e.id_cliente, se.nombre AS estado_actual
+               e.id_venta, e.id_cliente, e.fecha_asignada, se.nombre AS estado_actual
         FROM entregas e
         JOIN estado_entrega se ON se.id_estado = e.id_estado
         WHERE e.id_entrega = :id
@@ -145,13 +145,31 @@ try {
             FROM detalle_conciliacion dc
             JOIN conciliacion_entrega ce ON ce.id_conciliacion = dc.id_conciliacion
             WHERE ce.id_entrega = :id
+              AND ce.fecha_conciliacion >= COALESCE(:fecha_asignada::timestamp, '-infinity')
             GROUP BY dc.id_lote, dc.id_producto
         ");
-        $stmt->execute([':id' => $id_entrega]);
+        $stmt->execute([':id' => $id_entrega, ':fecha_asignada' => $prev['fecha_asignada']]);
         $entregadoPrevioPorClave = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $clave = $row['id_lote'] !== null ? 'L' . $row['id_lote'] : 'P' . $row['id_producto'];
             $entregadoPrevioPorClave[$clave] = (int) $row['entregado'];
+        }
+
+        // Lo que el cliente ya devolvió en esta entrega (ver "Registrar
+        // devolución") — tampoco se puede volver a contar como entregado.
+        $stmt = $conexion->prepare("
+            SELECT dd.id_lote, SUM(dd.cantidad) AS devuelto
+            FROM detalle_devolucion dd
+            JOIN devoluciones dv ON dv.id_devolucion = dd.id_devolucion
+            WHERE dv.id_entrega = :id
+              AND dv.fecha_solicitud >= COALESCE(:fecha_asignada::timestamp, '-infinity')
+            GROUP BY dd.id_lote
+        ");
+        $stmt->execute([':id' => $id_entrega, ':fecha_asignada' => $prev['fecha_asignada']]);
+        $devueltoPorClave = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if ($row['id_lote'] === null) continue;
+            $devueltoPorClave['L' . $row['id_lote']] = (int) $row['devuelto'];
         }
 
         // Lo que de verdad se despachó en ESTA ronda (lo que el repartidor
@@ -177,7 +195,8 @@ try {
             $clave = $real['id_lote'] !== null ? 'L' . $real['id_lote'] : 'P' . $real['id_producto'];
             $pedida_total = (int) $real['cantidad'];
             $entregado_previo = $entregadoPrevioPorClave[$clave] ?? 0;
-            $pendiente_antes = max(0, $pedida_total - $entregado_previo);
+            $devuelto_previo = $devueltoPorClave[$clave] ?? 0;
+            $pendiente_antes = max(0, $pedida_total - $entregado_previo - $devuelto_previo);
             $despachado_este_round = $despachadoRondaPorClave[$clave] ?? 0;
 
             // Tope real: nunca más de lo pendiente NI más de lo que se

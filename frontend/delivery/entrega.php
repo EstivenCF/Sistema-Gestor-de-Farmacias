@@ -18,6 +18,7 @@ $base_url = '/sistema-gestor-de-farmacias';
   .st-INTERRUMPIDA{background:#FDEAEA;color:#DC3545;}
   .st-PARCIAL{background:#FFE8CC;color:#B35C00;}
   .st-CANCELADA,.st-FALLIDA{background:#F5F5F5;color:#888;}
+  .st-DEVUELTA{background:#F8D7DA;color:#842029;}
   .st-REPROGRAMADA{background:#E9D8FD;color:#6B21A8;}
   .stat-entrega{border-radius:14px;padding:1.1rem 1.3rem;border-left:5px solid;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.06);display:flex;align-items:center;justify-content:space-between;}
   .stat-entrega .v{font-size:1.9rem;font-weight:700;line-height:1;}
@@ -342,7 +343,7 @@ function cargarFiltroMotivos() {
 const ESTADO_LABEL = {
   PENDIENTE:'Pendiente', ASIGNADA:'Asignada', EN_CAMINO:'En camino', ENTREGADA:'Entregada',
   INTERRUMPIDA:'Interrumpida', PARCIAL:'Parcial', CANCELADA:'Cancelada',
-  REPROGRAMADA:'Reprogramada', FALLIDA:'Fallida',
+  REPROGRAMADA:'Reprogramada', FALLIDA:'Fallida', DEVUELTA:'Devolución',
 };
 
 function verDetalle(id) {
@@ -374,6 +375,8 @@ function verDetalle(id) {
         extraHtml = `<div class="alert alert-warning py-2 px-3 mb-3" style="font-size:.85rem;"><strong>Detalle de entrega parcial:</strong> ${e.detalle_parcial || '—'}</div>`;
       } else if (e.estado_nombre === 'FALLIDA') {
         extraHtml = `<div class="alert alert-secondary py-2 px-3 mb-3" style="font-size:.85rem;"><strong>Motivo:</strong> ${e.motivo_fallida_nombre || '—'}${e.observaciones ? '<br><strong>Detalle:</strong> ' + e.observaciones.replace(e.motivo_fallida_nombre + ' — ', '') : ''}</div>`;
+      } else if (e.estado_nombre === 'DEVUELTA') {
+        extraHtml = `<div class="alert alert-danger py-2 px-3 mb-3" style="font-size:.85rem;"><strong>Devolución del cliente:</strong> ${e.detalle_parcial || 'El cliente devolvió todo el pedido.'}<br><span class="text-muted">Revisa el detalle en Inventario &gt; Devoluciones.</span><br><button class="btn btn-sm btn-outline-danger mt-2" onclick="modalDetalle.hide(); reabrirEntregaDevuelta(${e.id_entrega})"><span class="material-symbols-rounded align-middle" style="font-size:1rem;">restart_alt</span> Reabrir para redespachar</button></div>`;
       }
 
       const prodsHtml = prods.length
@@ -405,7 +408,7 @@ function verDetalle(id) {
 
 const CHIPS = [
   ['', 'Todas'], ['EN_COLA','En cola'], ['PENDIENTE','Pendiente'], ['ASIGNADA','Asignada'], ['EN_CAMINO','En curso'],
-  ['ENTREGADA','Entregada'], ['PARCIAL','Parcial'], ['INTERRUMPIDA','Interrumpida'],
+  ['ENTREGADA','Entregada'], ['PARCIAL','Parcial'], ['DEVUELTA','Devolución'], ['INTERRUMPIDA','Interrumpida'],
   ['REPROGRAMADA','Reprogramada'], ['CANCELADA','Cancelada'], ['FALLIDA','Fallida'],
 ];
 
@@ -442,7 +445,7 @@ function cargar() {
         return;
       }
       const rows = data.entregas.map(e => {
-        const puedeActualizar = !['ENTREGADA','CANCELADA','FALLIDA'].includes(e.estado_nombre);
+        const puedeActualizar = !['ENTREGADA','CANCELADA','FALLIDA','DEVUELTA'].includes(e.estado_nombre);
         const enCola = e.en_cola === true || e.en_cola === 't' || e.en_cola === 1;
         return `<tr ${enCola ? 'style="background:#FFF9E6;"' : ''}>
           <td class="fw-semibold text-success">${e.numero_seguimiento}</td>
@@ -463,6 +466,7 @@ function cargar() {
                 ${puedeActualizar ? `<button class="btn btn-sm btn-outline-primary me-1" onclick="abrirModalEstado(${e.id_entrega})" title="Actualizar estado"><span class="material-symbols-rounded" style="font-size:1rem;">edit</span></button>` : ''}
                 ${['ASIGNADA','PARCIAL'].includes(e.estado_nombre) ? `<button class="btn btn-sm btn-outline-success me-1" onclick="abrirModalDespacho(${e.id_entrega})" title="${e.estado_nombre === 'PARCIAL' ? 'Despachar lo pendiente' : 'Registrar despacho'}"><span class="material-symbols-rounded" style="font-size:1rem;">inventory</span></button>` : ''}
                 ${e.estado_nombre === 'ENTREGADA' ? `<button class="btn btn-sm btn-outline-success" onclick="abrirModalConciliacion(${e.id_entrega})" title="Conciliar entrega"><span class="material-symbols-rounded" style="font-size:1rem;">fact_check</span></button>` : ''}
+                ${e.estado_nombre === 'DEVUELTA' ? `<button class="btn btn-sm btn-outline-danger" onclick="reabrirEntregaDevuelta(${e.id_entrega})" title="Reabrir para redespachar"><span class="material-symbols-rounded" style="font-size:1rem;">restart_alt</span></button>` : ''}
           </td>
         </tr>`;
       }).join('');
@@ -707,5 +711,30 @@ function confirmarConciliacion(accion) {
       cargar();
     } else Swal.fire('Error', data.message, 'error');
   }).catch(() => Swal.fire('Error', 'Error de conexión.', 'error'));
+}
+
+function reabrirEntregaDevuelta(id) {
+  Swal.fire({
+    title: 'Reabrir entrega',
+    html: 'La entrega volverá a <strong>Pendiente</strong> para asignarle repartidor y despachar un pedido nuevo con productos validados.',
+    input: 'textarea',
+    inputPlaceholder: 'Nota (opcional): qué se corrigió, ej. producto vencido reemplazado por lote nuevo.',
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Reabrir',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#dc3545',
+  }).then((result) => {
+    if (!result.isConfirmed) return;
+    fetch(BASE_URL + '/backend/delivery/reabrir_entrega_devuelta.php', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ id_entrega: id, observaciones: (result.value || '').trim() })
+    }).then(r => r.json()).then(data => {
+      if (data.success) {
+        Swal.fire({title: 'Entrega reabierta', text: 'Ya está en cola para asignar repartidor.', icon: 'success', timer: 2000, showConfirmButton: false});
+        cargar();
+      } else Swal.fire('Error', data.message, 'error');
+    }).catch(() => Swal.fire('Error', 'Error de conexión.', 'error'));
+  });
 }
 </script>

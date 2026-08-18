@@ -113,25 +113,56 @@ try {
 
     // Cuánto se ha entregado ya de cada producto, sumando todas las
     // rondas de conciliación que existan para esta entrega.
+    //
+    // OJO — límite por ronda: si esta entrega fue reabierta después de una
+    // devolución total (ver reabrir_entrega_devuelta.php), fecha_asignada
+    // se refresca al reasignar repartidor/vehículo. Solo cuenta lo
+    // conciliado/devuelto DESDE esa fecha — si no, lo entregado/devuelto
+    // de la ronda vieja seguiría descontando de la ronda nueva y la
+    // cantidad pendiente daría 0 aunque se acaba de redespachar.
     $stmt = $conexion->prepare("
         SELECT dc.id_lote, dc.id_producto, SUM(dc.cantidad_entregada) AS entregado
         FROM detalle_conciliacion dc
         JOIN conciliacion_entrega ce ON ce.id_conciliacion = dc.id_conciliacion
         WHERE ce.id_entrega = :id
+          AND ce.fecha_conciliacion >= COALESCE((SELECT fecha_asignada FROM entregas WHERE id_entrega = :id2), '-infinity')
         GROUP BY dc.id_lote, dc.id_producto
     ");
-    $stmt->execute([':id' => $id_entrega]);
+    $stmt->execute([':id' => $id_entrega, ':id2' => $id_entrega]);
     $entregadoPorClave = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $clave = $row['id_lote'] !== null ? 'L' . $row['id_lote'] : 'P' . $row['id_producto'];
         $entregadoPorClave[$clave] = (int) $row['entregado'];
     }
 
+    // Cuánto ya se registró como DEVUELTO en esta entrega (ver "Registrar
+    // devolución") — esto también tiene que restarse de lo pendiente, si
+    // no, el mismo producto que el cliente ya devolvió se podría volver a
+    // marcar como "entregado" en la siguiente confirmación.
+    // Mismo límite por ronda que arriba: una devolución de una ronda ya
+    // cerrada (antes de reabrir la entrega) no debe seguir descontando.
+    $stmt = $conexion->prepare("
+        SELECT dd.id_lote, SUM(dd.cantidad) AS devuelto
+        FROM detalle_devolucion dd
+        JOIN devoluciones d ON d.id_devolucion = dd.id_devolucion
+        WHERE d.id_entrega = :id
+          AND d.fecha_solicitud >= COALESCE((SELECT fecha_asignada FROM entregas WHERE id_entrega = :id2), '-infinity')
+        GROUP BY dd.id_lote
+    ");
+    $stmt->execute([':id' => $id_entrega, ':id2' => $id_entrega]);
+    $devueltoPorLote = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        if ($row['id_lote'] === null) continue; // detalle_devolucion no guarda id_producto, solo id_lote
+        $devueltoPorLote['L' . $row['id_lote']] = (int) $row['devuelto'];
+    }
+
     foreach ($productos as &$p) {
         $clave = $p['id_lote'] !== null ? 'L' . $p['id_lote'] : 'P' . $p['id_producto'];
         $entregado_previo = $entregadoPorClave[$clave] ?? 0;
+        $devuelto_previo = $devueltoPorLote[$clave] ?? 0;
         $p['cantidad_entregada_previa'] = $entregado_previo;
-        $p['cantidad_pendiente'] = max(0, (int) $p['cantidad'] - $entregado_previo);
+        $p['cantidad_devuelta'] = $devuelto_previo;
+        $p['cantidad_pendiente'] = max(0, (int) $p['cantidad'] - $entregado_previo - $devuelto_previo);
     }
     unset($p);
 

@@ -39,7 +39,12 @@ try {
 // Si todavía no hay sesión iniciada (ej: la propia pantalla de login),
 // queda en NULL, que es justo lo que se espera para acciones sin dueño.
 try {
-    $id_usuario_auditoria = $_SESSION['id_usuario'] ?? null;
+    // login.php guarda el usuario como $_SESSION['usuario_id'] (no
+    // 'id_usuario'); ese segundo nombre solo aparece más tarde, cuando
+    // menuprincipal.php lo normaliza. Se revisan los dos para que la
+    // auditoría tenga el usuario correcto desde la primera página que
+    // se carga después de iniciar sesión, no solo desde la segunda.
+    $id_usuario_auditoria = $_SESSION['id_usuario'] ?? $_SESSION['usuario_id'] ?? null;
     $ip_auditoria = $_SERVER['REMOTE_ADDR'] ?? null;
     $stmtAudit = $conexion->prepare("SELECT set_audit_vars(:id_usuario, :ip)");
     $stmtAudit->execute([':id_usuario' => $id_usuario_auditoria, ':ip' => $ip_auditoria]);

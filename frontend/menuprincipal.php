@@ -57,7 +57,7 @@ $menu_por_rol = [
             'detalle_riesgo_lote', 'generar_accion_recuperacion', 'redistribuir_stock_riesgo', 'diagnostico_causa_raiz'], // NUEVO: proceso estratégico de vencimientos (Tarea 5)
         'compras' => ['registrar_compra', 'historial_compras', 'proveedores', 'recepcion'],
         'clientes' => ['clientes'],
-        'delivery' => ['repartidores', 'entrega', 'vehiculos', 'agendas_repartidores', 'calificaciones_clientes'],
+        'delivery' => ['repartidores', 'entrega', 'vehiculos', 'agendas_repartidores', 'calificaciones_clientes', 'devoluciones_delivery'],
         'caja' => ['apertura_caja', 'cierre_caja', 'movimientos_caja'],
         'ropa' => ['gestion_ropa', 'tipo_ropa', 'marcas', 'fabricantes', 'colores', 'tallas'],
         'administracion' => ['sucursales', 'empresa', 'usuarios', 'consulta_usuarios', 'roles', 'permisos_usuarios', 'desbloquear_usuarios', 'configuracion', 'ofertas', 'seguros_medicos'],
@@ -70,7 +70,7 @@ $menu_por_rol = [
         'ventas'    => ['registrar_venta', 'historial_ventas', 'pagos'],
         'clientes'  => ['clientes'],
         'caja'      => ['apertura_caja', 'cierre_caja', 'movimientos_caja'],
-        'delivery' => ['repartidores', 'entrega', 'vehiculos', 'devoluciones'], // NUEVO
+        'delivery' => ['repartidores', 'entrega', 'vehiculos', 'devoluciones_delivery'], // NUEVO — antes decía 'devoluciones', pero ese nombre choca con el módulo de Inventario (misma pantalla "Devoluciones" ya existe ahí) y el router genérico siempre resolvía al de Inventario, nunca a este.
     ],
 
     'Vendedor' => [
@@ -649,6 +649,9 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                                 <?php endif; ?>
                                 <?php if (in_array('vehiculos', $menu_por_rol[$rol_usuario]['delivery'])): ?>
                                     <li><a href="menuprincipal.php?mod=vehiculos" class="nav-link dropdown-link"><span class="material-symbols-rounded">directions_car</span> Vehículos</a></li>
+                                <?php endif; ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'devoluciones_delivery')): ?>
+                                    <li><a href="menuprincipal.php?mod=devoluciones_delivery" class="nav-link dropdown-link"><span class="material-symbols-rounded">assignment_return</span> Devoluciones</a></li>
                                 <?php endif; ?>
                             </ul>
                         </li>

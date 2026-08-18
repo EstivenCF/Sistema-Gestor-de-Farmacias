@@ -26,7 +26,8 @@ try {
             c.nombre  AS cliente_nombre,
             v.numero_documento AS venta_documento,
             u.nombre  AS solicitado_por,
-            ap.nombre AS aprobado_por
+            ap.nombre AS aprobado_por,
+            e.numero_seguimiento AS entrega_seguimiento
         FROM devoluciones d
         LEFT JOIN tipo_devolucion td   ON td.id_tipo   = d.id_tipo
         LEFT JOIN estado_devolucion ed ON ed.id_estado = d.id_estado
@@ -34,6 +35,7 @@ try {
         LEFT JOIN ventas v             ON v.id_venta   = d.id_venta
         LEFT JOIN usuarios u           ON u.id_usuario = d.id_usuario
         LEFT JOIN usuarios ap          ON ap.id_usuario = d.aprobado_por
+        LEFT JOIN entregas e            ON e.id_entrega = d.id_entrega
         WHERE d.id_devolucion = :id
     ");
     $stmt->execute([':id' => $id_devolucion]);
