@@ -1287,3 +1287,75 @@ body {
 .swal2-container {
     z-index: 100002 !important;
 }
+
+/* ============================================================
+   Breadcrumb compartido — pantallas de Tarea 5 (Vencimientos)
+   Antes cada pantalla (detalle_riesgo_lote, generar_accion_
+   recuperacion, redistribuir_stock_riesgo, diagnostico_causa_raiz)
+   repetía su propio breadcrumb en texto plano con "&rsaquo;", sin
+   relación visual con el resto del sistema. Se centraliza aquí
+   como un solo componente reutilizable.
+   ============================================================ */
+.tarea5-breadcrumb {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    background: #fff;
+    border-radius: 999px;
+    padding: 6px;
+    margin-bottom: 16px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+    font-size: 0.85rem;
+}
+.tarea5-breadcrumb-home {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: #f1f3f5;
+    color: #495057;
+    text-decoration: none;
+    flex-shrink: 0;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.tarea5-breadcrumb-home:hover {
+    background: var(--primary-green);
+    color: #fff;
+}
+.tarea5-breadcrumb-home .material-symbols-rounded {
+    font-size: 18px;
+}
+.tarea5-breadcrumb-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 14px;
+    border-radius: 999px;
+    color: #6c757d;
+    text-decoration: none;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.tarea5-breadcrumb-link:hover {
+    background: #f1f3f5;
+    color: #212529;
+}
+.tarea5-breadcrumb-sep {
+    display: inline-flex;
+    color: #ced4da;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0 2px;
+}
+.tarea5-breadcrumb-actual {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: var(--primary-green);
+    color: #fff;
+    font-weight: 600;
+    white-space: nowrap;
+}
