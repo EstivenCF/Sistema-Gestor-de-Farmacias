@@ -98,20 +98,26 @@ try {
         $devueltoPorLote['L' . $row['id_lote']] = (int) $row['devuelto'];
     }
 
-    // Próxima ronda de despacho para esta entrega. Se toma el máximo entre
-    // despacho_entrega Y conciliacion_entrega (no solo despacho_entrega) —
-    // hay entregas viejas que llegaron a PARCIAL sin pasar nunca por un
-    // despacho_entrega real (datos de antes de este flujo, o un cambio de
-    // estado manual del administrador), y si solo miráramos despacho_entrega
-    // se podría repetir un número de ronda que la conciliación ya usó.
-    $stmt = $conexion->prepare("
-        SELECT COALESCE(GREATEST(
-            (SELECT MAX(id_ronda) FROM despacho_entrega WHERE id_entrega = :id1),
-            (SELECT MAX(id_ronda) FROM conciliacion_entrega WHERE id_entrega = :id2)
-        ), 0) + 1
-    ");
-    $stmt->execute([':id1' => $id_entrega, ':id2' => $id_entrega]);
-    $id_ronda = (int) $stmt->fetchColumn();
+    // Número de ronda para este despacho. entregas.ronda_actual es la
+    // única fuente de verdad (ver PATCH 25/25 en Farmacia.sql) — si esta
+    // entrega venía PARCIAL, este despacho arranca una ronda nueva, así
+    // que se incrementa aquí mismo (un solo UPDATE, sin condiciones de
+    // carrera con otro cajero despachando al mismo tiempo). Si es la
+    // primera vez (ASIGNADA), se usa el valor que ya tiene la entrega tal
+    // cual — normalmente 1, o el que ya haya dejado un redespacho anterior
+    // (resolver_disputa.php / reabrir_entrega_devuelta.php).
+    if ($entrega['estado_actual'] === 'PARCIAL') {
+        $stmt = $conexion->prepare("
+            UPDATE entregas SET ronda_actual = ronda_actual + 1 WHERE id_entrega = :id
+            RETURNING ronda_actual
+        ");
+        $stmt->execute([':id' => $id_entrega]);
+        $id_ronda = (int) $stmt->fetchColumn();
+    } else {
+        $stmt = $conexion->prepare("SELECT ronda_actual FROM entregas WHERE id_entrega = :id");
+        $stmt->execute([':id' => $id_entrega]);
+        $id_ronda = (int) $stmt->fetchColumn();
+    }
 
     // Topar cada línea contra lo que de verdad sigue pendiente
     $lineasValidadas = [];

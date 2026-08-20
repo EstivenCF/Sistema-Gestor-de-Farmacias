@@ -3,7 +3,7 @@ $host = "127.0.0.1";
 $port = "5432";
 $dbname = "Farmacia";
 $user = "postgres";
-$password = "379123";
+$password = "2003";
 
 date_default_timezone_set('America/Santo_Domingo');
 

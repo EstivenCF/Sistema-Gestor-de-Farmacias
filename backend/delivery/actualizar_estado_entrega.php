@@ -114,12 +114,31 @@ try {
     // rechazaría CUALQUIER confirmación (con o sin devolución de por
     // medio) con "No se reconoció ningún producto válido de esta venta,
     // o no había nada despachado en esta ronda". Se genera aquí un
-    // despacho de respaldo (ronda 1) con el pedido completo, asumiendo
-    // que el repartidor salió con todo lo vendido — así el flujo que ya
-    // usan los repartidores (sin pasar por el cajero) sigue funcionando.
+    // despacho de respaldo con el pedido completo, asumiendo que el
+    // repartidor salió con todo lo vendido — así el flujo que ya usan
+    // los repartidores (sin pasar por el cajero) sigue funcionando.
+    //
+    // OJO — múltiples rondas: entregas.ronda_actual es la única fuente de
+    // verdad de en qué ronda va esta entrega (ver PATCH 25/25 en
+    // Farmacia.sql) — la actualizan resolver_disputa.php y
+    // reabrir_entrega_devuelta.php al reabrir para un redespacho, y
+    // registrar_despacho.php cuando el cajero despacha lo pendiente de un
+    // PARCIAL. Aquí solo hace falta revisar si YA existe un despacho para
+    // esa ronda puntual — antes se revisaba con "¿hay ALGÚN despacho_entrega
+    // para esta entrega?", lo que encontraba el de una ronda VIEJA (ya
+    // cerrada) y no generaba uno nuevo para la ronda actual;
+    // confirmar_entrega_delivery.php terminaba insertando otra vez en
+    // conciliacion_entrega con el mismo id_ronda de la ronda vieja y
+    // tronaba con "llave duplicada" (uq_conciliacion_entrega_ronda).
     if ($nuevo_estado === 'EN_CAMINO') {
-        $stmtChkDesp = $conexion->prepare("SELECT 1 FROM despacho_entrega WHERE id_entrega = :id LIMIT 1");
-        $stmtChkDesp->execute([':id' => $id_entrega]);
+        $stmtRA = $conexion->prepare("SELECT ronda_actual FROM entregas WHERE id_entrega = :id");
+        $stmtRA->execute([':id' => $id_entrega]);
+        $id_ronda_bk = (int) $stmtRA->fetchColumn();
+
+        $stmtChkDesp = $conexion->prepare("
+            SELECT 1 FROM despacho_entrega WHERE id_entrega = :id AND id_ronda = :ronda LIMIT 1
+        ");
+        $stmtChkDesp->execute([':id' => $id_entrega, ':ronda' => $id_ronda_bk]);
         if (!$stmtChkDesp->fetchColumn()) {
             $stmtVentaBk = $conexion->prepare("SELECT id_venta FROM entregas WHERE id_entrega = :id");
             $stmtVentaBk->execute([':id' => $id_entrega]);
@@ -133,10 +152,10 @@ try {
             if ($lineasVentaBk && $id_usuario_bk) {
                 $stmtDespBk = $conexion->prepare("
                     INSERT INTO despacho_entrega (id_entrega, id_ronda, id_usuario_cajero, observaciones)
-                    VALUES (:id_entrega, 1, :id_usuario, 'Generado automáticamente: el repartidor salió sin pasar por el paso de Despacho del cajero')
+                    VALUES (:id_entrega, :id_ronda, :id_usuario, 'Generado automáticamente: el repartidor salió sin pasar por el paso de Despacho del cajero')
                     RETURNING id_despacho
                 ");
-                $stmtDespBk->execute([':id_entrega' => $id_entrega, ':id_usuario' => $id_usuario_bk]);
+                $stmtDespBk->execute([':id_entrega' => $id_entrega, ':id_ronda' => $id_ronda_bk, ':id_usuario' => $id_usuario_bk]);
                 $id_despacho_bk = $stmtDespBk->fetchColumn();
 
                 $stmtDetBk = $conexion->prepare("

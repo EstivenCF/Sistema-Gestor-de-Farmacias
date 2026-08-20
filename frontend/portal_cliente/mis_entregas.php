@@ -93,6 +93,28 @@ $nombre_cliente = $_SESSION['nombre_cliente_portal'] ?? 'Cliente';
   </div>
 </div>
 
+<!-- MODAL: confirmar cantidades recibidas (paso 1, "Sí") -->
+<div class="modal fade" id="modalConfirmarCantidades" tabindex="-1" data-bs-backdrop="static">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h6 class="modal-title mb-0"><span class="material-symbols-rounded align-middle me-1">inventory_2</span> ¿Cuánto recibiste de cada medicamento?</h6>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="confCantIdEntrega">
+        <p class="text-muted small mb-3">Revisa la cantidad de cada producto — ya viene puesta la cantidad completa, cámbiala solo si te faltó algo.</p>
+        <div id="confCantProductos"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Volver</button>
+        <button class="btn btn-success" onclick="enviarConfirmarCantidades()">
+          <span class="material-symbols-rounded align-middle" style="font-size:1rem;">check</span> Confirmar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: no recibí el pedido -->
 <div class="modal fade" id="modalNoRecibido" tabindex="-1" data-bs-backdrop="static">
   <div class="modal-dialog modal-dialog-centered">
@@ -142,15 +164,17 @@ $nombre_cliente = $_SESSION['nombre_cliente_portal'] ?? 'Cliente';
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-let modalCancelar, modalCalificar, modalDevolucion, modalNoRecibido;
+let modalCancelar, modalCalificar, modalDevolucion, modalNoRecibido, modalConfirmarCantidades;
 let preguntasCalifCache = [];   // catálogo activo, traído del servidor
 const respuestasCliente = {};   // id_pregunta -> valor (int 1-5 o string)
+const productosDespachadosCache = {}; // id_entrega -> productos despachados en la ronda actual
 
 document.addEventListener('DOMContentLoaded', () => {
   modalCancelar = new bootstrap.Modal('#modalCancelar');
   modalCalificar = new bootstrap.Modal('#modalCalificar');
   modalDevolucion = new bootstrap.Modal('#modalDevolucion');
   modalNoRecibido = new bootstrap.Modal('#modalNoRecibido');
+  modalConfirmarCantidades = new bootstrap.Modal('#modalConfirmarCantidades');
   cargar();
   cargarMotivos();
 });
@@ -215,6 +239,7 @@ function cargar() {
       return;
     }
     data.entregas.forEach(e => (e.devoluciones_pendientes || []).forEach(d => devolucionesCache[d.id_devolucion] = d));
+    data.entregas.forEach(e => productosDespachadosCache[e.id_entrega] = e.productos_despachados || []);
     cont.innerHTML = data.entregas.map(e => {
       const productos = (e.productos||[]).map(p => `${p.nombre} (${p.cantidad})`).join(', ') || 'Sin detalle';
       const horaAcordada = e.fecha_programada ? new Date(e.fecha_programada).toLocaleString('es-DO') : 'Sin definir todavía';
@@ -243,7 +268,7 @@ function cargar() {
             <div class="alert alert-success mt-2 mb-0">
               <div class="mb-2"><span class="material-symbols-rounded align-middle">notifications_active</span> Tu repartidor marcó este pedido como entregado. ¿Te lo entregaron a ti (o a alguien autorizado por ti)?</div>
               <div class="d-flex gap-2 flex-wrap">
-                <button class="btn btn-sm btn-success" onclick="confirmarRecepcion(${e.id_entrega})">Sí, todo bien</button>
+                <button class="btn btn-sm btn-success" onclick="abrirConfirmarCantidades(${e.id_entrega})">Sí, todo bien</button>
                 <button class="btn btn-sm btn-outline-danger" onclick="abrirNoRecibido(${e.id_entrega})">No, algo está mal</button>
               </div>
             </div>` : ''}
@@ -300,13 +325,46 @@ function confirmarCancelacion() {
   }).catch(() => Swal.fire('Error', 'Error de conexión.', 'error'));
 }
 
-function confirmarRecepcion(idEntrega) {
+function abrirConfirmarCantidades(idEntrega) {
+  const productos = productosDespachadosCache[idEntrega] || [];
+  document.getElementById('confCantIdEntrega').value = idEntrega;
+  document.getElementById('confCantProductos').innerHTML = productos.length
+    ? productos.map((p, i) => `
+        <div class="row g-2 align-items-center mb-2">
+          <div class="col-8">${escapeHtml(p.nombre)}</div>
+          <div class="col-4">
+            <input type="number" class="form-control form-control-sm cant-recibida"
+                   min="0" max="${p.cantidad}" value="${p.cantidad}"
+                   data-id-lote="${p.id_lote ?? ''}" data-id-producto="${p.id_producto ?? ''}">
+          </div>
+        </div>`).join('')
+    : '<p class="text-muted small">No se encontró el detalle de productos de este pedido.</p>';
+  modalConfirmarCantidades.show();
+}
+
+function enviarConfirmarCantidades() {
+  const id_entrega = parseInt(document.getElementById('confCantIdEntrega').value);
+  const productos = Array.from(document.querySelectorAll('#confCantProductos .cant-recibida')).map(input => ({
+    id_lote: input.dataset.idLote ? parseInt(input.dataset.idLote) : null,
+    id_producto: input.dataset.idProducto ? parseInt(input.dataset.idProducto) : null,
+    cantidad_recibida: parseInt(input.value || 0),
+  }));
+
   fetch('../../backend/portal_cliente/confirmar_recepcion.php', {
     method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ id_entrega: idEntrega })
+    body: JSON.stringify({ id_entrega, productos })
   }).then(r=>r.json()).then(data => {
     if (data.success) {
-      Swal.fire({title:'¡Gracias por confirmar!', icon:'success', timer:1500, showConfirmButton:false});
+      modalConfirmarCantidades.hide();
+      if (data.disputa) {
+        Swal.fire({
+          title: 'Reportamos la diferencia',
+          text: 'Lo que indicaste no coincide con lo que se despachó — la farmacia va a llamarte para aclarar la situación.',
+          icon: 'warning', confirmButtonText: 'Entendido',
+        });
+      } else {
+        Swal.fire({title:'¡Gracias por confirmar!', icon:'success', timer:1500, showConfirmButton:false});
+      }
       cargar();
     } else Swal.fire('Error', data.message, 'error');
   }).catch(() => Swal.fire('Error', 'Error de conexión.', 'error'));

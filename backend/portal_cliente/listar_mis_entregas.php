@@ -59,6 +59,35 @@ try {
             $productosPorEntrega[$p['id_entrega']][] = ['nombre' => $p['producto_nombre'], 'cantidad' => $p['cantidad']];
         }
 
+        // Lo que el cajero de verdad despachó al repartidor en la ronda
+        // ACTUAL de cada entrega (entregas.ronda_actual — única fuente de
+        // verdad, ver PATCH 25/25 en Farmacia.sql). Esto es contra lo que
+        // se compara cuánto dice el cliente haber recibido al confirmar —
+        // no contra el pedido completo, porque una entrega puede llevar
+        // varias rondas (redespachos) y lo que importa es lo de ESTA.
+        $stmtDesp = $conexion->query("
+            SELECT de.id_entrega, dd.id_lote, dd.id_producto,
+                   COALESCE(m.nombre_completo, m.nombre, p.nombre) AS producto_nombre,
+                   SUM(dd.cantidad_despachada) AS cantidad
+            FROM despacho_entrega de
+            JOIN detalle_despacho dd ON dd.id_despacho = de.id_despacho
+            JOIN entregas e2 ON e2.id_entrega = de.id_entrega AND de.id_ronda = e2.ronda_actual
+            LEFT JOIN lotes l ON l.id_lote = dd.id_lote
+            LEFT JOIN medicamentos m ON m.id_medicamento = l.id_medicamento
+            LEFT JOIN productos p ON p.id_producto = dd.id_producto
+            WHERE de.id_entrega IN ($ids)
+            GROUP BY de.id_entrega, dd.id_lote, dd.id_producto, m.nombre_completo, m.nombre, p.nombre
+        ");
+        $despachadoPorEntrega = [];
+        foreach ($stmtDesp->fetchAll(PDO::FETCH_ASSOC) as $p) {
+            $despachadoPorEntrega[$p['id_entrega']][] = [
+                'id_lote'     => $p['id_lote'],
+                'id_producto' => $p['id_producto'],
+                'nombre'      => $p['producto_nombre'],
+                'cantidad'    => (int) $p['cantidad'],
+            ];
+        }
+
         // Devoluciones que el repartidor registró en estas entregas y que
         // el cliente todavía no ha confirmado (ni Sí ni No) — son las que
         // hay que mostrarle para que responda antes de que le toque al
@@ -103,6 +132,11 @@ try {
 
         foreach ($entregas as &$e) {
             $e['productos'] = $productosPorEntrega[$e['id_entrega']] ?? [];
+            // Para el modal de "confirmar cuánto recibiste" — si por algo
+            // no hay despacho registrado todavía para la ronda actual, se
+            // usa el pedido completo como respaldo para no dejar el modal
+            // vacío.
+            $e['productos_despachados'] = $despachadoPorEntrega[$e['id_entrega']] ?? $productosPorEntrega[$e['id_entrega']] ?? [];
             // Paso 1: ¿el cliente ya respondió (sí o no) que le llegó el
             // pedido? Si no, hay que preguntarle.
             $e['pendiente_confirmar_cliente'] = ($e['estado_nombre'] === 'ENTREGADA' && !$e['confirmado_por_cliente']);

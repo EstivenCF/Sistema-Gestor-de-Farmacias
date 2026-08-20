@@ -61,7 +61,7 @@ try {
              JOIN telefonos t ON t.id_telefono = ct.id_telefono
              WHERE ct.id_cliente = c.id_cliente AND t.activo = TRUE
              ORDER BY t.id_telefono LIMIT 1) AS cliente_telefono,
-            (SELECT COUNT(*) FROM despacho_entrega de WHERE de.id_entrega = e.id_entrega) + 1 AS ronda_actual
+            e.ronda_actual
         FROM entregas e
         JOIN clientes c              ON c.id_cliente   = e.id_cliente
         JOIN estado_entrega se       ON se.id_estado   = e.id_estado

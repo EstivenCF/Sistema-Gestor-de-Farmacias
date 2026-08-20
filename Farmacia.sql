@@ -4342,7 +4342,6 @@ INSERT INTO estado_entrega (nombre) VALUES ('DEVUELTA')
 ON CONFLICT (nombre) DO NOTHING;
 
 -- =============================================================================
-<<<<<<< HEAD
 -- PATCH 22/22 — VERIFICACIÓN DE DEVOLUCIONES: hasta ahora, pasar una
 -- devolución de SOLICITADA a APROBADA/RECHAZADA se hacía con un simple
 -- combo box genérico (backend/inventario/guardar_devolucion.php), sin
@@ -4392,7 +4391,8 @@ SELECT 'Envíos', 'local_shipping', 5
 WHERE NOT EXISTS (SELECT 1 FROM modulos WHERE nombre IN ('Envíos', 'Delivery'));
 
 UPDATE modulos SET nombre = 'Envíos' WHERE nombre = 'Delivery';
-=======
+
+-- =============================================================================
 -- Tarea 5 - Proceso estratégico: Gestión Estratégica de Vencimientos de
 -- Medicamentos (Pantallas #02 a #08)
 -- Se mantiene separado de Farmacia.sql por trazabilidad del incremento.
@@ -4520,6 +4520,65 @@ INSERT INTO configuracion_sistema (clave, valor) VALUES
 ON CONFLICT (clave) DO NOTHING;
 
 
+-- =============================================================================
+-- PATCH 25/25 — RONDA_ACTUAL: fuente única de verdad para el número de
+-- ronda de una entrega. Antes, "cuál es la próxima ronda" se calculaba por
+-- separado en 3 archivos distintos (registrar_despacho.php,
+-- actualizar_estado_entrega.php, confirmar_entrega_delivery.php), cada uno
+-- con su propia lógica — cuando un redespacho (por disputa del cliente o
+-- por devolución total) no pasaba por el cálculo "correcto", esas cuentas
+-- se desincronizaban y producían choques de llave duplicada en
+-- conciliacion_entrega (uq_conciliacion_entrega_ronda). Ahora el número de
+-- ronda vive en una sola columna de la entrega; todo lo demás LEE ese
+-- valor en vez de recalcularlo cada quien por su cuenta.
+-- =============================================================================
+
+ALTER TABLE entregas
+    ADD COLUMN IF NOT EXISTS ronda_actual INT NOT NULL DEFAULT 1;
+
+COMMENT ON COLUMN entregas.ronda_actual IS
+    'Número de la ronda de despacho/entrega actualmente en curso. Única fuente de verdad — se incrementa en el momento exacto en que arranca una ronda nueva (registrar_despacho.php si venía de PARCIAL, resolver_disputa.php en REDESPACHO, reabrir_entrega_devuelta.php). Todo lo demás (el backfill de actualizar_estado_entrega.php, confirmar_entrega_delivery.php) solo LEE este valor.';
+
+-- Backfill para entregas que ya venían con varias rondas antes de este
+-- patch, para que no queden desincronizadas con lo que ya existe en
+-- despacho_entrega / conciliacion_entrega.
+UPDATE entregas e
+SET ronda_actual = GREATEST(
+    e.ronda_actual,
+    COALESCE((SELECT MAX(id_ronda) FROM despacho_entrega WHERE id_entrega = e.id_entrega), 1),
+    COALESCE((SELECT MAX(id_ronda) FROM conciliacion_entrega WHERE id_entrega = e.id_entrega), 1)
+);
 
 
->>>>>>> 38e97204628b4bc0720bb8361be44154444c1d11
+-- =============================================================================
+-- AJUSTE PUNTUAL — destrabar la entrega #11 de esta base. Se redespachó tras
+-- una disputa ("no recibí nada") ANTES de que existiera el PATCH 25/25 de
+-- arriba, así que se quedó a medias: reasignada y EN_CAMINO para la ronda 2,
+-- pero sin el despacho de esa ronda 2 (por eso "Registrar Confirmación" del
+-- repartidor tronaba con llave duplicada en conciliacion_entrega). Esto NO
+-- es un cambio de esquema ni aplica a otras instalaciones — solo repara
+-- esta fila puntual, y solo si de verdad hace falta (es seguro volver a
+-- correr este bloque las veces que sea; en otra base donde no exista una
+-- entrega #11, simplemente no hace nada).
+-- =============================================================================
+
+UPDATE entregas
+SET ronda_actual = 2
+WHERE id_entrega = 11 AND ronda_actual < 2;
+
+WITH nuevo_despacho AS (
+    INSERT INTO despacho_entrega (id_entrega, id_ronda, id_usuario_cajero, observaciones)
+    SELECT
+        11, 2,
+        (SELECT u.id_usuario FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol
+         WHERE r.nombre IN ('Cajero', 'Administrador') LIMIT 1),
+        'Backfill manual: ronda 2 que no se generó por el bug de ronda ya corregido (PATCH 25/25)'
+    WHERE EXISTS (SELECT 1 FROM entregas WHERE id_entrega = 11)
+      AND NOT EXISTS (SELECT 1 FROM despacho_entrega WHERE id_entrega = 11 AND id_ronda = 2)
+    RETURNING id_despacho
+)
+INSERT INTO detalle_despacho (id_despacho, id_lote, id_producto, cantidad_despachada)
+SELECT nd.id_despacho, dv.id_lote, dv.id_producto, dv.cantidad
+FROM nuevo_despacho nd
+CROSS JOIN detalle_venta dv
+WHERE dv.id_venta = (SELECT id_venta FROM entregas WHERE id_entrega = 11);

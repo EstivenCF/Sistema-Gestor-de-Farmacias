@@ -75,6 +75,12 @@ try {
         $id_estado_pendiente = $conexion->query("SELECT id_estado FROM estado_entrega WHERE nombre = 'PENDIENTE'")->fetchColumn();
         if (!$id_estado_pendiente) { throw new Exception('No se encontró el estado PENDIENTE'); }
 
+        // ronda_actual sube aquí mismo — esta entrega arranca una ronda
+        // nueva de despacho/entrega. Es la única fuente de verdad para el
+        // número de ronda (ver PATCH 25/25 en Farmacia.sql); sin esto, el
+        // próximo despacho (manual o el backfill automático de
+        // actualizar_estado_entrega.php) repetiría el número de la ronda
+        // vieja y tronaría "llave duplicada" en conciliacion_entrega.
         $conexion->prepare("
             UPDATE entregas
             SET estado_recepcion    = 'CONFIRMADO',
@@ -84,6 +90,7 @@ try {
                 fecha_asignada      = NULL,
                 es_entrega_parcial  = FALSE,
                 detalle_parcial     = NULL,
+                ronda_actual        = ronda_actual + 1,
                 modificado_por      = :uid,
                 fecha_modificacion  = NOW()
             WHERE id_entrega = :id

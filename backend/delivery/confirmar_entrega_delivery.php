@@ -112,8 +112,13 @@ try {
         }
     }
 
-    // Ronda de despacho que se está confirmando ahora (la más reciente)
-    $stmt = $conexion->prepare("SELECT COALESCE(MAX(id_ronda), 1) FROM despacho_entrega WHERE id_entrega = :id");
+    // Ronda de despacho que se está confirmando ahora. entregas.ronda_actual
+    // es la única fuente de verdad (ver PATCH 25/25 en Farmacia.sql) — antes
+    // se calculaba aquí mismo con MAX(id_ronda) FROM despacho_entrega, y si
+    // por lo que fuera esa tabla no tenía la ronda más reciente todavía
+    // (ej. justo tras un redespacho), se repetía un número ya usado y
+    // tronaba "llave duplicada" en conciliacion_entrega.
+    $stmt = $conexion->prepare("SELECT ronda_actual FROM entregas WHERE id_entrega = :id");
     $stmt->execute([':id' => $id_entrega]);
     $id_ronda_actual = (int) $stmt->fetchColumn();
 

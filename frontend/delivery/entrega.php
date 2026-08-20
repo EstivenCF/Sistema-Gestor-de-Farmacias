@@ -456,6 +456,7 @@ function cargar() {
       const rows = data.entregas.map(e => {
         const puedeActualizar = !['ENTREGADA','CANCELADA','FALLIDA','DEVUELTA'].includes(e.estado_nombre);
         const enCola = e.en_cola === true || e.en_cola === 't' || e.en_cola === 1;
+        const confirmadoCliente = e.confirmado_por_cliente === true || e.confirmado_por_cliente === 't' || e.confirmado_por_cliente === 1;
         return `<tr ${enCola ? 'style="background:#FFF9E6;"' : ''}>
           <td class="fw-semibold text-success">${e.numero_seguimiento}</td>
           <td>${e.numero_documento}</td>
@@ -467,6 +468,7 @@ function cargar() {
             ${e.estado_nombre === 'FALLIDA' && e.motivo_fallida_nombre ? `<br><small class="text-muted">${e.motivo_fallida_nombre}</small>` : ''}
             ${e.estado_recepcion === 'EN_DISPUTA' ? `<br><span class="badge bg-danger mt-1" title="${escapeHtml(e.comentario_cliente || '')}">⚠ En disputa</span>` : ''}
             ${e.estado_nombre === 'ENTREGADA' && e.conciliacion_estado && e.conciliacion_estado !== 'PENDIENTE' ? `<br><span class="badge ${e.conciliacion_estado === 'RECHAZADO' ? 'bg-danger' : 'bg-success'} mt-1" title="Conciliación: ${e.conciliacion_estado}">✓ Conciliada</span>` : ''}
+            ${e.estado_nombre === 'ENTREGADA' && e.estado_recepcion !== 'EN_DISPUTA' && (!e.conciliacion_estado || e.conciliacion_estado === 'PENDIENTE') && !confirmadoCliente ? `<br><span class="badge bg-warning text-dark mt-1" title="El cliente todavía no ha confirmado que recibió el pedido">⏳ Esperando confirmación del cliente</span>` : ''}
           </td>
           <td>${new Date(e.fecha_pedido).toLocaleDateString('es-DO')}</td>
           <td class="text-center">
@@ -480,7 +482,7 @@ function cargar() {
                   <button class="btn btn-sm btn-outline-success me-1" onclick="resolverDisputa(${e.id_entrega}, 'CONFIRMADA')" title="Resolver: el cliente sí recibió"><span class="material-symbols-rounded" style="font-size:1rem;">call</span></button>
                   <button class="btn btn-sm btn-outline-danger" onclick="resolverDisputa(${e.id_entrega}, 'REDESPACHO')" title="Resolver: redespachar"><span class="material-symbols-rounded" style="font-size:1rem;">restart_alt</span></button>
                 ` : ''}
-                ${e.estado_nombre === 'ENTREGADA' && e.estado_recepcion !== 'EN_DISPUTA' && (!e.conciliacion_estado || e.conciliacion_estado === 'PENDIENTE') ? `<button class="btn btn-sm btn-outline-success" onclick="abrirModalConciliacion(${e.id_entrega})" title="Conciliar entrega"><span class="material-symbols-rounded" style="font-size:1rem;">fact_check</span></button>` : ''}
+                ${e.estado_nombre === 'ENTREGADA' && e.estado_recepcion !== 'EN_DISPUTA' && (!e.conciliacion_estado || e.conciliacion_estado === 'PENDIENTE') && confirmadoCliente ? `<button class="btn btn-sm btn-outline-success" onclick="abrirModalConciliacion(${e.id_entrega})" title="Conciliar entrega"><span class="material-symbols-rounded" style="font-size:1rem;">fact_check</span></button>` : ''}
                 ${e.estado_nombre === 'DEVUELTA' ? `<button class="btn btn-sm btn-outline-danger" onclick="reabrirEntregaDevuelta(${e.id_entrega})" title="Reabrir para redespachar"><span class="material-symbols-rounded" style="font-size:1rem;">restart_alt</span></button>` : ''}
           </td>
         </tr>`;

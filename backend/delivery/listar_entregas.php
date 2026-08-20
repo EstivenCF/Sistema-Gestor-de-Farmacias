@@ -33,7 +33,7 @@ try {
             e.id_entrega, e.numero_seguimiento, e.direccion_entrega, e.barrio_entrega,
             e.costo_entrega, e.fecha_pedido, e.fecha_asignada, e.fecha_entrega_real,
             e.motivo_interrupcion, e.es_entrega_parcial, e.detalle_parcial,
-            e.estado_recepcion, e.comentario_cliente,
+            e.estado_recepcion, e.comentario_cliente, e.confirmado_por_cliente,
             se.nombre AS estado_nombre, e.id_estado,
             c.nombre AS cliente_nombre,
             v.numero_documento,

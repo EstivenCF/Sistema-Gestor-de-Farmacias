@@ -41,10 +41,18 @@ try {
     // No se puede conciliar/cerrar una entrega con una disputa abierta del
     // cliente ("no recibí nada") — hay que resolverla primero (llamando al
     // cliente y al repartidor) vía resolver_disputa.php.
-    $stmtRecep = $conexion->prepare("SELECT estado_recepcion FROM entregas WHERE id_entrega = :id");
+    $stmtRecep = $conexion->prepare("SELECT estado_recepcion, confirmado_por_cliente FROM entregas WHERE id_entrega = :id");
     $stmtRecep->execute([':id' => $id_entrega]);
-    if ($stmtRecep->fetchColumn() === 'EN_DISPUTA') {
+    $recep = $stmtRecep->fetch();
+    if ($recep && $recep['estado_recepcion'] === 'EN_DISPUTA') {
         throw new Exception('Esta entrega tiene una disputa abierta con el cliente — resuélvela primero');
+    }
+
+    // No se puede conciliar hasta que el propio cliente confirme (desde su
+    // Portal) que de verdad recibió el pedido — sin esto, el cajero podía
+    // cerrar la entrega sin que el cliente hubiera dicho nada todavía.
+    if ($recep && !filter_var($recep['confirmado_por_cliente'], FILTER_VALIDATE_BOOLEAN)) {
+        throw new Exception('El cliente todavía no ha confirmado la recepción del pedido — no se puede conciliar');
     }
 
     // No se puede volver a conciliar una entrega cuya última ronda ya

@@ -51,6 +51,11 @@ try {
         throw new Exception('Esta entrega está ' . $entrega['estado_actual'] . ' — solo se puede reabrir una entrega Devolución');
     }
 
+    // ronda_actual sube aquí mismo — esta entrega arranca una ronda nueva
+    // de despacho/entrega. Es la única fuente de verdad para el número de
+    // ronda (ver PATCH 25/25 en Farmacia.sql); sin esto, el próximo
+    // despacho repetiría el número de la ronda vieja y tronaría "llave
+    // duplicada" en conciliacion_entrega.
     $conexion->prepare("
         UPDATE entregas
         SET id_estado = (SELECT id_estado FROM estado_entrega WHERE nombre = 'PENDIENTE'),
@@ -59,6 +64,7 @@ try {
             fecha_asignada = NULL,
             es_entrega_parcial = FALSE,
             detalle_parcial = NULL,
+            ronda_actual = ronda_actual + 1,
             modificado_por = :id_usuario,
             fecha_modificacion = NOW()
         WHERE id_entrega = :id
