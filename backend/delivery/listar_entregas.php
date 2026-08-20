@@ -33,11 +33,15 @@ try {
             e.id_entrega, e.numero_seguimiento, e.direccion_entrega, e.barrio_entrega,
             e.costo_entrega, e.fecha_pedido, e.fecha_asignada, e.fecha_entrega_real,
             e.motivo_interrupcion, e.es_entrega_parcial, e.detalle_parcial,
+            e.estado_recepcion, e.comentario_cliente,
             se.nombre AS estado_nombre, e.id_estado,
             c.nombre AS cliente_nombre,
             v.numero_documento,
             r.id_repartidor, r.nombre AS repartidor_nombre,
-            veh.id_vehiculo, veh.tipo AS vehiculo_tipo, veh.placa AS vehiculo_placa
+            veh.id_vehiculo, veh.tipo AS vehiculo_tipo, veh.placa AS vehiculo_placa,
+            (SELECT ce.estado FROM conciliacion_entrega ce
+             WHERE ce.id_entrega = e.id_entrega
+             ORDER BY ce.id_ronda DESC LIMIT 1) AS conciliacion_estado
         FROM entregas e
         JOIN estado_entrega se ON se.id_estado = e.id_estado
         JOIN clientes c        ON c.id_cliente = e.id_cliente

@@ -18,7 +18,7 @@ if (!$id_devolucion) {
 try {
     // Cabecera de la devolución
     $stmt = $conexion->prepare("
-        SELECT 
+        SELECT
             d.id_devolucion,
             d.numero_documento,
             d.fecha_solicitud,
@@ -26,6 +26,9 @@ try {
             d.fecha_completada,
             d.motivo,
             d.monto_reembolso,
+            d.observaciones_validacion,
+            d.confirmado_por_cliente, d.fecha_confirmacion_cliente, d.nota_cliente,
+            d.id_entrega,
             td.id_tipo,
             td.nombre as tipo_nombre,
             ed.id_estado,
@@ -35,13 +38,19 @@ try {
             c.id_cliente,
             c.nombre as cliente_nombre,
             p.id_proveedor,
-            p.nombre as proveedor_nombre
+            p.nombre as proveedor_nombre,
+            ua.nombre as verificado_por_nombre,
+            e.numero_seguimiento as entrega_seguimiento,
+            r.nombre as entrega_repartidor_nombre
         FROM devoluciones d
         LEFT JOIN tipo_devolucion td ON d.id_tipo = td.id_tipo
         LEFT JOIN estado_devolucion ed ON d.id_estado = ed.id_estado
         LEFT JOIN sucursales s ON d.id_sucursal = s.id_sucursal
         LEFT JOIN clientes c ON d.id_cliente = c.id_cliente
         LEFT JOIN proveedores p ON d.id_proveedor = p.id_proveedor
+        LEFT JOIN usuarios ua ON ua.id_usuario = d.aprobado_por
+        LEFT JOIN entregas e ON e.id_entrega = d.id_entrega
+        LEFT JOIN repartidores r ON r.id_repartidor = e.id_repartidor
         WHERE d.id_devolucion = ?
     ");
     $stmt->execute([$id_devolucion]);

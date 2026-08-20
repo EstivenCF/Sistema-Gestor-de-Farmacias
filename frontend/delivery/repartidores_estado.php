@@ -10,7 +10,7 @@ $usuario_nombre = $_SESSION['nombre'] ?? $_SESSION['usuario'];
 <html lang="es">
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Delivery | Estado de Repartidores — PharmaSystem</title>
+    <title>Envíos | Estado de Repartidores — PharmaSystem</title>
     <link rel="icon" type="image/x-icon" href="../../assets/img/Icon.ico">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
@@ -49,7 +49,7 @@ $usuario_nombre = $_SESSION['nombre'] ?? $_SESSION['usuario'];
 </nav>
 <div class="breadcrumb-bar">
     <i class="fas fa-motorcycle me-1" style="color:var(--primary)"></i>
-    <a href="../menuprincipal.php">PharmaSystem</a> › <strong>Delivery &gt; Estado de Repartidores</strong>
+    <a href="../menuprincipal.php">PharmaSystem</a> › <strong>Envíos &gt; Estado de Repartidores</strong>
 </div>
 
 <div class="container-fluid p-3">

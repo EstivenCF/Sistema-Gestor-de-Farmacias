@@ -3750,7 +3750,6 @@ INSERT INTO modulos (nombre, icono, orden) VALUES
     ('Inventario', 'inventory_2', 2),
     ('Compras', 'shopping_cart', 3),
     ('Clientes', 'group', 4),
-    ('Delivery', 'local_shipping', 5),
     ('Caja', 'payments', 6),
     ('Ropa', 'checkroom', 7),
     ('Administración', 'admin_panel_settings', 8),
@@ -4341,3 +4340,54 @@ CREATE INDEX IF NOT EXISTS idx_devoluciones_id_entrega ON devoluciones(id_entreg
 
 INSERT INTO estado_entrega (nombre) VALUES ('DEVUELTA')
 ON CONFLICT (nombre) DO NOTHING;
+
+-- =============================================================================
+-- PATCH 22/22 — VERIFICACIÓN DE DEVOLUCIONES: hasta ahora, pasar una
+-- devolución de SOLICITADA a APROBADA/RECHAZADA se hacía con un simple
+-- combo box genérico (backend/inventario/guardar_devolucion.php), sin
+-- pedir ninguna nota de qué se verificó físicamente ni quién de verdad
+-- revisó el producto. Se agrega una columna para guardar esa nota — el
+-- "aprobado_por"/"fecha_aprobacion" que ya existían quedan como el
+-- responsable y la fecha de la verificación (se reutilizan tal cual).
+-- =============================================================================
+
+ALTER TABLE devoluciones
+    ADD COLUMN IF NOT EXISTS observaciones_validacion TEXT;
+
+-- =============================================================================
+-- PATCH 23/23 — CONFIRMACIÓN DEL CLIENTE ANTES QUE EL CAJERO: cuando el
+-- repartidor registra una devolución de una entrega, ya no le toca
+-- directamente al cajero decidir — primero se le pregunta al cliente (desde
+-- su Portal) si es cierto que devolvió esos productos. Solo cuando el
+-- cliente responde (Sí o No) es que la devolución queda disponible para
+-- que el cajero/Inventario la apruebe o rechace en
+-- backend/inventario/validar_devolucion.php.
+--   confirmado_por_cliente: NULL = todavía no responde, TRUE = confirma
+--   que sí devolvió, FALSE = dice que no es cierto (queda como disputa,
+--   pero igual se le muestra al cajero para que la resuelva).
+-- =============================================================================
+
+ALTER TABLE devoluciones
+    ADD COLUMN IF NOT EXISTS confirmado_por_cliente BOOLEAN,
+    ADD COLUMN IF NOT EXISTS fecha_confirmacion_cliente TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS nota_cliente TEXT;
+
+-- =============================================================================
+-- PATCH 24/24 — Renombrar el módulo "Delivery" a "Envíos" en todas partes.
+-- Este módulo se sacó del INSERT masivo de arriba (PATCH 9) porque ese
+-- INSERT usa ON CONFLICT (nombre) DO NOTHING: si se dejaba ahí con el
+-- nombre nuevo, en una base ya poblada (que todavía tiene la fila vieja
+-- 'Delivery') se insertaría una fila 'Envíos' A PARTE, sin tocar la vieja
+-- — y si se dejaba con el nombre viejo, cada vez que se corriera este
+-- archivo DESPUÉS de renombrar iba a volver a sembrar 'Delivery' de
+-- nuevo, porque para ese momento 'Delivery' ya no existe y el ON
+-- CONFLICT no tiene nada que evitar. Por eso este módulo se maneja aparte,
+-- con su propia guarda "insértalo solo si no existe ninguno de los dos
+-- nombres", seguida de un UPDATE por si todavía queda la fila vieja.
+-- =============================================================================
+
+INSERT INTO modulos (nombre, icono, orden)
+SELECT 'Envíos', 'local_shipping', 5
+WHERE NOT EXISTS (SELECT 1 FROM modulos WHERE nombre IN ('Envíos', 'Delivery'));
+
+UPDATE modulos SET nombre = 'Envíos' WHERE nombre = 'Delivery';

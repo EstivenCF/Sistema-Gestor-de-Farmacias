@@ -32,6 +32,7 @@ try {
         SELECT
             d.id_devolucion, d.numero_documento, d.fecha_solicitud, d.fecha_completada,
             d.motivo, d.monto_reembolso, d.es_por_recall,
+            d.confirmado_por_cliente,
             td.nombre AS tipo_nombre,
             ed.nombre AS estado_nombre,
             c.nombre  AS cliente_nombre,

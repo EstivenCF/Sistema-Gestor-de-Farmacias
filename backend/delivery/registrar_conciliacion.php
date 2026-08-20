@@ -11,6 +11,13 @@ header('Content-Type: application/json');
 if (!isset($_SESSION['id_sesion'])) {
     echo json_encode(['success' => false, 'message' => 'No autorizado']); exit();
 }
+// No tenía restricción de rol — cualquier usuario autenticado podía llamar
+// este endpoint directamente aunque el botón de la UI solo se muestre a
+// Cajero/Administrador (mismo grupo que puede reabrir entregas devueltas).
+$rol = $_SESSION['rol'] ?? '';
+if (!in_array($rol, ['Cajero', 'Administrador'])) {
+    echo json_encode(['success' => false, 'message' => 'Sin permisos para conciliar entregas']); exit();
+}
 
 $data = json_decode(file_get_contents('php://input'), true);
 $id_entrega = intval($data['id_entrega'] ?? 0);
@@ -30,6 +37,28 @@ try {
     $stmtDesp->execute([':id' => $id_entrega]);
     $id_despacho = $stmtDesp->fetchColumn();
     if (!$id_despacho) { throw new Exception('Esta entrega no tiene un despacho registrado'); }
+
+    // No se puede conciliar/cerrar una entrega con una disputa abierta del
+    // cliente ("no recibí nada") — hay que resolverla primero (llamando al
+    // cliente y al repartidor) vía resolver_disputa.php.
+    $stmtRecep = $conexion->prepare("SELECT estado_recepcion FROM entregas WHERE id_entrega = :id");
+    $stmtRecep->execute([':id' => $id_entrega]);
+    if ($stmtRecep->fetchColumn() === 'EN_DISPUTA') {
+        throw new Exception('Esta entrega tiene una disputa abierta con el cliente — resuélvela primero');
+    }
+
+    // No se puede volver a conciliar una entrega cuya última ronda ya
+    // quedó validada o rechazada — sin este chequeo, la UI ya no muestra
+    // el botón "Conciliar" para esos casos, pero alguien podría llamar
+    // este endpoint directo y sobrescribir una conciliación ya cerrada.
+    $stmtEstadoConc = $conexion->prepare("
+        SELECT estado FROM conciliacion_entrega WHERE id_entrega = :id ORDER BY id_ronda DESC LIMIT 1
+    ");
+    $stmtEstadoConc->execute([':id' => $id_entrega]);
+    $estadoConcActual = $stmtEstadoConc->fetchColumn();
+    if ($estadoConcActual && $estadoConcActual !== 'PENDIENTE') {
+        throw new Exception('Esta entrega ya fue conciliada (' . $estadoConcActual . ')');
+    }
 
     $tiene_diferencia = false;
     foreach ($lineas as $l) {

@@ -457,7 +457,7 @@ function getConfig($clave, $default = '') {
             <i class="fas fa-bell me-2"></i>Notificaciones
         </button>
         <button class="config-tab" data-tab="delivery">
-            <i class="fas fa-truck me-2"></i>Delivery
+            <i class="fas fa-truck me-2"></i>Envíos
         </button>
         <button class="config-tab" data-tab="appearance">
             <i class="fas fa-palette me-2"></i>Apariencia
@@ -906,13 +906,13 @@ function getConfig($clave, $default = '') {
             </div>
         </div>
         
-        <!-- Pestaña: Delivery -->
+        <!-- Pestaña: Envíos -->
         <div id="tab-delivery" class="tab-content">
             <div class="row">
                 <div class="col-md-6">
                     <div class="config-card">
                         <div class="config-card-header">
-                            <h5><i class="fas fa-truck"></i> Configuración de Delivery</h5>
+                            <h5><i class="fas fa-truck"></i> Configuración de Envíos</h5>
                         </div>
                         <div class="config-card-body">
                             <div class="config-group">
@@ -920,7 +920,7 @@ function getConfig($clave, $default = '') {
                                     <input type="hidden" name="delivery_activo" value="0">
                                     <input class="form-check-input" type="checkbox" name="delivery_activo" value="1" 
                                            id="delivery_activo" <?php echo getConfig('delivery_activo', '1') == '1' ? 'checked' : ''; ?>>
-                                    <label class="form-check-label" for="delivery_activo">Activar servicio de delivery</label>
+                                    <label class="form-check-label" for="delivery_activo">Activar servicio de envíos</label>
                                 </div>
                             </div>
                             <div class="config-group">
@@ -957,7 +957,7 @@ function getConfig($clave, $default = '') {
                 <div class="col-md-6">
                     <div class="config-card">
                         <div class="config-card-header">
-                            <h5><i class="fas fa-clock"></i> Horarios de Delivery</h5>
+                            <h5><i class="fas fa-clock"></i> Horarios de Envíos</h5>
                         </div>
                         <div class="config-card-body">
                             <div class="config-group">

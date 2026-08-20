@@ -106,6 +106,56 @@ try {
     $stmt = $conexion->prepare("UPDATE entregas SET $campos WHERE id_entrega = :id");
     $stmt->execute($params);
 
+    // "Marcar en camino" (agenda.php) es el camino que usa el repartidor
+    // cuando el cajero NUNCA pasó por "Despachar" (registrar_despacho.php)
+    // — por eso esta entrega no tiene ninguna fila en despacho_entrega.
+    // Sin eso, confirmar_entrega_delivery.php topa cualquier confirmación
+    // contra "lo despachado en esta ronda", que siempre daría 0, y
+    // rechazaría CUALQUIER confirmación (con o sin devolución de por
+    // medio) con "No se reconoció ningún producto válido de esta venta,
+    // o no había nada despachado en esta ronda". Se genera aquí un
+    // despacho de respaldo (ronda 1) con el pedido completo, asumiendo
+    // que el repartidor salió con todo lo vendido — así el flujo que ya
+    // usan los repartidores (sin pasar por el cajero) sigue funcionando.
+    if ($nuevo_estado === 'EN_CAMINO') {
+        $stmtChkDesp = $conexion->prepare("SELECT 1 FROM despacho_entrega WHERE id_entrega = :id LIMIT 1");
+        $stmtChkDesp->execute([':id' => $id_entrega]);
+        if (!$stmtChkDesp->fetchColumn()) {
+            $stmtVentaBk = $conexion->prepare("SELECT id_venta FROM entregas WHERE id_entrega = :id");
+            $stmtVentaBk->execute([':id' => $id_entrega]);
+            $id_venta_bk = $stmtVentaBk->fetchColumn();
+
+            $stmtLineasBk = $conexion->prepare("SELECT id_lote, id_producto, cantidad FROM detalle_venta WHERE id_venta = :id_venta");
+            $stmtLineasBk->execute([':id_venta' => $id_venta_bk]);
+            $lineasVentaBk = $stmtLineasBk->fetchAll(PDO::FETCH_ASSOC);
+
+            $id_usuario_bk = $_SESSION['usuario_id'] ?? ($_SESSION['id_usuario'] ?? null);
+            if ($lineasVentaBk && $id_usuario_bk) {
+                $stmtDespBk = $conexion->prepare("
+                    INSERT INTO despacho_entrega (id_entrega, id_ronda, id_usuario_cajero, observaciones)
+                    VALUES (:id_entrega, 1, :id_usuario, 'Generado automáticamente: el repartidor salió sin pasar por el paso de Despacho del cajero')
+                    RETURNING id_despacho
+                ");
+                $stmtDespBk->execute([':id_entrega' => $id_entrega, ':id_usuario' => $id_usuario_bk]);
+                $id_despacho_bk = $stmtDespBk->fetchColumn();
+
+                $stmtDetBk = $conexion->prepare("
+                    INSERT INTO detalle_despacho (id_despacho, id_lote, id_producto, cantidad_despachada)
+                    VALUES (:id_despacho, :id_lote, :id_producto, :cantidad)
+                ");
+                foreach ($lineasVentaBk as $lv) {
+                    if ((int) $lv['cantidad'] <= 0) continue;
+                    $stmtDetBk->execute([
+                        ':id_despacho' => $id_despacho_bk,
+                        ':id_lote'     => $lv['id_lote'],
+                        ':id_producto' => $lv['id_producto'],
+                        ':cantidad'    => $lv['cantidad'],
+                    ]);
+                }
+            }
+        }
+    }
+
     // Historial
     $stmt = $conexion->prepare("
         INSERT INTO historial_entrega (id_entrega, id_estado, fecha, observacion, id_usuario)

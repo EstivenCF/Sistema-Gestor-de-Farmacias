@@ -4,8 +4,12 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 header('Content-Type: application/json');
 
-if (!isset($_SESSION['id_sesion']) || !isset($_SESSION['id_usuario'])) {
+if (!isset($_SESSION['id_sesion'])) {
     echo json_encode(['success' => false, 'message' => 'No autorizado']);
+    exit;
+}
+if (!in_array($_SESSION['rol'] ?? '', ['Administrador', 'Inventario'])) {
+    echo json_encode(['success' => false, 'message' => 'Sin permisos para editar devoluciones']);
     exit;
 }
 
@@ -18,18 +22,35 @@ if (!$id_devolucion || !$id_estado) {
     exit;
 }
 
-$id_usuario = $_SESSION['id_usuario'];
+$id_usuario = $_SESSION['usuario_id'] ?? ($_SESSION['id_usuario'] ?? 0);
+if (!$id_usuario) {
+    echo json_encode(['success' => false, 'message' => 'No autorizado']);
+    exit;
+}
 
 try {
     $conexion->beginTransaction();
 
     // Obtener estado actual
-    $stmt = $conexion->prepare("SELECT id_estado FROM devoluciones WHERE id_devolucion = ?");
+    $stmt = $conexion->prepare("
+        SELECT d.id_estado, ed.nombre AS estado_nombre
+        FROM devoluciones d JOIN estado_devolucion ed ON ed.id_estado = d.id_estado
+        WHERE d.id_devolucion = ?
+    ");
     $stmt->execute([$id_devolucion]);
-    $estado_actual = $stmt->fetchColumn();
+    $actual = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$estado_actual) {
+    if (!$actual) {
         throw new Exception("Devolución no encontrada");
+    }
+
+    // El paso SOLICITADA -> APROBADA/RECHAZADA ya no se hace desde aquí:
+    // ese cambio exige una nota de verificación y se hace con los botones
+    // "Aprobar"/"Rechazar" (backend/inventario/validar_devolucion.php).
+    // Este editor genérico sigue sirviendo para el resto del ciclo
+    // (por ejemplo pasar de APROBADA a COMPLETADA, o anular).
+    if ($actual['estado_nombre'] === 'SOLICITADA') {
+        throw new Exception('Esta devolución todavía está pendiente de verificar — usa los botones "Aprobar" o "Rechazar", no el editor de estado');
     }
 
     // Actualizar estado

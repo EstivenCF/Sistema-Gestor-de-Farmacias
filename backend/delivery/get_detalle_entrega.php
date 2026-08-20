@@ -42,6 +42,7 @@ try {
             e.nombre_quien_recibe, e.identificacion_quien_recibe,
             e.observaciones, e.comentario_cliente, e.calificacion,
             e.cancelado_por, e.comentario_cancelacion, e.confirmado_por_cliente,
+            e.estado_recepcion,
             e.motivo_interrupcion, e.detalle_parcial,
             c.nombre        AS cliente_nombre,
             c.id_cliente,
@@ -53,6 +54,9 @@ try {
             mf.nombre       AS motivo_fallida_nombre,
             mc.nombre       AS motivo_cancelacion_nombre,
             u.nombre        AS despachado_por,
+            (SELECT ce.estado FROM conciliacion_entrega ce
+             WHERE ce.id_entrega = e.id_entrega
+             ORDER BY ce.id_ronda DESC LIMIT 1) AS conciliacion_estado,
             (SELECT t.numero FROM cliente_telefono ct
              JOIN telefonos t ON t.id_telefono = ct.id_telefono
              WHERE ct.id_cliente = c.id_cliente AND t.activo = TRUE

@@ -31,8 +31,15 @@ $base_url = '/sistema-gestor-de-farmacias';
 </style>
 
 <div class="container-fluid p-0">
-  <h2 class="mb-0 text-success"><span class="material-symbols-rounded align-middle me-2">local_shipping</span> Entrega</h2>
-  <p class="text-muted mb-3">Asigna, reasigna y da seguimiento a las entregas a domicilio en curso</p>
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+    <div>
+      <h2 class="mb-0 text-success"><span class="material-symbols-rounded align-middle me-2">local_shipping</span> Entrega</h2>
+      <p class="text-muted mb-3">Asigna, reasigna y da seguimiento a las entregas a domicilio en curso</p>
+    </div>
+    <button type="button" class="btn btn-outline-success" onclick="cargar()" title="Refrescar">
+      <span class="material-symbols-rounded align-middle">refresh</span> Refrescar
+    </button>
+  </div>
 
   <div class="row g-3 mb-3">
     <div class="col-6 col-md-3">
@@ -340,6 +347,8 @@ function cargarFiltroMotivos() {
     });
 }
 
+function escapeHtml(str) { if (!str) return ''; return String(str).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])); }
+
 const ESTADO_LABEL = {
   PENDIENTE:'Pendiente', ASIGNADA:'Asignada', EN_CAMINO:'En camino', ENTREGADA:'Entregada',
   INTERRUMPIDA:'Interrumpida', PARCIAL:'Parcial', CANCELADA:'Cancelada',
@@ -367,7 +376,7 @@ function verDetalle(id) {
             <strong>Entregado a:</strong> ${e.nombre_quien_recibe || '—'}
             ${e.identificacion_quien_recibe ? ' (Cédula: ' + e.identificacion_quien_recibe + ')' : ''}
             <br><strong>Fecha de entrega:</strong> ${e.fecha_entrega_real ? new Date(e.fecha_entrega_real).toLocaleString('es-DO') : '—'}
-            ${e.estado_recepcion === 'EN_DISPUTA' ? '<br><span class="text-danger"><strong>⚠ En disputa:</strong> la cédula no coincide con el receptor autorizado.</span>' : ''}
+            ${e.estado_recepcion === 'EN_DISPUTA' ? `<br><span class="text-danger"><strong>⚠ En disputa:</strong> ${e.comentario_cliente ? escapeHtml(e.comentario_cliente) : 'la cédula no coincide con el receptor autorizado, o el cliente reporta que no recibió el pedido'}</span>` : ''}
           </div>`;
       } else if (e.estado_nombre === 'INTERRUMPIDA') {
         extraHtml = `<div class="alert alert-danger py-2 px-3 mb-3" style="font-size:.85rem;"><strong>Motivo de interrupción:</strong> ${e.motivo_interrupcion || '—'}</div>`;
@@ -456,6 +465,8 @@ function cargar() {
           <td class="text-center">
             <span class="badge-st st-${e.estado_nombre}">${enCola ? 'EN COLA' : e.estado_nombre.replace('_',' ')}</span>
             ${e.estado_nombre === 'FALLIDA' && e.motivo_fallida_nombre ? `<br><small class="text-muted">${e.motivo_fallida_nombre}</small>` : ''}
+            ${e.estado_recepcion === 'EN_DISPUTA' ? `<br><span class="badge bg-danger mt-1" title="${escapeHtml(e.comentario_cliente || '')}">⚠ En disputa</span>` : ''}
+            ${e.estado_nombre === 'ENTREGADA' && e.conciliacion_estado && e.conciliacion_estado !== 'PENDIENTE' ? `<br><span class="badge ${e.conciliacion_estado === 'RECHAZADO' ? 'bg-danger' : 'bg-success'} mt-1" title="Conciliación: ${e.conciliacion_estado}">✓ Conciliada</span>` : ''}
           </td>
           <td>${new Date(e.fecha_pedido).toLocaleDateString('es-DO')}</td>
           <td class="text-center">
@@ -465,7 +476,11 @@ function cargar() {
                 ${puedeActualizar ? `<button class="btn btn-sm btn-outline-warning me-1" onclick='abrirModalAsignar(${e.id_entrega}, "${e.numero_seguimiento}", ${enCola})' title="${enCola ? 'Asignar repartidor' : 'Reasignar a otro repartidor'}"><span class="material-symbols-rounded" style="font-size:1rem;">${enCola ? 'person_add' : 'sync_alt'}</span></button>` : ''}
                 ${puedeActualizar ? `<button class="btn btn-sm btn-outline-primary me-1" onclick="abrirModalEstado(${e.id_entrega})" title="Actualizar estado"><span class="material-symbols-rounded" style="font-size:1rem;">edit</span></button>` : ''}
                 ${['ASIGNADA','PARCIAL'].includes(e.estado_nombre) ? `<button class="btn btn-sm btn-outline-success me-1" onclick="abrirModalDespacho(${e.id_entrega})" title="${e.estado_nombre === 'PARCIAL' ? 'Despachar lo pendiente' : 'Registrar despacho'}"><span class="material-symbols-rounded" style="font-size:1rem;">inventory</span></button>` : ''}
-                ${e.estado_nombre === 'ENTREGADA' ? `<button class="btn btn-sm btn-outline-success" onclick="abrirModalConciliacion(${e.id_entrega})" title="Conciliar entrega"><span class="material-symbols-rounded" style="font-size:1rem;">fact_check</span></button>` : ''}
+                ${e.estado_nombre === 'ENTREGADA' && e.estado_recepcion === 'EN_DISPUTA' ? `
+                  <button class="btn btn-sm btn-outline-success me-1" onclick="resolverDisputa(${e.id_entrega}, 'CONFIRMADA')" title="Resolver: el cliente sí recibió"><span class="material-symbols-rounded" style="font-size:1rem;">call</span></button>
+                  <button class="btn btn-sm btn-outline-danger" onclick="resolverDisputa(${e.id_entrega}, 'REDESPACHO')" title="Resolver: redespachar"><span class="material-symbols-rounded" style="font-size:1rem;">restart_alt</span></button>
+                ` : ''}
+                ${e.estado_nombre === 'ENTREGADA' && e.estado_recepcion !== 'EN_DISPUTA' && (!e.conciliacion_estado || e.conciliacion_estado === 'PENDIENTE') ? `<button class="btn btn-sm btn-outline-success" onclick="abrirModalConciliacion(${e.id_entrega})" title="Conciliar entrega"><span class="material-symbols-rounded" style="font-size:1rem;">fact_check</span></button>` : ''}
                 ${e.estado_nombre === 'DEVUELTA' ? `<button class="btn btn-sm btn-outline-danger" onclick="reabrirEntregaDevuelta(${e.id_entrega})" title="Reabrir para redespachar"><span class="material-symbols-rounded" style="font-size:1rem;">restart_alt</span></button>` : ''}
           </td>
         </tr>`;
@@ -711,6 +726,46 @@ function confirmarConciliacion(accion) {
       cargar();
     } else Swal.fire('Error', data.message, 'error');
   }).catch(() => Swal.fire('Error', 'Error de conexión.', 'error'));
+}
+
+// ══════════════ Resolver disputa (cliente reportó "no recibí nada") ══════════════
+// El cajero debe llamar al cliente y al repartidor para aclarar la situación
+// ANTES de resolver — la nota es obligatoria y queda en el historial de la entrega.
+function resolverDisputa(id, resolucion) {
+  const esConfirmada = resolucion === 'CONFIRMADA';
+  Swal.fire({
+    title: esConfirmada ? 'Disputa aclarada: sí se entregó' : 'Disputa aclarada: hay que redespachar',
+    html: 'Llama primero al cliente y al repartidor para aclarar qué pasó. Escribe abajo qué te dijo cada uno.',
+    input: 'textarea',
+    inputPlaceholder: 'Nota obligatoria: qué dijeron el cliente y el repartidor al llamarlos...',
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: esConfirmada ? 'Confirmar, sí se entregó' : 'Confirmar y redespachar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: esConfirmada ? '#28a745' : '#dc3545',
+    preConfirm: (value) => {
+      if (!value || !value.trim()) {
+        Swal.showValidationMessage('La nota es obligatoria — cuenta qué dijeron el cliente y el repartidor.');
+        return false;
+      }
+      return value.trim();
+    }
+  }).then(result => {
+    if (!result.isConfirmed) return;
+    fetch(BASE_URL + '/backend/delivery/resolver_disputa.php', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ id_entrega: id, resolucion, nota: result.value })
+    }).then(r => r.json()).then(data => {
+      if (data.success) {
+        Swal.fire({
+          title: esConfirmada ? 'Disputa resuelta' : 'Entrega reabierta para redespacho',
+          text: esConfirmada ? 'Ya se puede conciliar normalmente.' : 'Vuelve a Pendiente para asignar repartidor de nuevo.',
+          icon: 'success', timer: 2200, showConfirmButton: false
+        });
+        cargar();
+      } else Swal.fire('Error', data.message, 'error');
+    }).catch(() => Swal.fire('Error', 'Error de conexión.', 'error'));
+  });
 }
 
 function reabrirEntregaDevuelta(id) {

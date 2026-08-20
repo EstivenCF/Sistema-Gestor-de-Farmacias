@@ -361,7 +361,7 @@ foreach ($todos_permisos_catalogo as $p) {
                                                     <span class="material-symbols-rounded" style="color: #8b5cf6;">local_shipping</span>
                                                 </div>
                                                 <div>
-                                                    <h6 class="mb-0 fw-bold">Delivery</h6>
+                                                    <h6 class="mb-0 fw-bold">Envíos</h6>
                                                     <small class="text-muted">Gestión de entregas</small>
                                                 </div>
                                             </div>

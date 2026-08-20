@@ -425,7 +425,7 @@ function exportarPDF() {
   const fi = ultimoResultado.fecha_inicio, ff = ultimoResultado.fecha_fin;
 
   doc.setFontSize(14);
-  doc.text('Reporte de Repartidores — Delivery', 14, 15);
+  doc.text('Reporte de Repartidores — Envíos', 14, 15);
   doc.setFontSize(9);
   doc.setTextColor(100);
   doc.text(`Filtro: ${labelFiltro}   |   Rango: ${fi} a ${ff}   |   Generado: ${new Date().toLocaleString('es-DO')}`, 14, 21);

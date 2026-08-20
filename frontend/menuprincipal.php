@@ -628,7 +628,7 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                         <li class="nav-item has-submenu">
                             <a href="#submenuDelivery" class="nav-link dropdown-toggle" data-bs-toggle="collapse" data-bs-target="#submenuDelivery">
                                 <span class="material-symbols-rounded">local_shipping</span>
-                                <span class="nav-label">Delivery</span>
+                                <span class="nav-label">Envíos</span>
                                 <span class="material-symbols-rounded dropdown-arrow">expand_more</span>
                             </a>
                             <ul class="dropdown-menu collapse list-unstyled" id="submenuDelivery" data-bs-parent="#sidebarAccordion">

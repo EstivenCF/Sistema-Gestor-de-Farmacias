@@ -70,23 +70,19 @@ $nombre_cliente = $_SESSION['nombre_cliente_portal'] ?? 'Cliente';
   </div>
 </div>
 
-<!-- MODAL: confirmar y calificar -->
+<!-- MODAL: calificar (paso 2, aparte de confirmar recepción) -->
 <div class="modal fade" id="modalCalificar" tabindex="-1" data-bs-backdrop="static">
   <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content">
       <div class="modal-header bg-success text-white">
-        <h6 class="modal-title mb-0"><span class="material-symbols-rounded align-middle me-1">task_alt</span> Confirmar recepción y calificar</h6>
+        <h6 class="modal-title mb-0"><span class="material-symbols-rounded align-middle me-1">star_rate</span> Califica tu experiencia</h6>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <input type="hidden" id="califIdEntrega">
-        <p class="text-muted small">Tu repartidor marcó este pedido como entregado. Confírmalo y cuéntanos cómo te fue — nos ayuda muchísimo.</p>
+        <p class="text-muted small">Cuéntanos cómo te fue con este pedido — nos ayuda muchísimo.</p>
 
         <div id="califPreguntas"><div class="text-center py-3"><div class="spinner-border text-success spinner-border-sm"></div></div></div>
-
-        <div class="form-check form-switch mt-2">
-          <input class="form-check-input" type="checkbox" id="califPersonaCorrecta" checked>
-          <label class="form-check-label small" for="califPersonaCorrecta">Se entregó a la persona correcta</label>
-        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-success w-100" onclick="enviarCalificacion()">
@@ -97,15 +93,64 @@ $nombre_cliente = $_SESSION['nombre_cliente_portal'] ?? 'Cliente';
   </div>
 </div>
 
+<!-- MODAL: no recibí el pedido -->
+<div class="modal fade" id="modalNoRecibido" tabindex="-1" data-bs-backdrop="static">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h6 class="modal-title mb-0"><span class="material-symbols-rounded align-middle me-1">report</span> Algo está mal con esta entrega</h6>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="noRecIdEntrega">
+        <p class="text-muted small">El repartidor marcó este pedido como entregado, pero cuéntanos qué pasó de verdad — no llegó nadie, llegó incompleto, o no fuiste tú (ni alguien autorizado) quien lo recibió.</p>
+        <label class="form-label small fw-semibold">¿Qué pasó? *</label>
+        <textarea class="form-control" id="noRecComentario" rows="3" placeholder="Ej: nadie tocó mi puerta, no recibí nada. / Lo recibió alguien que yo no autoricé."></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Volver</button>
+        <button class="btn btn-danger" onclick="enviarNoRecibido()">Enviar reporte</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: confirmar devolución -->
+<div class="modal fade" id="modalDevolucion" tabindex="-1" data-bs-backdrop="static">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-warning">
+        <h6 class="modal-title mb-0"><span class="material-symbols-rounded align-middle me-1">assignment_return</span> Confirmar devolución</h6>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="devIdDevolucion">
+        <p class="small text-muted mb-1">Tu repartidor registró esta devolución:</p>
+        <div class="bg-light rounded p-2 mb-3" style="font-size:.85rem;">
+          <div id="devProductos" class="mb-1"></div>
+          <div><strong>Motivo:</strong> <span id="devMotivo"></span></div>
+        </div>
+        <p class="fw-semibold small mb-2">¿Es correcto? ¿De verdad devolviste esos productos?</p>
+        <label class="form-label small fw-semibold" id="devNotaLabel">Comentario (opcional)</label>
+        <textarea class="form-control" id="devNota" rows="2" placeholder="Ej: sí, el frasco llegó roto."></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-danger" onclick="responderDevolucion('NO')">No es correcto</button>
+        <button class="btn btn-success" onclick="responderDevolucion('SI')">Sí, es correcto</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-let modalCancelar, modalCalificar;
+let modalCancelar, modalCalificar, modalDevolucion, modalNoRecibido;
 let preguntasCalifCache = [];   // catálogo activo, traído del servidor
 const respuestasCliente = {};   // id_pregunta -> valor (int 1-5 o string)
 
 document.addEventListener('DOMContentLoaded', () => {
   modalCancelar = new bootstrap.Modal('#modalCancelar');
   modalCalificar = new bootstrap.Modal('#modalCalificar');
+  modalDevolucion = new bootstrap.Modal('#modalDevolucion');
+  modalNoRecibido = new bootstrap.Modal('#modalNoRecibido');
   cargar();
   cargarMotivos();
 });
@@ -154,6 +199,12 @@ function cerrarSesion() {
 }
 
 const ESTADO_LABEL = { PENDIENTE:'Pendiente', ASIGNADA:'Asignada', EN_CAMINO:'En camino', ENTREGADA:'Entregada' };
+const devolucionesCache = {}; // id_devolucion -> datos, para no meter JSON crudo en el HTML
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/[&<>"']/g, m => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[m]));
+}
 
 function cargar() {
   fetch('../../backend/portal_cliente/listar_mis_entregas.php').then(r=>r.json()).then(data => {
@@ -163,6 +214,7 @@ function cargar() {
       cont.innerHTML = '<div class="text-center text-muted py-5"><span class="material-symbols-rounded" style="font-size:3rem;">inbox</span><br>No tienes pedidos con delivery en este momento.</div>';
       return;
     }
+    data.entregas.forEach(e => (e.devoluciones_pendientes || []).forEach(d => devolucionesCache[d.id_devolucion] = d));
     cont.innerHTML = data.entregas.map(e => {
       const productos = (e.productos||[]).map(p => `${p.nombre} (${p.cantidad})`).join(', ') || 'Sin detalle';
       const horaAcordada = e.fecha_programada ? new Date(e.fecha_programada).toLocaleString('es-DO') : 'Sin definir todavía';
@@ -188,10 +240,28 @@ function cargar() {
               <span class="material-symbols-rounded align-middle" style="font-size:1rem;">cancel</span> Cancelar pedido
             </button>` : ''}
           ${e.pendiente_confirmar_cliente ? `
-            <div class="alert alert-success mt-2 mb-0 d-flex justify-content-between align-items-center">
-              <span><span class="material-symbols-rounded align-middle">notifications_active</span> Tu repartidor marcó este pedido como entregado.</span>
-              <button class="btn btn-sm btn-success" onclick="abrirCalificar(${e.id_entrega})">Confirmar y calificar</button>
+            <div class="alert alert-success mt-2 mb-0">
+              <div class="mb-2"><span class="material-symbols-rounded align-middle">notifications_active</span> Tu repartidor marcó este pedido como entregado. ¿Te lo entregaron a ti (o a alguien autorizado por ti)?</div>
+              <div class="d-flex gap-2 flex-wrap">
+                <button class="btn btn-sm btn-success" onclick="confirmarRecepcion(${e.id_entrega})">Sí, todo bien</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="abrirNoRecibido(${e.id_entrega})">No, algo está mal</button>
+              </div>
             </div>` : ''}
+          ${e.pendiente_calificar ? `
+            <div class="alert alert-light border mt-2 mb-0 d-flex justify-content-between align-items-center flex-wrap gap-2">
+              <span><span class="material-symbols-rounded align-middle">star_rate</span> ¿Nos regalas un minuto para calificar cómo te fue?</span>
+              <button class="btn btn-sm btn-outline-success" onclick="abrirCalificar(${e.id_entrega})">Calificar ahora</button>
+            </div>` : ''}
+          ${e.estado_recepcion === 'EN_DISPUTA' ? `
+            <div class="alert alert-danger mt-2 mb-0">
+              <span class="material-symbols-rounded align-middle">report</span> <strong>Reportaste que no recibiste este pedido.</strong> La farmacia va a llamarte para aclarar la situación.
+              ${e.comentario_cliente ? `<div class="small mt-1">Tu reporte: "${escapeHtml(e.comentario_cliente)}"</div>` : ''}
+            </div>` : ''}
+          ${(e.devoluciones_pendientes || []).map(d => `
+            <div class="alert alert-warning mt-2 mb-0 d-flex justify-content-between align-items-center flex-wrap gap-2">
+              <span><span class="material-symbols-rounded align-middle">assignment_return</span> Tu repartidor registró una devolución en este pedido — necesitamos que la confirmes.</span>
+              <button class="btn btn-sm btn-warning" onclick="abrirDevolucion(${d.id_devolucion})">Responder</button>
+            </div>`).join('')}
         </div>`;
     }).join('');
   });
@@ -230,9 +300,20 @@ function confirmarCancelacion() {
   }).catch(() => Swal.fire('Error', 'Error de conexión.', 'error'));
 }
 
+function confirmarRecepcion(idEntrega) {
+  fetch('../../backend/portal_cliente/confirmar_recepcion.php', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ id_entrega: idEntrega })
+  }).then(r=>r.json()).then(data => {
+    if (data.success) {
+      Swal.fire({title:'¡Gracias por confirmar!', icon:'success', timer:1500, showConfirmButton:false});
+      cargar();
+    } else Swal.fire('Error', data.message, 'error');
+  }).catch(() => Swal.fire('Error', 'Error de conexión.', 'error'));
+}
+
 function abrirCalificar(idEntrega) {
   document.getElementById('califIdEntrega').value = idEntrega;
-  document.getElementById('califPersonaCorrecta').checked = true;
   Object.keys(respuestasCliente).forEach(k => delete respuestasCliente[k]);
   document.getElementById('califPreguntas').innerHTML = '<div class="text-center py-3"><div class="spinner-border text-success spinner-border-sm"></div></div>';
   modalCalificar.show();
@@ -260,7 +341,6 @@ function enviarCalificacion() {
 
   const payload = {
     id_entrega: parseInt(document.getElementById('califIdEntrega').value),
-    persona_correcta: document.getElementById('califPersonaCorrecta').checked,
     respuestas,
   };
   fetch('../../backend/portal_cliente/confirmar_y_calificar.php', {
@@ -270,6 +350,68 @@ function enviarCalificacion() {
     if (data.success) {
       modalCalificar.hide();
       Swal.fire({title:'¡Gracias por tu calificación!', icon:'success', timer:1800, showConfirmButton:false});
+      cargar();
+    } else Swal.fire('Error', data.message, 'error');
+  }).catch(() => Swal.fire('Error', 'Error de conexión.', 'error'));
+}
+
+function abrirNoRecibido(idEntrega) {
+  document.getElementById('noRecIdEntrega').value = idEntrega;
+  document.getElementById('noRecComentario').value = '';
+  modalNoRecibido.show();
+}
+
+function enviarNoRecibido() {
+  const id_entrega = parseInt(document.getElementById('noRecIdEntrega').value);
+  const comentario = document.getElementById('noRecComentario').value.trim();
+  if (!comentario) { Swal.fire('Falta información', 'Cuéntanos qué pasó.', 'warning'); return; }
+
+  fetch('../../backend/portal_cliente/reportar_no_recibido.php', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ id_entrega, comentario })
+  }).then(r=>r.json()).then(data => {
+    if (data.success) {
+      modalNoRecibido.hide();
+      Swal.fire({title:'Reporte enviado', text:'La farmacia va a revisar esto.', icon:'success', timer:2000, showConfirmButton:false});
+      cargar();
+    } else Swal.fire('Error', data.message, 'error');
+  }).catch(() => Swal.fire('Error', 'Error de conexión.', 'error'));
+}
+
+function abrirDevolucion(idDevolucion) {
+  const d = devolucionesCache[idDevolucion];
+  if (!d) return;
+  document.getElementById('devIdDevolucion').value = d.id_devolucion;
+  document.getElementById('devProductos').innerHTML = '<strong>Productos:</strong> ' +
+    ((d.productos || []).map(p => `${p.nombre} (${p.cantidad})`).join(', ') || 'Sin detalle');
+  document.getElementById('devMotivo').textContent = d.motivo || 'Sin especificar';
+  document.getElementById('devNota').value = '';
+  document.getElementById('devNotaLabel').textContent = 'Comentario (opcional)';
+  modalDevolucion.show();
+}
+
+function responderDevolucion(respuesta) {
+  const id_devolucion = parseInt(document.getElementById('devIdDevolucion').value);
+  const nota = document.getElementById('devNota').value.trim();
+
+  if (respuesta === 'NO' && !nota) {
+    document.getElementById('devNotaLabel').textContent = 'Cuéntanos por qué no es correcto *';
+    document.getElementById('devNota').focus();
+    Swal.fire('Falta información', 'Cuéntanos brevemente por qué no es correcto.', 'warning');
+    return;
+  }
+
+  fetch('../../backend/portal_cliente/confirmar_devolucion.php', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ id_devolucion, respuesta, nota })
+  }).then(r=>r.json()).then(data => {
+    if (data.success) {
+      modalDevolucion.hide();
+      Swal.fire({
+        title: respuesta === 'SI' ? 'Gracias por confirmar' : 'Gracias por avisarnos',
+        text: respuesta === 'SI' ? 'Tu respuesta ya está registrada.' : 'La farmacia va a revisar esto.',
+        icon: 'success', timer: 1800, showConfirmButton: false
+      });
       cargar();
     } else Swal.fire('Error', data.message, 'error');
   }).catch(() => Swal.fire('Error', 'Error de conexión.', 'error'));

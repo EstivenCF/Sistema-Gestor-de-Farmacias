@@ -146,8 +146,7 @@ function verDetalleCalif(i) {
       <strong>Seguimiento:</strong> ${c.numero_seguimiento}<br>
       <strong>Cliente:</strong> ${c.cliente_nombre}<br>
       <strong>Repartidor:</strong> ${c.repartidor_nombre || '—'}<br>
-      <strong>Fecha:</strong> ${new Date(c.fecha_calificacion).toLocaleString('es-DO')}<br>
-      <strong>¿Se entregó a la persona correcta?</strong> ${(c.persona_correcta === false || c.persona_correcta === 'f') ? 'No' : 'Sí'}
+      <strong>Fecha:</strong> ${new Date(c.fecha_calificacion).toLocaleString('es-DO')}
     </div>
     <hr>
     ${filas}`;

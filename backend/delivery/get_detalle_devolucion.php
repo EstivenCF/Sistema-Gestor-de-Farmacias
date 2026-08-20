@@ -21,6 +21,8 @@ try {
         SELECT
             d.id_devolucion, d.numero_documento, d.fecha_solicitud, d.fecha_aprobacion,
             d.fecha_completada, d.motivo, d.monto_reembolso, d.es_por_recall,
+            d.observaciones_validacion,
+            d.confirmado_por_cliente, d.fecha_confirmacion_cliente, d.nota_cliente,
             td.nombre AS tipo_nombre,
             ed.nombre AS estado_nombre,
             c.nombre  AS cliente_nombre,

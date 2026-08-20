@@ -341,6 +341,7 @@ const BASE_URL = '<?php echo $base_url; ?>';
 const RUTAS_API = {
     listar: BASE_URL + '/backend/inventario/listar_devoluciones.php',
     guardar: BASE_URL + '/backend/inventario/guardar_devolucion.php',
+    validar: BASE_URL + '/backend/inventario/validar_devolucion.php',
     detalle: BASE_URL + '/backend/inventario/detalle_devolucion.php',
     estadisticas: BASE_URL + '/backend/inventario/estadisticas_devoluciones.php',
     listarClientes: BASE_URL + '/backend/clientes/listar_clientes_select.php',
@@ -540,9 +541,21 @@ function renderizarTabla(devoluciones) {
                     <button class="btn btn-sm btn-light text-info" onclick="verDetalles(${d.id_devolucion})" title="Ver">
                         <span class="material-symbols-rounded">visibility</span>
                     </button>
-                    <button class="btn btn-sm btn-light text-primary" onclick="editarDevolucion(${d.id_devolucion})" title="Editar estado">
-                        <span class="material-symbols-rounded">edit_square</span>
-                    </button>
+                    ${d.estado_nombre === 'SOLICITADA' ? (
+                        esperaRespuestaCliente(d)
+                        ? `<span class="badge bg-secondary align-self-center" title="Es una devolución de delivery, todavía sin respuesta del cliente en su Portal">Esperando cliente</span>`
+                        : `
+                        <button class="btn btn-sm btn-light text-success" onclick="verificarDevolucion(${d.id_devolucion}, 'APROBAR')" title="Aprobar (verificar producto)">
+                            <span class="material-symbols-rounded">check_circle</span>
+                        </button>
+                        <button class="btn btn-sm btn-light text-danger" onclick="verificarDevolucion(${d.id_devolucion}, 'RECHAZAR')" title="Rechazar">
+                            <span class="material-symbols-rounded">cancel</span>
+                        </button>
+                    `) : `
+                        <button class="btn btn-sm btn-light text-primary" onclick="editarDevolucion(${d.id_devolucion})" title="Editar estado">
+                            <span class="material-symbols-rounded">edit_square</span>
+                        </button>
+                    `}
                 </div>
             </td>
         </tr>`;
@@ -565,7 +578,14 @@ function editarDevolucion(id) {
                 document.getElementById('fechaDevolucionTexto').value = formatDate(d.fecha_solicitud);
                 document.getElementById('sucursalTexto').value = d.sucursal_nombre || '';
                 document.getElementById('motivoDevolucion').value = d.motivo || '';
-                document.getElementById('estadoDevolucion').value = d.id_estado;
+                // El paso SOLICITADA -> APROBADA/RECHAZADA ya no se hace desde
+                // este combo (va por los botones Aprobar/Rechazar), así que se
+                // quita esa opción para no confundir ni permitir saltarse la nota.
+                const selEstado = document.getElementById('estadoDevolucion');
+                Array.from(selEstado.options).forEach(opt => {
+                    if (opt.text === 'SOLICITADA') opt.disabled = true;
+                });
+                selEstado.value = d.id_estado;
                 
                 // Cliente o proveedor
                 if (d.id_cliente) {
@@ -657,6 +677,58 @@ function guardarDevolucion() {
     });
 }
 
+// El backend puede mandar el booleano como true/false, 't'/'f' o null,
+// según cómo lo devuelva el driver de Postgres — se normaliza acá.
+function esSi(v) { return v === true || v === 't' || v === 1 || v === '1'; }
+// Solo las devoluciones de delivery (id_entrega no nulo) esperan respuesta
+// del cliente antes de que el cajero/Inventario pueda actuar.
+function esperaRespuestaCliente(d) { return !!d.id_entrega && (d.confirmado_por_cliente === null || d.confirmado_por_cliente === undefined); }
+
+function verificarDevolucion(id, accion) {
+    const esAprobar = accion === 'APROBAR';
+    Swal.fire({
+        title: esAprobar ? 'Aprobar devolución' : 'Rechazar devolución',
+        html: esAprobar
+            ? 'Confirma que <strong>revisaste físicamente</strong> el producto devuelto (que de verdad llegó, y en qué condición quedó).'
+            : 'Indica por qué se rechaza esta devolución (ej: el producto nunca llegó, no coincide con lo reportado, etc.).',
+        input: 'textarea',
+        inputPlaceholder: esAprobar
+            ? 'Ej: producto recibido en buen estado, se verificó el lote y la cantidad.'
+            : 'Ej: el repartidor reporta devolución pero el producto nunca llegó a la sucursal.',
+        icon: esAprobar ? 'question' : 'warning',
+        showCancelButton: true,
+        confirmButtonText: esAprobar ? 'Aprobar' : 'Rechazar',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: esAprobar ? '#198754' : '#dc3545',
+        preConfirm: (value) => {
+            if (!value || !value.trim()) {
+                Swal.showValidationMessage('Tienes que indicar qué se verificó antes de continuar');
+                return false;
+            }
+            return value.trim();
+        }
+    }).then((result) => {
+        if (!result.isConfirmed) return;
+        Swal.fire({ title: 'Guardando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+        fetch(RUTAS_API.validar, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id_devolucion: id, accion, observaciones: result.value })
+        })
+        .then(r => r.json())
+        .then(data => {
+            Swal.close();
+            if (data.success) {
+                Swal.fire({ icon: 'success', title: esAprobar ? 'Devolución aprobada' : 'Devolución rechazada', timer: 1500, showConfirmButton: false })
+                .then(() => { cargarDevoluciones(); actualizarEstadisticas(); });
+            } else {
+                Swal.fire('Error', data.message, 'error');
+            }
+        })
+        .catch(() => { Swal.close(); Swal.fire('Error de conexión', '', 'error'); });
+    });
+}
+
 function verDetalles(id) {
     detallesActualId = id;
     const modalBody = document.getElementById('detallesContenido');
@@ -733,13 +805,23 @@ function verDetalles(id) {
                         ${d.cliente_nombre ? `<div class="col-6"><div class="detalle-item"><small class="text-muted d-block fw-bold text-uppercase">Cliente</small><span class="fw-bold">${escapeHtml(d.cliente_nombre)}</span></div></div>` : ''}
                         ${d.proveedor_nombre ? `<div class="col-6"><div class="detalle-item"><small class="text-muted d-block fw-bold text-uppercase">Proveedor</small><span class="fw-bold">${escapeHtml(d.proveedor_nombre)}</span></div></div>` : ''}
                         <div class="col-12"><div class="detalle-item"><small class="text-muted d-block fw-bold text-uppercase">Motivo</small><span>${escapeHtml(d.motivo || '-')}</span></div></div>
-                        ${d.fecha_aprobacion ? `<div class="col-6"><div class="detalle-item"><small class="text-muted d-block fw-bold text-uppercase">Fecha Aprobación</small><span>${formatDate(d.fecha_aprobacion)}</span></div></div>` : ''}
+                        ${d.entrega_seguimiento ? `<div class="col-12"><div class="detalle-item" style="background:#fff3cd;border-color:#ffe69c;"><small class="text-muted d-block fw-bold text-uppercase">Origen: Devolución de Envíos</small><span>Entrega <strong>${escapeHtml(d.entrega_seguimiento)}</strong>${d.entrega_repartidor_nombre ? ' — repartidor: ' + escapeHtml(d.entrega_repartidor_nombre) : ''}</span></div></div>` : ''}
+                        ${d.id_entrega ? `<div class="col-12"><div class="detalle-item"><small class="text-muted d-block fw-bold text-uppercase">Respuesta del cliente</small><span>${
+                            esperaRespuestaCliente(d)
+                              ? '<span class="text-muted">Todavía no responde en su Portal</span>'
+                              : (esSi(d.confirmado_por_cliente)
+                                  ? '<span class="text-success">Sí, confirma que devolvió los productos</span>'
+                                  : '<span class="text-danger">⚠ Dice que no es correcto</span>')
+                          }${d.nota_cliente ? '<br><span class="text-muted small">&quot;' + escapeHtml(d.nota_cliente) + '&quot;</span>' : ''}</span></div></div>` : ''}
+                        ${d.fecha_aprobacion ? `<div class="col-6"><div class="detalle-item"><small class="text-muted d-block fw-bold text-uppercase">Verificado por</small><span>${escapeHtml(d.verificado_por_nombre || '-')}</span></div></div>` : ''}
+                        ${d.fecha_aprobacion ? `<div class="col-6"><div class="detalle-item"><small class="text-muted d-block fw-bold text-uppercase">Fecha Verificación</small><span>${formatDate(d.fecha_aprobacion)}</span></div></div>` : ''}
+                        ${d.observaciones_validacion ? `<div class="col-12"><div class="detalle-item"><small class="text-muted d-block fw-bold text-uppercase">Nota de verificación</small><span>${escapeHtml(d.observaciones_validacion)}</span></div></div>` : ''}
                         ${d.fecha_completada ? `<div class="col-6"><div class="detalle-item"><small class="text-muted d-block fw-bold text-uppercase">Fecha Completada</small><span>${formatDate(d.fecha_completada)}</span></div></div>` : ''}
                     </div>
                     ${detallesHtml}
                 `;
-                
-                document.getElementById('btnEditarDesdeDetalle').style.display = 'inline-flex';
+
+                document.getElementById('btnEditarDesdeDetalle').style.display = d.estado_nombre === 'SOLICITADA' ? 'none' : 'inline-flex';
                 modalDetalles.show();
                 scrollAlModal();
             } else {

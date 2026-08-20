@@ -29,6 +29,8 @@ try {
             d.fecha_solicitud,
             d.motivo,
             d.monto_reembolso,
+            d.id_entrega,
+            d.confirmado_por_cliente,
             td.nombre as tipo_nombre,
             ed.nombre as estado_nombre,
             s.nombre as sucursal_nombre,
