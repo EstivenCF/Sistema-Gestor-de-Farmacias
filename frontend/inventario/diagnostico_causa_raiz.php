@@ -71,17 +71,19 @@ $etiquetasTipoAccion = [
 $coloresEstado = ['PENDIENTE' => 'secondary', 'EN_EJECUCION' => 'info', 'COMPLETADA' => 'success', 'CANCELADA' => 'dark', 'SIN_EFECTO' => 'danger'];
 ?>
 
-<div class="container-fluid" style="max-width: 1100px;">
+<div class="container-fluid">
     <div class="mb-4">
-        <div class="d-flex align-items-center gap-2 text-muted small mb-1">
-            <a href="menuprincipal.php?mod=vencimientos" class="text-decoration-none text-muted">Vencimientos</a>
-            <span>&rsaquo;</span>
+        <nav class="tarea5-breadcrumb" aria-label="breadcrumb">
+            <a href="menuprincipal.php?mod=vencimientos" class="tarea5-breadcrumb-home" title="Vencimientos">
+                <span class="material-symbols-rounded">home</span>
+            </a>
             <?php if (!$error): ?>
-                <a href="menuprincipal.php?mod=detalle_riesgo_lote&id_lote=<?php echo $id_lote; ?>&id_sucursal=<?php echo $id_sucursal; ?>" class="text-decoration-none text-muted">Detalle de lote</a>
-                <span>&rsaquo;</span>
+                <span class="tarea5-breadcrumb-sep material-symbols-rounded">chevron_right</span>
+                <a href="menuprincipal.php?mod=detalle_riesgo_lote&id_lote=<?php echo $id_lote; ?>&id_sucursal=<?php echo $id_sucursal; ?>" class="tarea5-breadcrumb-link">Detalle de lote</a>
             <?php endif; ?>
-            <span class="fw-semibold text-dark">Diagnóstico y contingencia</span>
-        </div>
+            <span class="tarea5-breadcrumb-sep material-symbols-rounded">chevron_right</span>
+            <span class="tarea5-breadcrumb-actual">Diagnóstico y contingencia</span>
+        </nav>
         <h2 class="mb-0 text-danger">
             <span class="material-symbols-rounded align-middle me-2">troubleshoot</span>
             Diagnóstico de causa raíz y plan de contingencia
@@ -225,11 +227,11 @@ $coloresEstado = ['PENDIENTE' => 'secondary', 'EN_EJECUCION' => 'info', 'COMPLET
                 </div>
 
                 <div class="row g-3">
-                    <div class="col-md-6" id="campoEntidadReceptora" style="display:none;">
+                    <div class="col-lg-3 col-md-6" id="campoEntidadReceptora" style="display:none;">
                         <label class="form-label fw-bold text-secondary small">ENTIDAD RECEPTORA</label>
                         <input type="text" class="form-control" id="entidadReceptora" placeholder="Ej. Hospital Regional, Cruz Roja...">
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-lg-3 col-md-6">
                         <label class="form-label fw-bold text-secondary small">RESPONSABLE</label>
                         <select class="form-select" id="responsable" required>
                             <option value="">Seleccione...</option>
@@ -238,7 +240,7 @@ $coloresEstado = ['PENDIENTE' => 'secondary', 'EN_EJECUCION' => 'info', 'COMPLET
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-lg-3 col-md-6">
                         <label class="form-label fw-bold text-secondary small">FECHA LÍMITE DE EJECUCIÓN</label>
                         <input type="date" class="form-control" id="fechaLimite" required>
                     </div>

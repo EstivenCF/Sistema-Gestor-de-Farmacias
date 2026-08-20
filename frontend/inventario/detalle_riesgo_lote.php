@@ -30,10 +30,8 @@ if ($id_lote > 0 && $id_sucursal > 0) {
     }
 }
 
-// NUEVO: acciones ya registradas sobre este lote en esta sucursal, y
-// proveedores disponibles para poder completar una Devolución pendiente.
+// NUEVO: acciones ya registradas sobre este lote en esta sucursal.
 $accionesLote = [];
-$proveedores = [];
 if (!$error) {
     $stmt = $conexion->prepare("
         SELECT id_accion, tipo_accion, estado, cantidad_afectada, valor_en_riesgo, valor_recuperado_estimado, fecha_creacion, fecha_ejecucion
@@ -43,9 +41,6 @@ if (!$error) {
     ");
     $stmt->execute([':lote' => $id_lote, ':suc' => $id_sucursal]);
     $accionesLote = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    $stmt = $conexion->query("SELECT id_proveedor, nombre FROM proveedores ORDER BY nombre");
-    $proveedores = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } else {
     $error = 'Falta indicar el lote y la sucursal (id_lote / id_sucursal).';
 }
@@ -53,11 +48,13 @@ if (!$error) {
 
 <div class="container-fluid">
     <div class="mb-4">
-        <div class="d-flex align-items-center gap-2 text-muted small mb-1">
-            <a href="menuprincipal.php?mod=vencimientos" class="text-decoration-none text-muted">Vencimientos</a>
-            <span>&rsaquo;</span>
-            <span class="fw-semibold text-dark">Detalle de riesgo del lote</span>
-        </div>
+        <nav class="tarea5-breadcrumb" aria-label="breadcrumb">
+            <a href="menuprincipal.php?mod=vencimientos" class="tarea5-breadcrumb-home" title="Vencimientos">
+                <span class="material-symbols-rounded">home</span>
+            </a>
+            <span class="tarea5-breadcrumb-sep material-symbols-rounded">chevron_right</span>
+            <span class="tarea5-breadcrumb-actual">Detalle de riesgo del lote</span>
+        </nav>
         <h2 class="mb-0 text-danger">
             <span class="material-symbols-rounded align-middle me-2">inventory</span>
             Detalle de lote y valor económico en riesgo
@@ -203,7 +200,7 @@ if (!$error) {
                 <?php else: ?>
                     <?php
                     $etiquetasTipoAccion = ['PROMOCION' => 'Promoción', 'REDISTRIBUCION' => 'Redistribución', 'COMBO' => 'Combo/Paquete', 'DEVOLUCION_PROVEEDOR' => 'Devolución a proveedor', 'DONACION' => 'Donación', 'PROVISION_PERDIDA' => 'Provisión de pérdida', 'DESTRUCCION' => 'Destrucción'];
-                    $coloresEstadoAccion = ['PENDIENTE' => 'secondary', 'EN_EJECUCION' => 'info', 'COMPLETADA' => 'success', 'CANCELADA' => 'dark', 'SIN_EFECTO' => 'danger'];
+                    $coloresEstadoAccion = ['PENDIENTE' => 'secondary', 'ESPERANDO_PROVEEDOR' => 'warning', 'EN_EJECUCION' => 'info', 'COMPLETADA' => 'success', 'CANCELADA' => 'dark', 'RECHAZADA_PROVEEDOR' => 'danger', 'SIN_EFECTO' => 'danger'];
                     ?>
                     <table class="table table-sm align-middle mb-0">
                         <thead><tr><th>Tipo</th><th>Estado</th><th class="text-end">Cantidad</th><th class="text-end">Valor</th><th>Fecha</th><th></th></tr></thead>
@@ -216,9 +213,9 @@ if (!$error) {
                                     <td class="text-end">RD$ <?php echo number_format($a['valor_en_riesgo'], 2); ?></td>
                                     <td><small class="text-muted"><?php echo date('d/m/Y', strtotime($a['fecha_creacion'])); ?></small></td>
                                     <td class="text-end">
-                                        <?php if ($a['tipo_accion'] === 'DEVOLUCION_PROVEEDOR' && $a['estado'] === 'PENDIENTE'): ?>
+                                        <?php if ($a['tipo_accion'] === 'DEVOLUCION_PROVEEDOR' && $a['estado'] === 'ESPERANDO_PROVEEDOR'): ?>
                                             <button type="button" class="btn btn-sm btn-primary" onclick="abrirModalDevolucion(<?php echo $a['id_accion']; ?>)">
-                                                Completar
+                                                Registrar respuesta
                                             </button>
                                         <?php endif; ?>
                                     </td>
@@ -230,29 +227,28 @@ if (!$error) {
             </div>
         </div>
 
-        <!-- Modal: completar devolución a proveedor -->
+        <!-- Modal: registrar la respuesta del proveedor a una solicitud de devolución -->
         <div class="modal fade" id="modalDevolucion" tabindex="-1">
                     <div class="modal-dialog modal-dialog-centered">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h5 class="modal-title">Completar devolución a proveedor</h5>
+                        <h5 class="modal-title">Registrar respuesta del proveedor</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
-                        <p class="text-muted small">Esto crea el registro real en el módulo de Devoluciones, descuenta el inventario de esta sucursal y cierra la acción de recuperación.</p>
-                        <label class="form-label small fw-bold">Proveedor</label>
-                        <select class="form-select mb-3" id="selectProveedor">
+                        <p class="text-muted small">La solicitud de devolución ya fue enviada al proveedor con el motivo pactado. Indique si la aceptó o la rechazó.</p>
+                        <label class="form-label small fw-bold">Decisión del proveedor</label>
+                        <select class="form-select mb-3" id="selectDecision">
                             <option value="">Seleccione...</option>
-                            <?php foreach ($proveedores as $p): ?>
-                                <option value="<?php echo $p['id_proveedor']; ?>"><?php echo htmlspecialchars($p['nombre']); ?></option>
-                            <?php endforeach; ?>
+                            <option value="APROBADA">Aprobó la devolución</option>
+                            <option value="RECHAZADA">Rechazó la devolución</option>
                         </select>
-                        <label class="form-label small fw-bold">Motivo</label>
-                        <textarea class="form-control" id="motivoDevolucion" rows="2" placeholder="Ej. Producto próximo a vencer, devuelto según política del proveedor."></textarea>
+                        <label class="form-label small fw-bold">Observaciones <span id="lblObsObligatorio" class="text-danger" style="display:none;">(obligatorio si rechaza)</span></label>
+                        <textarea class="form-control" id="motivoDevolucion" rows="2" placeholder="Ej. Aceptado según política de devolución por vencimiento. / Rechazado: el lote no cumple la condición pactada."></textarea>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-                        <button type="button" class="btn btn-primary" id="btnConfirmarDevolucion" onclick="confirmarDevolucion()">Confirmar devolución</button>
+                        <button type="button" class="btn btn-primary" id="btnConfirmarDevolucion" onclick="confirmarDevolucion()">Guardar respuesta</button>
                     </div>
                 </div>
             </div>
@@ -280,8 +276,9 @@ let modalDevolucionInstance = null;
 
 function abrirModalDevolucion(idAccion) {
     idAccionDevolucionActual = idAccion;
-    document.getElementById('selectProveedor').value = '';
+    document.getElementById('selectDecision').value = '';
     document.getElementById('motivoDevolucion').value = '';
+    document.getElementById('lblObsObligatorio').style.display = 'none';
 
     const modalEl = document.getElementById('modalDevolucion');
     // Mover el modal al body para evitar problemas de backdrop/z-index
@@ -299,23 +296,33 @@ function abrirModalDevolucion(idAccion) {
     modalDevolucionInstance.show();
 }
 
+document.getElementById('selectDecision')?.addEventListener('change', function() {
+    document.getElementById('lblObsObligatorio').style.display = this.value === 'RECHAZADA' ? 'inline' : 'none';
+});
+
 function confirmarDevolucion() {
-    const idProveedor = document.getElementById('selectProveedor').value;
-    if (!idProveedor) {
-        Swal.fire('Falta información', 'Seleccione el proveedor.', 'warning');
+    const decision = document.getElementById('selectDecision').value;
+    const observaciones = document.getElementById('motivoDevolucion').value.trim();
+
+    if (!decision) {
+        Swal.fire('Falta información', 'Indique si el proveedor aprobó o rechazó la devolución.', 'warning');
+        return;
+    }
+    if (decision === 'RECHAZADA' && observaciones === '') {
+        Swal.fire('Falta información', 'Indique el motivo del rechazo.', 'warning');
         return;
     }
 
     const btn = document.getElementById('btnConfirmarDevolucion');
     btn.disabled = true;
 
-    fetch(`${BASE_URL_DEV}/backend/inventario/completar_devolucion_proveedor.php`, {
+    fetch(`${BASE_URL_DEV}/backend/inventario/registrar_respuesta_devolucion_proveedor.php`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             id_accion: idAccionDevolucionActual,
-            id_proveedor: parseInt(idProveedor),
-            motivo: document.getElementById('motivoDevolucion').value
+            decision: decision,
+            observaciones: observaciones
         })
     })
         .then(response => {
@@ -335,7 +342,7 @@ function confirmarDevolucion() {
                 if (inst) inst.hide();
             }
             if (data && data.success) {
-                Swal.fire('¡Devolución completada!', 'Se creó el registro #' + data.id_devolucion + ' y se descontó el inventario.', 'success')
+                Swal.fire(decision === 'APROBADA' ? '¡Devolución aprobada!' : 'Rechazo registrado', data.message, decision === 'APROBADA' ? 'success' : 'info')
                     .then(() => location.reload());
             } else {
                 Swal.fire('Error', data && data.message ? data.message : 'Error en el servidor', 'error');
@@ -343,7 +350,7 @@ function confirmarDevolucion() {
         })
         .catch(err => {
             btn.disabled = false;
-            console.error('Error completar devolución:', err);
+            console.error('Error al registrar respuesta de devolución:', err);
             Swal.fire('Error', err.message || 'Error de conexión con el servidor', 'error');
         });
 }

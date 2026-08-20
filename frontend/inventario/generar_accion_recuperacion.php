@@ -53,17 +53,19 @@ try {
 } catch (PDOException $e) {}
 ?>
 
-<div class="container-fluid" style="max-width: 1100px;">
+<div class="container-fluid">
     <div class="mb-4">
-        <div class="d-flex align-items-center gap-2 text-muted small mb-1">
-            <a href="menuprincipal.php?mod=vencimientos" class="text-decoration-none text-muted">Vencimientos</a>
-            <span>&rsaquo;</span>
+        <nav class="tarea5-breadcrumb" aria-label="breadcrumb">
+            <a href="menuprincipal.php?mod=vencimientos" class="tarea5-breadcrumb-home" title="Vencimientos">
+                <span class="material-symbols-rounded">home</span>
+            </a>
             <?php if (!$error): ?>
-                <a href="menuprincipal.php?mod=detalle_riesgo_lote&id_lote=<?php echo $id_lote; ?>&id_sucursal=<?php echo $id_sucursal; ?>" class="text-decoration-none text-muted">Detalle de lote</a>
-                <span>&rsaquo;</span>
+                <span class="tarea5-breadcrumb-sep material-symbols-rounded">chevron_right</span>
+                <a href="menuprincipal.php?mod=detalle_riesgo_lote&id_lote=<?php echo $id_lote; ?>&id_sucursal=<?php echo $id_sucursal; ?>" class="tarea5-breadcrumb-link">Detalle de lote</a>
             <?php endif; ?>
-            <span class="fw-semibold text-dark">Generar acción de recuperación</span>
-        </div>
+            <span class="tarea5-breadcrumb-sep material-symbols-rounded">chevron_right</span>
+            <span class="tarea5-breadcrumb-actual">Generar acción de recuperación</span>
+        </nav>
         <h2 class="mb-0">
             <span class="material-symbols-rounded align-middle me-2 text-primary">bolt</span>
             Generar acción de recuperación
@@ -122,13 +124,40 @@ try {
                         No hay historial de ventas suficiente para evaluar la rotación de este medicamento en ninguna sucursal todavía.
                     </div>
                 <?php endif; ?>
+
+                <!-- NUEVO: datos de la solicitud de devolución. Solo se muestra
+                     al elegir "Devolución"; el proveedor se resuelve contra la
+                     compra de origen real del lote (no se elige libremente) y
+                     el motivo se limita a lo que ese proveedor tiene pactado. -->
+                <div id="panelDevolucion" class="mt-3" style="display:none;">
+                    <hr>
+                    <label class="form-label fw-bold text-secondary small">DATOS DE LA SOLICITUD DE DEVOLUCIÓN</label>
+                    <div id="panelDevolucionCargando" class="text-muted small">
+                        <span class="spinner-border spinner-border-sm me-1"></span> Consultando proveedor de origen del lote...
+                    </div>
+                    <div id="panelDevolucionError" class="alert alert-danger small mb-0" style="display:none;"></div>
+                    <div id="panelDevolucionContenido" class="row g-3" style="display:none;">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">PROVEEDOR DE ORIGEN</label>
+                            <select class="form-select" id="selectProveedorDevolucion"></select>
+                            <small class="text-muted">Derivado de la compra que originó este lote.</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">MOTIVO DE LA DEVOLUCIÓN</label>
+                            <select class="form-select" id="selectMotivoDevolucion" required>
+                                <option value="">Seleccione...</option>
+                            </select>
+                            <small class="text-muted">Solo se listan los motivos pactados con ese proveedor.</small>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
         <div class="card border-0 shadow-sm rounded-4">
             <div class="card-body">
                 <div class="row g-3">
-                    <div class="col-md-6">
+                    <div class="col-lg-4 col-md-6">
                         <label class="form-label fw-bold text-secondary small">CANTIDAD A INCLUIR EN LA ACCIÓN</label>
                         <div class="input-group">
                             <input type="number" class="form-control" id="cantidadAfectada" min="1" max="<?php echo $lote['cantidad']; ?>" value="<?php echo $lote['cantidad']; ?>" required>
@@ -136,7 +165,7 @@ try {
                         </div>
                         <small class="text-muted" id="valorRiesgoParcial">Valor en riesgo para esta cantidad: RD$ <?php echo number_format($lote['valor_en_riesgo'], 2); ?></small>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-lg-4 col-md-6">
                         <label class="form-label fw-bold text-secondary small">RESPONSABLE</label>
                         <select class="form-select" id="responsable" required>
                             <option value="">Seleccione...</option>
@@ -145,11 +174,11 @@ try {
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-lg-4 col-md-6">
                         <label class="form-label fw-bold text-secondary small">FECHA LÍMITE DE EJECUCIÓN</label>
                         <input type="date" class="form-control" id="fechaLimite" required>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-lg-4 col-md-6">
                         <label class="form-label fw-bold text-secondary small">SUCURSAL APLICABLE</label>
                         <select class="form-select" id="sucursalAplicable">
                             <?php foreach ($sucursales as $s): ?>
@@ -157,7 +186,7 @@ try {
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-lg-4 col-md-6">
                         <label class="form-label fw-bold text-secondary small">PRIORIDAD DE EJECUCIÓN</label>
                         <select class="form-select" id="prioridad">
                             <option value="MEDIA">Media</option>
@@ -166,7 +195,6 @@ try {
                             <option value="BAJA">Baja</option>
                         </select>
                     </div>
-                    <div class="col-md-6"></div>
                     <div class="col-12">
                         <label class="form-label fw-bold text-secondary small">OBSERVACIONES</label>
                         <textarea class="form-control" id="observaciones" rows="2" placeholder="Ej. Lote con baja rotación en los últimos <?php echo $umbrales['venc_irv_periodo_dias']; ?> días; se recomienda aplicar descuento inmediato."></textarea>
@@ -217,11 +245,71 @@ const loteInfo = {
 <?php endif; ?>
 
 let tipoAccionSeleccionado = 'PROMOCION'; // Promoción viene preseleccionada, igual que en el mockup aprobado
+let datosDevolucion = { proveedores: [], cargado: false, valido: false };
 
 function seleccionarTipo(tipo) {
     tipoAccionSeleccionado = tipo;
     document.querySelectorAll('.tile-accion').forEach(t => t.classList.remove('selected'));
     document.querySelector(`.tile-accion[data-tipo="${tipo}"]`).classList.add('selected');
+
+    const panel = document.getElementById('panelDevolucion');
+    if (tipo === 'DEVOLUCION_PROVEEDOR') {
+        panel.style.display = 'block';
+        if (!datosDevolucion.cargado) cargarProveedorDevolucion();
+    } else {
+        panel.style.display = 'none';
+    }
+}
+
+function cargarProveedorDevolucion() {
+    const elCargando = document.getElementById('panelDevolucionCargando');
+    const elError = document.getElementById('panelDevolucionError');
+    const elContenido = document.getElementById('panelDevolucionContenido');
+    elCargando.style.display = 'block';
+    elError.style.display = 'none';
+    elContenido.style.display = 'none';
+
+    fetch(`${BASE_URL}/backend/inventario/obtener_proveedor_devolucion.php?id_lote=${idLote}`)
+        .then(r => r.json())
+        .then(data => {
+            elCargando.style.display = 'none';
+            datosDevolucion.cargado = true;
+
+            if (!data.success) {
+                datosDevolucion.valido = false;
+                elError.textContent = data.message;
+                elError.style.display = 'block';
+                return;
+            }
+
+            datosDevolucion.proveedores = data.proveedores;
+            datosDevolucion.valido = true;
+
+            const selectProv = document.getElementById('selectProveedorDevolucion');
+            selectProv.innerHTML = data.proveedores.map(p => `<option value="${p.id_proveedor}">${p.nombre}</option>`).join('');
+            selectProv.onchange = actualizarMotivosDevolucion;
+            elContenido.style.display = 'flex';
+            actualizarMotivosDevolucion();
+        })
+        .catch(() => {
+            elCargando.style.display = 'none';
+            datosDevolucion.valido = false;
+            elError.textContent = 'No se pudo consultar el proveedor de origen del lote. Intente de nuevo.';
+            elError.style.display = 'block';
+        });
+}
+
+function actualizarMotivosDevolucion() {
+    const idProv = parseInt(document.getElementById('selectProveedorDevolucion').value);
+    const prov = datosDevolucion.proveedores.find(p => p.id_proveedor === idProv);
+    const selectMotivo = document.getElementById('selectMotivoDevolucion');
+
+    if (!prov || prov.motivos.length === 0) {
+        selectMotivo.innerHTML = '<option value="">Este proveedor no tiene motivos de devolución pactados</option>';
+        return;
+    }
+    selectMotivo.innerHTML = '<option value="">Seleccione...</option>' +
+        prov.motivos.map(m => `<option value="${m.id_motivo}" title="${m.descripcion}">${m.nombre.replaceAll('_', ' ')}</option>`).join('');
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -261,6 +349,22 @@ document.getElementById('formAccionRecuperacion')?.addEventListener('submit', fu
         return;
     }
 
+    let idProveedorDevolucion = null;
+    let idMotivoDevolucion = null;
+
+    if (tipoAccionSeleccionado === 'DEVOLUCION_PROVEEDOR') {
+        if (!datosDevolucion.valido) {
+            Swal.fire('No se puede continuar', 'Este lote no tiene un proveedor de origen válido para tramitar una devolución.', 'warning');
+            return;
+        }
+        idProveedorDevolucion = parseInt(document.getElementById('selectProveedorDevolucion').value) || null;
+        idMotivoDevolucion = parseInt(document.getElementById('selectMotivoDevolucion').value) || null;
+        if (!idProveedorDevolucion || !idMotivoDevolucion) {
+            Swal.fire('Falta información', 'Seleccione el proveedor y el motivo de la devolución.', 'warning');
+            return;
+        }
+    }
+
     const btn = document.getElementById('btnGuardar');
     btn.disabled = true;
 
@@ -278,7 +382,9 @@ document.getElementById('formAccionRecuperacion')?.addEventListener('submit', fu
         responsable: document.getElementById('responsable').value || null,
         fecha_limite: document.getElementById('fechaLimite').value || null,
         prioridad: document.getElementById('prioridad').value,
-        observaciones: document.getElementById('observaciones').value || null
+        observaciones: document.getElementById('observaciones').value || null,
+        id_proveedor: idProveedorDevolucion,
+        id_motivo: idMotivoDevolucion
     };
 
     fetch(`${BASE_URL}/backend/inventario/gestionar_accion_recuperacion.php`, {
@@ -304,10 +410,21 @@ document.getElementById('formAccionRecuperacion')?.addEventListener('submit', fu
                     return;
                 }
 
+                if (tipoAccionSeleccionado === 'DEVOLUCION_PROVEEDOR') {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Solicitud enviada al proveedor',
+                        html: `${data.message}<br><small class="text-muted">La acción quedó como <strong>ESPERANDO_PROVEEDOR</strong>. El inventario no se descuenta hasta que se registre la respuesta.</small>`,
+                    }).then(() => {
+                        window.location.href = `menuprincipal.php?mod=detalle_riesgo_lote&id_lote=${idLote}&id_sucursal=${idSucursal}`;
+                    });
+                    return;
+                }
+
                 Swal.fire({
                     icon: 'success',
                     title: 'Acción registrada',
-                    html: `La acción de recuperación #${data.id_accion} quedó registrada como <strong>PENDIENTE</strong>.<br><small class="text-muted">La devolución formal se gestiona desde el módulo de Devoluciones y luego se enlaza a esta acción.</small>`,
+                    html: `La acción de recuperación #${data.id_accion} quedó registrada como <strong>PENDIENTE</strong>.`,
                 }).then(() => {
                     window.location.href = `menuprincipal.php?mod=detalle_riesgo_lote&id_lote=${idLote}&id_sucursal=${idSucursal}`;
                 });

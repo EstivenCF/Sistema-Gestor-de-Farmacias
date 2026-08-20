@@ -35,17 +35,19 @@ if ($id_lote > 0 && $id_sucursal > 0) {
 }
 ?>
 
-<div class="container-fluid" style="max-width: 1100px;">
+<div class="container-fluid">
     <div class="mb-4">
-        <div class="d-flex align-items-center gap-2 text-muted small mb-1">
-            <a href="menuprincipal.php?mod=vencimientos" class="text-decoration-none text-muted">Vencimientos</a>
-            <span>&rsaquo;</span>
+        <nav class="tarea5-breadcrumb" aria-label="breadcrumb">
+            <a href="menuprincipal.php?mod=vencimientos" class="tarea5-breadcrumb-home" title="Vencimientos">
+                <span class="material-symbols-rounded">home</span>
+            </a>
             <?php if (!$error): ?>
-                <a href="menuprincipal.php?mod=detalle_riesgo_lote&id_lote=<?php echo $id_lote; ?>&id_sucursal=<?php echo $id_sucursal; ?>" class="text-decoration-none text-muted">Detalle de lote</a>
-                <span>&rsaquo;</span>
+                <span class="tarea5-breadcrumb-sep material-symbols-rounded">chevron_right</span>
+                <a href="menuprincipal.php?mod=detalle_riesgo_lote&id_lote=<?php echo $id_lote; ?>&id_sucursal=<?php echo $id_sucursal; ?>" class="tarea5-breadcrumb-link">Detalle de lote</a>
             <?php endif; ?>
-            <span class="fw-semibold text-dark">Redistribución de stock</span>
-        </div>
+            <span class="tarea5-breadcrumb-sep material-symbols-rounded">chevron_right</span>
+            <span class="tarea5-breadcrumb-actual">Redistribución de stock</span>
+        </nav>
         <h2 class="mb-0">
             <span class="material-symbols-rounded align-middle me-2 text-info">swap_horiz</span>
             Redistribución de stock entre sucursales

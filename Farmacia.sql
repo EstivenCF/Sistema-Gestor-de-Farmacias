@@ -4342,6 +4342,7 @@ INSERT INTO estado_entrega (nombre) VALUES ('DEVUELTA')
 ON CONFLICT (nombre) DO NOTHING;
 
 -- =============================================================================
+<<<<<<< HEAD
 -- PATCH 22/22 — VERIFICACIÓN DE DEVOLUCIONES: hasta ahora, pasar una
 -- devolución de SOLICITADA a APROBADA/RECHAZADA se hacía con un simple
 -- combo box genérico (backend/inventario/guardar_devolucion.php), sin
@@ -4391,3 +4392,134 @@ SELECT 'Envíos', 'local_shipping', 5
 WHERE NOT EXISTS (SELECT 1 FROM modulos WHERE nombre IN ('Envíos', 'Delivery'));
 
 UPDATE modulos SET nombre = 'Envíos' WHERE nombre = 'Delivery';
+=======
+-- Tarea 5 - Proceso estratégico: Gestión Estratégica de Vencimientos de
+-- Medicamentos (Pantallas #02 a #08)
+-- Se mantiene separado de Farmacia.sql por trazabilidad del incremento.
+-- Todo el script es idempotente (IF NOT EXISTS / ON CONFLICT DO NOTHING),
+-- así que se puede volver a correr sin romper una base ya inicializada.
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- 1. Tabla central del proceso: accion_recuperacion
+-- Coordina las tres estrategias de recuperación (Promoción, Redistribución,
+-- Devolución a proveedor) y las de escalamiento (Combo, Donación, Provisión
+-- de pérdida). Reconstruida a partir de las columnas ya en uso por el backend
+-- comiteado en Main (gestionar_accion_recuperacion.php, transferir_stock.php,
+-- guardar_oferta.php, completar_devolucion_proveedor.php, reporte_vencimientos.php).
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS accion_recuperacion (
+    id_accion SERIAL PRIMARY KEY,
+    id_lote INT NOT NULL REFERENCES lotes(id_lote),
+    id_sucursal_origen INT NOT NULL REFERENCES sucursales(id_sucursal),
+    id_sucursal_destino INT REFERENCES sucursales(id_sucursal),
+    tipo_accion VARCHAR(30) NOT NULL
+        CHECK (tipo_accion IN (
+            'PROMOCION', 'REDISTRIBUCION', 'DEVOLUCION_PROVEEDOR',
+            'COMBO', 'DONACION', 'PROVISION_PERDIDA', 'DESTRUCCION'
+        )),
+    estado VARCHAR(30) NOT NULL DEFAULT 'PENDIENTE'
+        CHECK (estado IN (
+            'PENDIENTE', 'ESPERANDO_PROVEEDOR', 'EN_EJECUCION',
+            'COMPLETADA', 'RECHAZADA_PROVEEDOR', 'CANCELADA', 'SIN_EFECTO'
+        )),
+    prioridad VARCHAR(10) NOT NULL DEFAULT 'MEDIA'
+        CHECK (prioridad IN ('BAJA', 'MEDIA', 'ALTA', 'CRITICA')),
+    cantidad_afectada INT NOT NULL CHECK (cantidad_afectada > 0),
+    valor_en_riesgo NUMERIC(10,2) NOT NULL,
+    valor_recuperado_estimado NUMERIC(10,2),
+    nivel_riesgo_al_generar VARCHAR(10),
+    irv_origen_al_generar NUMERIC(6,2),
+    causa_raiz TEXT,
+    responsable INT REFERENCES usuarios(id_usuario),
+    creado_por INT REFERENCES usuarios(id_usuario),
+    fecha_limite DATE,
+    observaciones TEXT,
+    entidad_receptora VARCHAR(150),
+    id_accion_previa INT REFERENCES accion_recuperacion(id_accion),
+    id_movimiento INT REFERENCES movimiento_inventario(id_movimiento),
+    id_descuento INT REFERENCES descuentos(id_descuento),
+    -- NUEVO: enlaza la acción con la solicitud formal de devolución cuando
+    -- tipo_accion = 'DEVOLUCION_PROVEEDOR'. Es lo que permite que la acción
+    -- ya no se cierre sola: queda pendiente de la respuesta real registrada
+    -- en la tabla devoluciones.
+    id_devolucion INT REFERENCES devoluciones(id_devolucion),
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    fecha_ejecucion TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_accion_recuperacion_lote ON accion_recuperacion(id_lote, id_sucursal_origen);
+CREATE INDEX IF NOT EXISTS idx_accion_recuperacion_estado ON accion_recuperacion(estado);
+CREATE INDEX IF NOT EXISTS idx_accion_recuperacion_devolucion ON accion_recuperacion(id_devolucion);
+
+
+-- -----------------------------------------------------------------------------
+-- 2. Catálogo de motivos de devolución y condiciones pactadas por proveedor
+-- Antes, "motivo" en devoluciones era texto libre: cualquier usuario podía
+-- registrar una devolución a proveedor por cualquier razón, aunque el
+-- proveedor jamás la hubiera aceptado. Esto formaliza el catálogo y la
+-- relación proveedor-motivo, para poder validarlo antes de generar la
+-- solicitud.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS motivo_devolucion (
+    id_motivo SERIAL PRIMARY KEY,
+    nombre VARCHAR(40) UNIQUE NOT NULL,
+    descripcion VARCHAR(200) NOT NULL,
+    activo BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+INSERT INTO motivo_devolucion (nombre, descripcion) VALUES
+    ('VENCIMIENTO', 'El lote está próximo a vencer o ya venció en poder de la farmacia'),
+    ('LLEGO_VENCIDO', 'El lote llegó vencido o con fecha de vencimiento inválida desde el proveedor'),
+    ('MAL_ESTADO_RECEPCION', 'El producto llegó dañado, mal empacado o alterado al momento de la recepción'),
+    ('ERROR_ENVIO', 'Error del proveedor: medicamento, presentación o cantidad distinta a lo solicitado en la compra'),
+    ('RECALL_SANITARIO', 'El lote está sujeto a una alerta o retiro sanitario (recall) vigente'),
+    ('EXCESO_INVENTARIO', 'Exceso de inventario sin salida comercial, devuelto bajo acuerdo comercial de recompra')
+ON CONFLICT (nombre) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS proveedor_motivo_devolucion (
+    id_proveedor INT NOT NULL REFERENCES proveedores(id_proveedor) ON DELETE CASCADE,
+    id_motivo INT NOT NULL REFERENCES motivo_devolucion(id_motivo) ON DELETE CASCADE,
+    PRIMARY KEY (id_proveedor, id_motivo)
+);
+
+-- Configuración por defecto razonable: todo proveedor existente acepta como
+-- mínimo devolución por vencimiento, producto dañado y error de envío (son
+-- las tres causales más comunes en la práctica farmacéutica dominicana).
+-- Cada proveedor puede ajustarse luego desde el módulo de Proveedores según
+-- lo realmente pactado.
+INSERT INTO proveedor_motivo_devolucion (id_proveedor, id_motivo)
+SELECT p.id_proveedor, md.id_motivo
+FROM proveedores p
+CROSS JOIN motivo_devolucion md
+WHERE md.nombre IN ('VENCIMIENTO', 'MAL_ESTADO_RECEPCION', 'ERROR_ENVIO', 'LLEGO_VENCIDO')
+ON CONFLICT DO NOTHING;
+
+
+-- -----------------------------------------------------------------------------
+-- 3. Enlace de la devolución al motivo del catálogo
+-- La tabla devoluciones ya existente (Farmacia.sql) guarda "motivo" como
+-- texto libre para no romper el módulo de devoluciones de clientes, que no
+-- pasa por este catálogo. Se agrega id_motivo, opcional, solo para
+-- devoluciones tipo PROVEEDOR generadas desde este proceso.
+-- -----------------------------------------------------------------------------
+ALTER TABLE devoluciones ADD COLUMN IF NOT EXISTS id_motivo INT REFERENCES motivo_devolucion(id_motivo);
+
+
+-- -----------------------------------------------------------------------------
+-- 4. Umbrales del proceso (configuracion_sistema ya existe en Farmacia.sql;
+-- solo se asegura que los valores por defecto usados por
+-- riesgo_vencimiento_lib.php::obtenerUmbralesVencimiento() estén presentes).
+-- -----------------------------------------------------------------------------
+INSERT INTO configuracion_sistema (clave, valor) VALUES
+    ('venc_umbral_dias_critico', '15'),
+    ('venc_umbral_dias_moderado', '30'),
+    ('venc_irv_umbral_minimo', '15'),
+    ('venc_irv_periodo_dias', '30'),
+    ('venc_costo_transporte_estimado_unidad', '0')
+ON CONFLICT (clave) DO NOTHING;
+
+
+
+
+>>>>>>> 38e97204628b4bc0720bb8361be44154444c1d11
