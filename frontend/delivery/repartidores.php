@@ -23,6 +23,7 @@ $base_url = '/sistema-gestor-de-farmacias';
   .st-LUTO{background:#E2E3E5;color:#41464B;}
   .st-OTRO{background:#F5F5F5;color:#888;}
   .st-INACTIVO{background:#212529;color:#fff;}
+  .st-FUERA_DE_TURNO{background:#E2E3E5;color:#555;}
   .stat-card{background:#fff;border-radius:12px;padding:1rem 1.1rem;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.06);}
   .stat-card .v{font-size:1.6rem;font-weight:700;}
   .stat-card .l{font-size:.72rem;color:#777;}
@@ -114,6 +115,17 @@ $base_url = '/sistema-gestor-de-farmacias';
           <div class="col-md-6">
             <label class="form-label fw-semibold small">Fecha de ingreso</label>
             <input type="date" id="agFechaIngreso" class="form-control">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold small">Inicio de turno</label>
+            <input type="time" id="agHoraInicioTurno" class="form-control">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold small">Fin de turno</label>
+            <input type="time" id="agHoraFinTurno" class="form-control">
+          </div>
+          <div class="col-12">
+            <p class="text-muted small mb-0" style="margin-top:-.5rem;">Opcional — si se deja en blanco, la asignación automática usa el horario general de envíos (Configuración &gt; Envíos).</p>
           </div>
           <div class="col-12">
             <label class="form-label fw-semibold small">Tipos de vehículo que sabe manejar, con su licencia</label>
@@ -231,6 +243,17 @@ $base_url = '/sistema-gestor-de-farmacias';
               <label class="form-check-label small" for="edActivo">Sigue en la empresa</label>
             </div>
           </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold small">Inicio de turno</label>
+            <input type="time" id="edHoraInicioTurno" class="form-control">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold small">Fin de turno</label>
+            <input type="time" id="edHoraFinTurno" class="form-control">
+          </div>
+          <div class="col-12">
+            <p class="text-muted small mb-0" style="margin-top:-.5rem;">Opcional — si se deja en blanco, la asignación automática usa el horario general de envíos (Configuración &gt; Envíos).</p>
+          </div>
           <div class="col-12">
             <label class="form-label fw-semibold small">Tipos de vehículo que sabe manejar, con su licencia</label>
             <p class="text-muted small mb-2">Cada tipo de vehículo es una licencia distinta.</p>
@@ -334,7 +357,7 @@ const FILTROS = [
 const ESTADO_LABEL = {
   DISPONIBLE:'DISPONIBLE', EN_CAMINO:'EN CAMINO', VACACIONES:'VACACIONES',
   LICENCIA_MEDICA:'LICENCIA MÉDICA', HOSPITALIZADO:'HOSPITALIZADO', LUTO:'LUTO', OTRO:'OTRO',
-  INACTIVO:'INACTIVO',
+  INACTIVO:'INACTIVO', FUERA_DE_TURNO:'FUERA DE TURNO',
 };
 const TIPOS_VEHICULO = ['Motocicleta','Carro','Camión'];
 let ultimoResultado = null;
@@ -392,8 +415,11 @@ function cargar() {
     const rangoTexto = fi === ff ? fi : `${fi} a ${ff}`;
     const rows = data.repartidores.map(r => {
       const vehiculos = vehiculosSegunLicencia(r.habilidades);
+      const turnoTxt = (r.hora_inicio_turno && r.hora_fin_turno)
+        ? `<br><span class="text-muted" style="font-size:.7rem;">Turno: ${r.hora_inicio_turno.slice(0,5)} – ${r.hora_fin_turno.slice(0,5)}</span>`
+        : `<br><span class="text-muted" style="font-size:.7rem;">Turno: horario general</span>`;
       return `<tr class="${!r.activo ? 'table-secondary' : ''}">
-        <td><span class="avatar">${r.nombre.charAt(0)}</span><strong>${r.nombre}</strong></td>
+        <td><span class="avatar">${r.nombre.charAt(0)}</span><strong>${r.nombre}</strong>${turnoTxt}</td>
         <td>${vehiculos}</td>
         <td>${renderEstrellas(r.calificacion_promedio, r.total_calificaciones)}</td>
         <td class="text-center"><span class="badge-st st-${r.estado_actual}">${ESTADO_LABEL[r.estado_actual] || r.estado_actual}</span></td>
@@ -467,6 +493,8 @@ function abrirModalEditar(id) {
   document.getElementById('edFechaIngreso').value = r.fecha_ingreso ? r.fecha_ingreso.slice(0,10) : '';
   document.getElementById('edActivo').checked = !!r.activo;
   document.getElementById('edEstadoLaboral').value = r.estado_laboral || 'ACTIVO';
+  document.getElementById('edHoraInicioTurno').value = r.hora_inicio_turno ? r.hora_inicio_turno.slice(0,5) : '';
+  document.getElementById('edHoraFinTurno').value = r.hora_fin_turno ? r.hora_fin_turno.slice(0,5) : '';
 
   habilidadesEditar = (r.habilidades || []).map(h => ({
     tipo_vehiculo: h.tipo_vehiculo,
@@ -556,6 +584,8 @@ function guardarEdicionRepartidor() {
     fecha_ingreso: document.getElementById('edFechaIngreso').value || null,
     activo: document.getElementById('edActivo').checked,
     estado_laboral: document.getElementById('edEstadoLaboral').value,
+    hora_inicio_turno: document.getElementById('edHoraInicioTurno').value || null,
+    hora_fin_turno: document.getElementById('edHoraFinTurno').value || null,
     habilidades: habilidadesEditar,
     usuario_login: necesitaAcceso ? usuarioLogin : null,
     password_login: necesitaAcceso ? passwordLogin : null,
@@ -584,6 +614,8 @@ function abrirModalAgregar() {
   document.getElementById('agNumeroId').value = '';
   document.getElementById('agTelefono').value = '';
   document.getElementById('agFechaIngreso').value = new Date().toISOString().slice(0,10);
+  document.getElementById('agHoraInicioTurno').value = '';
+  document.getElementById('agHoraFinTurno').value = '';
   document.getElementById('agUsuarioLogin').value = '';
   document.getElementById('agUsuarioLogin').dataset.editadoManual = '0';
   document.getElementById('agPasswordLogin').value = '';
@@ -670,6 +702,8 @@ function guardarNuevoRepartidor() {
     numero_identificacion: document.getElementById('agNumeroId').value.trim() || null,
     telefono_emergencia: document.getElementById('agTelefono').value.trim() || null,
     fecha_ingreso: document.getElementById('agFechaIngreso').value || null,
+    hora_inicio_turno: document.getElementById('agHoraInicioTurno').value || null,
+    hora_fin_turno: document.getElementById('agHoraFinTurno').value || null,
     habilidades: habilidadesNuevoRepartidor,
     usuario_login: usuarioLogin,
     password_login: passwordLogin,

@@ -632,7 +632,9 @@ $base_url = '/sistema-gestor-de-farmacias';
                                 <small>Repartidor: <span id="deliveryRepartidor"></span></small><br>
                                 <small>Vehículo: <span id="deliveryVehiculo"></span></small><br>
                                 <small>Costo: RD$ <span id="deliveryCosto"></span></small><br>
-                                <small>Dirección: <span id="deliveryDireccion"></span></small>
+                                <small>Dirección: <span id="deliveryDireccion"></span></small><br>
+                                <small id="deliveryETAWrap" style="display:none;">Llegaría aprox.: <span id="deliveryETA"></span></small><br>
+                                <small id="deliveryHoraAcordadaWrap" style="display:none;">Hora acordada: <span id="deliveryHoraAcordada"></span></small>
                             </div>
                             <button type="button" class="btn-quitar-delivery" onclick="quitarDelivery()">
                                 <span class="material-symbols-rounded" style="font-size: 1rem;">delete</span> Quitar
@@ -799,17 +801,17 @@ $base_url = '/sistema-gestor-de-farmacias';
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label fw-bold text-muted">PASO 1 — ELEGIR REPARTIDOR *</label>
-                    <div id="listaRepartidoresDisponibles" class="d-flex flex-column gap-2">
-                        <p class="text-muted small">Cargando repartidores disponibles...</p>
-                    </div>
-                    <input type="hidden" id="repartidorSeleccionadoId">
-                    <input type="hidden" id="vehiculoSeleccionadoId">
+                    <label class="form-label fw-bold text-muted">HORA DE ENTREGA ACORDADA (OPCIONAL)</label>
+                    <input type="time" class="form-control" id="horaAcordadaDelivery" oninput="renderInfoAsignacionAutomatica()">
+                    <small class="text-muted">Si el cliente solo puede recibir el pedido a una hora específica, indícala aquí.</small>
                 </div>
 
-                <div class="mb-3" id="pasoVehiculos" style="display:none;">
-                    <label class="form-label fw-bold text-muted">PASO 2 — ELEGIR VEHÍCULO *</label>
-                    <div id="listaVehiculosRepartidor" class="d-flex flex-wrap"></div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-muted">REPARTIDOR Y VEHÍCULO</label>
+                    <div id="infoAsignacionAutomatica" class="border rounded p-3" style="font-size:.85rem; background-color:#f8f9fa;">
+                        <p class="text-muted mb-0">Selecciona una dirección para que el sistema calcule automáticamente quién haría esta entrega.</p>
+                    </div>
+                    <small class="text-muted">El sistema elige el repartidor y el tipo de vehículo automáticamente según la distancia.</small>
                 </div>
 
                 <div class="mb-3">
@@ -1406,9 +1408,9 @@ function abrirModalDelivery() {
     document.getElementById('modalClienteNombre').value = clienteNombre;
     document.getElementById('modalSucursalNombre').value = sucursalNombre;
     
+    document.getElementById('horaAcordadaDelivery').value = '';
     cargarDireccionesCliente(clienteId);
-    cargarRepartidoresDisponibles();
-    
+
     if (modalDelivery) modalDelivery.show();
 }
 
@@ -1448,121 +1450,34 @@ async function cargarDireccionesCliente(idCliente) {
     calcularCostoEnvioAutomatico();
 }
 
-let repartidoresDisponiblesData = [];
-
-async function cargarRepartidoresDisponibles() {
-    const cont = document.getElementById('listaRepartidoresDisponibles');
-    if (!cont) return;
-
-    cont.innerHTML = '<p class="text-muted small">Cargando repartidores disponibles...</p>';
-    document.getElementById('repartidorSeleccionadoId').value = '';
-    document.getElementById('vehiculoSeleccionadoId').value = '';
-    document.getElementById('pasoVehiculos').style.display = 'none';
-    window.__enColaSel = false;
-
-    try {
-        const response = await fetch(BASE_URL + '/backend/ventas/listar_repartidores_disponibles.php');
-        const data = await response.json();
-        repartidoresDisponiblesData = data.repartidores || [];
-
-        if (!data.success || repartidoresDisponiblesData.length === 0) {
-            cont.innerHTML = `
-                <div class="alert alert-warning py-2 px-3 mb-2" style="font-size:.85rem;">
-                    <span class="material-symbols-rounded align-middle me-1">schedule</span>
-                    <strong>No hay repartidores disponibles en este momento.</strong><br>
-                    Puedes poner este pedido en la cola de espera: se asignará
-                    automáticamente al primer repartidor que quede libre y tenga
-                    un vehículo disponible que sepa manejar.
-                </div>
-                <button type="button" class="btn btn-warning w-100" onclick="marcarParaCola()">
-                    <span class="material-symbols-rounded align-middle me-1">schedule</span>
-                    Poner en cola de espera
-                </button>`;
-            return;
-        }
-
-        cont.innerHTML = repartidoresDisponiblesData.map(rep => {
-            const habs = (rep.habilidades && rep.habilidades.length)
-                ? rep.habilidades.map(h => `<span class="hab-mini">${h.tipo_vehiculo}</span>`).join('')
-                : '<span class="text-muted" style="font-size:.72rem;">Sin habilidades registradas</span>';
-            return `
-                <div class="tarjeta-repartidor" id="tarjeta-rep-${rep.id_repartidor}"
-                     onclick="elegirRepartidor(${rep.id_repartidor}, '${rep.nombre.replace(/'/g,"")}')">
-                    <strong>${rep.nombre}</strong> ${rep.telefono ? `<small class="text-muted">(${rep.telefono})</small>` : ''}
-                    <div class="mt-1">${habs}</div>
-                </div>`;
-        }).join('');
-
-    } catch (error) {
-        console.error(error);
-        cont.innerHTML = '<p class="text-danger small mb-0">Error al cargar repartidores disponibles.</p>';
-    }
-}
-
-function elegirRepartidor(idRepartidor, nombreRep) {
-    document.querySelectorAll('.tarjeta-repartidor').forEach(t => t.classList.remove('selected'));
-    document.getElementById('tarjeta-rep-' + idRepartidor).classList.add('selected');
-
-    document.getElementById('repartidorSeleccionadoId').value = idRepartidor;
-    document.getElementById('vehiculoSeleccionadoId').value = '';
-    window.__repartidorNombreSel = nombreRep;
-    window.__enColaSel = false;
-
-    const pasoVeh = document.getElementById('pasoVehiculos');
-    pasoVeh.style.display = 'block';
-    document.getElementById('listaVehiculosRepartidor').innerHTML = '<p class="text-muted small">Cargando vehículos...</p>';
-
-    fetch(BASE_URL + `/backend/ventas/listar_vehiculos_para_repartidor.php?id_repartidor=${idRepartidor}`)
-        .then(r => r.json())
-        .then(data => {
-            if (!data.success) {
-                document.getElementById('listaVehiculosRepartidor').innerHTML =
-                    `<p class="text-danger small mb-0">${data.message}</p>`;
-                return;
-            }
-            if (!data.vehiculos.length) {
-                document.getElementById('listaVehiculosRepartidor').innerHTML =
-                    '<p class="text-danger small mb-0">Este repartidor no tiene ningún vehículo disponible ahora mismo.</p>';
-                return;
-            }
-            document.getElementById('listaVehiculosRepartidor').innerHTML = data.vehiculos.map(v => `
-                <button type="button" class="btn btn-sm btn-outline-secondary me-2 mb-2"
-                    onclick="elegirVehiculo(event, ${v.id_vehiculo}, '${v.tipo}', '${v.placa||''}')">
-                    ${v.tipo}${v.placa ? ' ('+v.placa+')' : ''}
-                </button>`).join('');
-        });
-}
-
-function elegirVehiculo(evt, idVehiculo, tipo, placa) {
-    document.querySelectorAll('#listaVehiculosRepartidor button').forEach(b => {
-        b.classList.remove('btn-primary'); b.classList.add('btn-outline-secondary');
-    });
-    evt.currentTarget.classList.remove('btn-outline-secondary');
-    evt.currentTarget.classList.add('btn-primary');
-
-    document.getElementById('vehiculoSeleccionadoId').value = idVehiculo;
-    window.__vehiculoTextoSel = tipo + (placa ? ' (' + placa + ')' : '');
-}
-
-function marcarParaCola() {
-    window.__enColaSel = true;
-    document.getElementById('repartidorSeleccionadoId').value = '';
-    document.getElementById('vehiculoSeleccionadoId').value = '';
-    window.__repartidorNombreSel = 'En cola de espera';
-    window.__vehiculoTextoSel = '(se asignará automáticamente)';
-    guardarDelivery();
-}
+// Última vista previa de asignación automática recibida del backend
+// (calcular_costo_envio.php) — se guarda para poder mostrarla en el
+// resumen sin volver a pedirla, y para saber si hay que avisar que la
+// entrega se iría a la cola de espera.
+let previewAsignacion = null;
+let previewProximaDisponibilidad = null;
 
 function calcularCostoEnvioAutomatico() {
     const idDireccion = document.getElementById('direccionEntrega').value;
     const idSucursal = document.getElementById('sucursal').value;
     const detalle = document.getElementById('detalleCostoEnvio');
     const inputCosto = document.getElementById('costoEnvio');
+    const infoAsig = document.getElementById('infoAsignacionAutomatica');
 
+    previewAsignacion = null;
     if (!idDireccion || !idSucursal) return;
 
     detalle.textContent = 'Calculando...';
-    fetch(BASE_URL + `/backend/ventas/calcular_costo_envio.php?id_sucursal=${idSucursal}&id_direccion=${idDireccion}`)
+    infoAsig.innerHTML = '<p class="text-muted mb-0"><span class="spinner-border spinner-border-sm me-1"></span> Calculando quién haría esta entrega...</p>';
+
+    // Se manda el carrito (solo id_producto + cantidad) para que el preview
+    // ya tome en cuenta el peso/bulto del pedido (PATCH 28/28) — el mismo
+    // vehículo que se mostraría aquí es el que procesar_venta.php terminaría
+    // asignando de verdad.
+    const productosParaPreview = carrito.map(item => ({ id_producto: item.id_producto, cantidad: item.cantidad }));
+    const qsProductos = encodeURIComponent(JSON.stringify(productosParaPreview));
+
+    fetch(BASE_URL + `/backend/ventas/calcular_costo_envio.php?id_sucursal=${idSucursal}&id_direccion=${idDireccion}&productos=${qsProductos}`)
         .then(r => {
             if (!r.ok) throw new Error('HTTP ' + r.status + ' — revisa que backend/ventas/calcular_costo_envio.php esté subido');
             return r.json();
@@ -1571,48 +1486,147 @@ function calcularCostoEnvioAutomatico() {
             if (!data.success) {
                 console.error('calcular_costo_envio.php:', data.message);
                 detalle.textContent = 'No se pudo calcular (' + (data.message || 'ver consola') + ')';
+                infoAsig.innerHTML = '<p class="text-danger mb-0">No se pudo calcular la asignación.</p>';
                 return;
             }
             inputCosto.value = data.costo_envio.toFixed(2);
             detalle.textContent = data.detalle;
             detalle.className = data.calculado ? 'text-success' : 'text-muted';
+
+            previewAsignacion = data.asignacion || null;
+            previewProximaDisponibilidad = data.proxima_disponibilidad || null;
+            renderInfoAsignacionAutomatica();
         })
         .catch((err) => {
             console.error('calcular_costo_envio.php:', err);
             detalle.textContent = 'Error al calcular el costo (ver consola del navegador).';
+            document.getElementById('infoAsignacionAutomatica').innerHTML = '<p class="text-danger mb-0">Error de conexión al calcular la asignación.</p>';
         });
+}
+
+function escapeHtmlVenta(str) { if (!str) return ''; return String(str).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])); }
+
+// Toma un "HH:MM" (del input de hora acordada) y devuelve un objeto Date
+// de HOY con esa hora. Si el resultado ya quedó en el pasado respecto a
+// ahora, se asume que es para MAÑANA (para no mostrar advertencias
+// absurdas cuando el cajero factura de noche una entrega acordada para
+// la mañana siguiente).
+function horaAcordadaComoFecha(horaStr) {
+    if (!horaStr) return null;
+    const [h, m] = horaStr.split(':').map(Number);
+    const fecha = new Date();
+    fecha.setHours(h, m, 0, 0);
+    if (fecha < new Date()) fecha.setDate(fecha.getDate() + 1);
+    return fecha;
+}
+
+function formatHora(fecha) {
+    return fecha.toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' });
+}
+
+// Vuelve a pintar el cuadro de "Repartidor y vehículo" combinando la
+// última vista previa de asignación (previewAsignacion, ya calculada en
+// el servidor) con lo que el cajero haya puesto en "Hora de entrega
+// acordada" — sin volver a pedirle nada al servidor, porque el tiempo
+// estimado de viaje no cambia según la hora elegida.
+//
+// Si hay hora acordada: se calcula a qué hora tendría que SALIR el
+// repartidor para llegar a tiempo (hora acordada − tiempo estimado de
+// viaje), y se avisa si ya no da tiempo de cumplirla.
+// Si no hay hora acordada: se muestra el estimado de siempre, asumiendo
+// que el repartidor sale apenas se factura.
+function renderInfoAsignacionAutomatica() {
+    const infoAsig = document.getElementById('infoAsignacionAutomatica');
+    if (!infoAsig) return;
+
+    if (!previewAsignacion) {
+        if (document.getElementById('direccionEntrega')?.value) {
+            let proximaHtml = '';
+            if (previewProximaDisponibilidad && previewProximaDisponibilidad.hora_estimada_disponible) {
+                const horaLibre = new Date(previewProximaDisponibilidad.hora_estimada_disponible.replace(' ', 'T'));
+                proximaHtml = `<div class="mt-1">El más próximo a quedar libre sería <strong>${escapeHtmlVenta(previewProximaDisponibilidad.repartidor_nombre)}</strong>, aprox. a las <strong>${formatHora(horaLibre)}</strong>.</div>`;
+            }
+            infoAsig.innerHTML = `
+                <div class="text-warning">
+                    <span class="material-symbols-rounded align-middle" style="font-size:1rem;">schedule</span>
+                    No hay repartidores disponibles en este momento — el pedido se pondrá en la
+                    cola de espera y se asignará automáticamente en cuanto alguien compatible quede libre.
+                    ${proximaHtml}
+                </div>`;
+        }
+        return;
+    }
+
+    const estrellas = previewAsignacion.calificacion_promedio
+        ? ` <span class="text-warning" title="Calificación promedio de atención al cliente">★ ${parseFloat(previewAsignacion.calificacion_promedio).toFixed(1)}</span>`
+        : '';
+    const nombreVehiculo = `<strong>${escapeHtmlVenta(previewAsignacion.repartidor_nombre)}</strong>${estrellas} — ${escapeHtmlVenta(previewAsignacion.vehiculo_tipo)}${previewAsignacion.vehiculo_placa ? ' (' + escapeHtmlVenta(previewAsignacion.vehiculo_placa) + ')' : ''}`;
+    const agrupadaHtml = previewAsignacion.agrupada
+        ? `<div class="text-info mt-1"><span class="material-symbols-rounded align-middle" style="font-size:1rem;">merge</span> Se agruparía con otra entrega cercana que este repartidor ya tiene en camino — mismo vehículo, una parada más.</div>`
+        : '';
+
+    let detalleTiempo = '';
+    const horaAcordadaStr = document.getElementById('horaAcordadaDelivery')?.value || '';
+    if (horaAcordadaStr && previewAsignacion.tiempo_estimado_minutos) {
+        const horaLlegadaObjetivo = horaAcordadaComoFecha(horaAcordadaStr);
+        const horaSalida = new Date(horaLlegadaObjetivo.getTime() - previewAsignacion.tiempo_estimado_minutos * 60000);
+        const yaNoDaTiempo = horaSalida < new Date();
+
+        detalleTiempo = yaNoDaTiempo
+            ? `<div class="text-danger mt-1"><span class="material-symbols-rounded align-middle" style="font-size:1rem;">warning</span> Para llegar a las <strong>${formatHora(horaLlegadaObjetivo)}</strong> ya tendría que haber salido — avísale al cliente o elige una hora más tardía.</div>`
+            : `<div class="text-muted mt-1">Para llegar a la hora acordada (<strong>${formatHora(horaLlegadaObjetivo)}</strong>) tendría que salir aprox. a las <strong>${formatHora(horaSalida)}</strong>.</div>`;
+    } else if (previewAsignacion.hora_estimada_llegada) {
+        const eta = new Date(previewAsignacion.hora_estimada_llegada.replace(' ', 'T'));
+        detalleTiempo = `<div class="text-muted mt-1">Llegaría aprox. a las <strong>${formatHora(eta)}</strong> (${previewAsignacion.tiempo_estimado_minutos} min desde que sale)</div>`;
+    }
+
+    infoAsig.innerHTML = `
+        <div class="text-success">
+            <span class="material-symbols-rounded align-middle" style="font-size:1rem;">check_circle</span>
+            ${nombreVehiculo}
+        </div>
+        ${detalleTiempo}
+        ${agrupadaHtml}`;
 }
 
 function guardarDelivery() {
     const direccionSelect = document.getElementById('direccionEntrega');
     const costoInput = document.getElementById('costoEnvio');
     const observacionesText = document.getElementById('observacionesDelivery');
-    const idRepartidor = document.getElementById('repartidorSeleccionadoId').value;
-    const idVehiculo = document.getElementById('vehiculoSeleccionadoId').value;
+    const horaAcordadaInput = document.getElementById('horaAcordadaDelivery');
 
     if (!direccionSelect || !costoInput) return;
-
-    const enCola = window.__enColaSel === true;
 
     const direccionId = direccionSelect.value;
     const costo = parseFloat(costoInput.value);
     const observaciones = observacionesText ? observacionesText.value : '';
+    const horaAcordada = horaAcordadaInput ? horaAcordadaInput.value : '';
 
     if (!direccionId) { Swal.fire('Error', 'Seleccione una dirección de entrega', 'error'); return; }
-    if (!enCola && (!idRepartidor || !idVehiculo)) {
-        Swal.fire('Error', 'Selecciona un repartidor y su vehículo (o ponlo en cola de espera si nadie está disponible)', 'error');
-        return;
-    }
     if (isNaN(costo) || costo < 0) { Swal.fire('Error', 'Costo de envío inválido', 'error'); return; }
 
     const selectedOpt = direccionSelect.options[direccionSelect.selectedIndex];
+    const enCola = !previewAsignacion;
 
+    // El repartidor y vehículo mostrados aquí son solo la ÚLTIMA VISTA
+    // PREVIA — la asignación real y definitiva la calcula de nuevo
+    // procesar_venta.php al momento de facturar (puede diferir si algo
+    // cambió entre que se abrió el modal y se confirmó la venta).
     deliveryAsignado = {
-        id_repartidor: enCola ? null : parseInt(idRepartidor),
-        id_vehiculo: enCola ? null : parseInt(idVehiculo),
+        id_direccion: parseInt(direccionId),
         en_cola: enCola,
-        nombre_repartidor: window.__repartidorNombreSel || '',
-        vehiculo_texto: window.__vehiculoTextoSel || '',
+        nombre_repartidor: previewAsignacion ? previewAsignacion.repartidor_nombre : 'Se asignará automáticamente',
+        vehiculo_texto: previewAsignacion ? (previewAsignacion.vehiculo_tipo + (previewAsignacion.vehiculo_placa ? ' (' + previewAsignacion.vehiculo_placa + ')' : '')) : (enCola ? 'En cola de espera' : ''),
+        // Si hay hora acordada, esa ES la llegada objetivo (ya no el
+        // "ahora + tiempo de viaje" genérico) — mismo criterio que
+        // renderInfoAsignacionAutomatica().
+        eta_texto: previewAsignacion && horaAcordada
+            ? formatHora(horaAcordadaComoFecha(horaAcordada))
+            : (previewAsignacion && previewAsignacion.hora_estimada_llegada
+                ? formatHora(new Date(previewAsignacion.hora_estimada_llegada.replace(' ', 'T')))
+                : ''),
+        hora_acordada: horaAcordada,
+        hora_acordada_texto: horaAcordada ? horaAcordada : '',
         costo_entrega: costo,
         direccion_entrega: selectedOpt.dataset.direccion || selectedOpt.dataset.completa || selectedOpt.text,
         barrio_entrega: selectedOpt.dataset.barrio || '',
@@ -1628,6 +1642,22 @@ function guardarDelivery() {
     document.getElementById('deliveryVehiculo').innerText = deliveryAsignado.vehiculo_texto;
     document.getElementById('deliveryCosto').innerText = deliveryAsignado.costo_entrega.toFixed(2);
     document.getElementById('deliveryDireccion').innerText = deliveryAsignado.direccion_completa;
+
+    const etaWrap = document.getElementById('deliveryETAWrap');
+    if (deliveryAsignado.eta_texto) {
+        document.getElementById('deliveryETA').innerText = deliveryAsignado.eta_texto;
+        etaWrap.style.display = '';
+    } else {
+        etaWrap.style.display = 'none';
+    }
+    const horaWrap = document.getElementById('deliveryHoraAcordadaWrap');
+    if (deliveryAsignado.hora_acordada_texto) {
+        document.getElementById('deliveryHoraAcordada').innerText = deliveryAsignado.hora_acordada_texto;
+        horaWrap.style.display = '';
+    } else {
+        horaWrap.style.display = 'none';
+    }
+
     document.getElementById('deliveryState').style.display = 'block';
     document.getElementById('btnEnviarDelivery').style.display = 'none';
     document.getElementById('btnRetiroPersonal').style.display = 'none';
@@ -1775,8 +1805,8 @@ function procesarVentaConfirmado(sucursal, condicionPago, idCliente, tieneSeguro
         monto_paga_paciente: totalPagar,
         monto_descuento: descuentoMonto,
         delivery_activo: deliveryActivo,
-        id_repartidor: deliveryAsignado ? deliveryAsignado.id_repartidor : null,
-        id_vehiculo: deliveryAsignado ? deliveryAsignado.id_vehiculo : null,
+        id_direccion: deliveryAsignado ? deliveryAsignado.id_direccion : null,
+        hora_acordada: deliveryAsignado ? deliveryAsignado.hora_acordada : '',
         costo_envio: costoEnvio,
         direccion_entrega: deliveryAsignado ? deliveryAsignado.direccion_completa : null,
         tipo_despacho: deliveryActivo ? 'DELIVERY' : 'RETIRO_PERSONAL',

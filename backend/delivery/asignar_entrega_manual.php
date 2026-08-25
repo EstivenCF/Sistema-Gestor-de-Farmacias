@@ -13,6 +13,7 @@
 // "Reasignar"). Por ahora lo puede usar Cajero o Administrador.
 
 require_once __DIR__ . '/../conexion.php';
+require_once __DIR__ . '/_asignacion_automatica.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 header('Content-Type: application/json');
 
@@ -61,10 +62,17 @@ try {
         throw new Exception('Debes indicar el motivo de la reasignación');
     }
 
-    // El repartidor nuevo debe estar realmente disponible ahora mismo
+    // El repartidor nuevo debe estar realmente disponible ahora mismo —
+    // incluye estar dentro de su turno laboral (propio o el horario
+    // general de envíos como respaldo, ver PATCH 27/27). Esto aplica
+    // igual para Cajero y Administrador: no hay excepción por rol, para
+    // no dejar un hueco que salte el turno con solo reasignar a mano.
+    $horarioGeneral = obtenerHorarioGeneralDelivery($conexion);
     $stmt = $conexion->prepare("
         SELECT 1 FROM repartidores r
         WHERE r.id_repartidor = :id AND r.activo = TRUE AND r.estado_laboral = 'ACTIVO'
+          AND CURRENT_TIME >= COALESCE(r.hora_inicio_turno, :horario_inicio::time)
+          AND CURRENT_TIME <= COALESCE(r.hora_fin_turno, :horario_fin::time)
           AND NOT EXISTS (
               SELECT 1 FROM entregas e2
               JOIN estado_entrega se2 ON se2.id_estado = e2.id_estado
@@ -72,9 +80,14 @@ try {
                 AND e2.id_entrega != :id_entrega
           )
     ");
-    $stmt->execute([':id' => $id_repartidor, ':id_entrega' => $id_entrega]);
+    $stmt->execute([
+        ':id' => $id_repartidor,
+        ':id_entrega' => $id_entrega,
+        ':horario_inicio' => $horarioGeneral['delivery_hora_inicio'],
+        ':horario_fin' => $horarioGeneral['delivery_hora_fin'],
+    ]);
     if (!$stmt->fetch()) {
-        throw new Exception('Ese repartidor ya no está disponible, actualiza la lista');
+        throw new Exception('Ese repartidor ya no está disponible (puede estar fuera de su turno laboral), actualiza la lista');
     }
 
     // El vehículo debe estar disponible y ser un tipo que el repartidor sepa manejar

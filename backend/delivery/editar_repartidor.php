@@ -33,6 +33,11 @@ try {
     $estado_laboral = $data['estado_laboral'] ?? 'ACTIVO';
     if (!in_array($estado_laboral, $ESTADOS_LABORALES)) $estado_laboral = 'ACTIVO';
 
+    // Turno laboral (opcional) — vacío/null = sin turno propio, usa el
+    // horario general de envíos como respaldo (ver _asignacion_automatica.php).
+    $hora_inicio_turno = trim($data['hora_inicio_turno'] ?? '') !== '' ? $data['hora_inicio_turno'] : null;
+    $hora_fin_turno = trim($data['hora_fin_turno'] ?? '') !== '' ? $data['hora_fin_turno'] : null;
+
     $stmt = $conexion->prepare("
         UPDATE repartidores
         SET nombre = :nombre,
@@ -41,7 +46,9 @@ try {
             telefono_emergencia = :telefono_emergencia,
             fecha_ingreso = :fecha_ingreso,
             activo = :activo,
-            estado_laboral = :estado_laboral
+            estado_laboral = :estado_laboral,
+            hora_inicio_turno = :hora_inicio_turno,
+            hora_fin_turno = :hora_fin_turno
         WHERE id_repartidor = :id
     ");
     $stmt->execute([
@@ -52,6 +59,8 @@ try {
         ':fecha_ingreso' => $data['fecha_ingreso'] ?? null,
         ':activo' => $activo_val,
         ':estado_laboral' => $estado_laboral,
+        ':hora_inicio_turno' => $hora_inicio_turno,
+        ':hora_fin_turno' => $hora_fin_turno,
         ':id' => $id_repartidor,
     ]);
 

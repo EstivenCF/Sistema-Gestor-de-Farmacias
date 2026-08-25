@@ -154,21 +154,114 @@ try {
     }
 
     // ==================== ENTREGA (DELIVERY) ====================
-    // NOTA: si el cajero no pudo elegir repartidor/vehículo porque todos
-    // estaban ocupados (o eligió explícitamente "poner en cola"), el
-    // frontend manda id_repartidor=null e id_vehiculo=null. Este bloque
-    // ya lo soporta sin cambios: la entrega se crea igual, con esos dos
-    // campos en NULL, lo cual la deja "en cola" — el auto-asignador
-    // (backend/delivery/_auto_asignar.php) la toma en cuanto un
-    // repartidor compatible quede libre.
+    // ACTUALIZACIÓN — asignación automática: el cajero ya NO elige
+    // repartidor ni vehículo (esos campos, si el frontend los llega a
+    // mandar, se ignoran a propósito — nunca se confía en lo que decida
+    // el navegador para esto). El backend calcula la distancia real
+    // entre la sucursal y la dirección de entrega (Haversine, mismas
+    // coordenadas que ya usaba calcular_costo_envio.php) y, con eso,
+    // elige el repartidor+vehículo automáticamente según
+    // backend/delivery/_asignacion_automatica.php: bicicleta para
+    // distancias cortas, moto para medias, carro para largas — con
+    // reserva a otro tipo si el ideal no tiene a nadie libre ahora
+    // mismo. Si de plano no hay nadie disponible, la entrega se manda a
+    // la cola igual que antes — el auto-asignador
+    // (backend/delivery/_auto_asignar.php) la toma en cuanto alguien
+    // compatible quede libre.
     if ($delivery_activo) {
-        // Si ya se eligió repartidor al momento de facturar, la entrega
-        // nace en ASIGNADA (ya tiene a quién y con qué va a salir — ahí es
-        // donde aparece el botón de "Despachar"). Si no se eligió a nadie
-        // (se manda a la cola para que el auto-asignador la tome después),
-        // nace en PENDIENTE, como siempre.
-        $id_repartidor_inicial = $data['id_repartidor'] ?? null;
+        require_once __DIR__ . '/../delivery/_asignacion_automatica.php';
+
+        // Distancia real sucursal -> dirección de entrega, y coordenadas
+        // de la dirección (para guardarlas en la entrega: sin esto no
+        // hay forma de recalcular la distancia más adelante).
+        $km = null;
+        $lat_entrega = null;
+        $lon_entrega = null;
+        $id_direccion = intval($data['id_direccion'] ?? 0);
+        if ($id_direccion) {
+            $stmtSuc = $conexion->prepare("SELECT latitud, longitud FROM sucursales WHERE id_sucursal = :id");
+            $stmtSuc->execute([':id' => $data['id_sucursal']]);
+            $sucursal = $stmtSuc->fetch(PDO::FETCH_ASSOC);
+
+            $stmtDir = $conexion->prepare("SELECT latitud, longitud FROM direcciones WHERE id_direccion = :id");
+            $stmtDir->execute([':id' => $id_direccion]);
+            $direccion = $stmtDir->fetch(PDO::FETCH_ASSOC);
+
+            if ($sucursal && $direccion && $sucursal['latitud'] !== null && $sucursal['longitud'] !== null
+                && $direccion['latitud'] !== null && $direccion['longitud'] !== null) {
+                $km = haversineKm(
+                    (float) $sucursal['latitud'], (float) $sucursal['longitud'],
+                    (float) $direccion['latitud'], (float) $direccion['longitud']
+                );
+                $lat_entrega = (float) $direccion['latitud'];
+                $lon_entrega = (float) $direccion['longitud'];
+            }
+        }
+
+        // Carga del pedido (PATCH 28/28): peso total si los productos lo
+        // tienen registrado (productos.peso_kg, opcional), y cantidad
+        // total de unidades como respaldo — para que el factor funcione
+        // desde ya aunque nadie haya llenado peso_kg todavía. Nunca deja
+        // asignar un vehículo más chico de lo que la carga exige, sin
+        // importar qué tan corta sea la distancia.
+        $pesoTotalKg = null;
+        $totalUnidades = 0;
+        foreach (($data['productos'] ?? []) as $prod) {
+            $totalUnidades += (int) ($prod['cantidad'] ?? 0);
+        }
+        if (!empty($data['productos'])) {
+            $idsProductos = array_unique(array_map(fn($p) => (int) $p['id_producto'], $data['productos']));
+            if ($idsProductos) {
+                $placeholders = implode(',', array_fill(0, count($idsProductos), '?'));
+                $stmtPeso = $conexion->prepare("SELECT id_producto, peso_kg FROM productos WHERE id_producto IN ($placeholders)");
+                $stmtPeso->execute(array_values($idsProductos));
+                $pesoPorProducto = [];
+                foreach ($stmtPeso->fetchAll(PDO::FETCH_ASSOC) as $p) {
+                    $pesoPorProducto[$p['id_producto']] = $p['peso_kg'] !== null ? (float) $p['peso_kg'] : null;
+                }
+                $pesoTotalKg = 0.0;
+                $pesoCompleto = true;
+                foreach ($data['productos'] as $prod) {
+                    $pesoUnit = $pesoPorProducto[(int) $prod['id_producto']] ?? null;
+                    if ($pesoUnit === null) { $pesoCompleto = false; break; }
+                    $pesoTotalKg += $pesoUnit * (int) ($prod['cantidad'] ?? 0);
+                }
+                // Si falta el peso de AL MENOS un producto del carrito, no se
+                // puede confiar en un peso total parcial — se cae al respaldo
+                // por cantidad de unidades (ver tipoVehiculoMinimoPorCarga).
+                if (!$pesoCompleto) $pesoTotalKg = null;
+            }
+        }
+
+        // Selección automática — con bloqueos de fila (FOR UPDATE SKIP
+        // LOCKED dentro de la función), segura dentro de esta misma
+        // transacción de venta. También intenta agrupar con una salida
+        // cercana ya en curso antes de ocupar un vehículo nuevo (PATCH
+        // 30/30) — por eso manda las coordenadas de esta entrega.
+        $asignacion = seleccionarRepartidorYVehiculoAutomatico(
+            $conexion, $km, true, $pesoTotalKg, $totalUnidades ?: null, $lat_entrega, $lon_entrega
+        );
+
+        $id_repartidor_inicial = $asignacion['id_repartidor'] ?? null;
+        $id_vehiculo = $asignacion['id_vehiculo'] ?? null;
         $nombre_estado_inicial = $id_repartidor_inicial ? 'ASIGNADA' : 'PENDIENTE';
+        $id_grupo_entrega = null;
+
+        // Tiempo estimado: si se agrupó con una salida cercana, se usa el
+        // tiempo ya calculado para esa parada extra (llegar a la primera +
+        // el margen de "bajarse y entregar"); si no, con el vehículo real
+        // que se asignó, o (si se fue a la cola) con el tipo ideal para la
+        // distancia, como estimado informativo — _auto_asignar.php lo
+        // recalcula con el vehículo real en cuanto de verdad se asigne.
+        $tiempo_estimado = null;
+        if (!empty($asignacion['agrupada'])) {
+            $tiempo_estimado = $asignacion['tiempo_estimado_minutos_sugerido'];
+            $id_grupo_entrega = $asignacion['id_grupo_entrega'];
+        } elseif ($km !== null) {
+            $config = obtenerConfigDelivery($conexion);
+            $tipoParaEstimar = $asignacion['tipo_vehiculo'] ?? tiposVehiculoPorDistancia($km, $config)[0];
+            $tiempo_estimado = calcularTiempoEstimadoMinutos($km, $tipoParaEstimar, $config);
+        }
 
         $stmtEstado = $conexion->prepare("SELECT id_estado FROM estado_entrega WHERE nombre = :nombre");
         $stmtEstado->execute([':nombre' => $nombre_estado_inicial]);
@@ -187,22 +280,40 @@ try {
             $cliente_nombre = 'Consumidor Final';
         }
 
-        // NUEVO: id_vehiculo viene del modal (el repartidor pudo tener varios vehículos disponibles)
-        $id_vehiculo = $data['id_vehiculo'] ?? null;
-
-        // NUEVO: hora acordada con el cliente (opcional) — llega como "14:30",
-        // se combina con la fecha de hoy para formar fecha_programada completa.
+        // Hora acordada con el cliente (opcional) — llega como "14:30",
+        // se combina con la fecha de hoy para formar fecha_programada
+        // completa. Es la hora que el cliente pidió, independiente del
+        // tiempo estimado de viaje calculado arriba.
+        //
+        // Si el cliente NO pidió una hora específica, se asume que el
+        // repartidor sale de inmediato: fecha_programada pasa a ser
+        // "ahora + tiempo estimado de viaje" (la hora a la que llegaría si
+        // sale ya mismo). Esto no es solo informativo — con esto, esta
+        // entrega también entra en el cálculo de "ida y vuelta" cuando el
+        // sistema evalúe si este repartidor le puede caber OTRA entrega
+        // (con hora acordada real) antes de tener que salir para esta.
+        // Solo se calcula así cuando SÍ quedó un repartidor asignado ahora
+        // mismo — si se fue a la cola, no hay "ahora" desde cuándo contar
+        // todavía; eso lo resuelve _auto_asignar.php cuando de verdad se
+        // le asigne alguien.
         $hora_acordada = trim($data['hora_acordada'] ?? '');
-        $fecha_programada = $hora_acordada !== '' ? (date('Y-m-d') . ' ' . $hora_acordada . ':00') : null;
+        if ($hora_acordada !== '') {
+            $fecha_programada = date('Y-m-d') . ' ' . $hora_acordada . ':00';
+        } elseif ($id_repartidor_inicial && $tiempo_estimado !== null) {
+            $fecha_programada = (new DateTime())->modify("+{$tiempo_estimado} minutes")->format('Y-m-d H:i:s');
+        } else {
+            $fecha_programada = null;
+        }
 
-        $sqlEnt = "INSERT INTO entregas 
-            (id_venta, id_cliente, id_sucursal, id_repartidor, id_vehiculo, numero_seguimiento, direccion_entrega, costo_entrega, creado_por, cliente_nombre, id_estado, fecha_asignada, fecha_programada)
-            VALUES (:id_venta, :id_cliente, :id_sucursal, :id_repartidor, :id_vehiculo, :numero_seg, :direccion, :costo, :creado_por, :cliente_nombre, :id_estado, NOW(), :fecha_programada)";
+        $sqlEnt = "INSERT INTO entregas
+            (id_venta, id_cliente, id_sucursal, id_repartidor, id_vehiculo, numero_seguimiento, direccion_entrega, costo_entrega, creado_por, cliente_nombre, id_estado, fecha_asignada, fecha_programada, distancia_km, tiempo_estimado_minutos, latitud_entrega, longitud_entrega)
+            VALUES (:id_venta, :id_cliente, :id_sucursal, :id_repartidor, :id_vehiculo, :numero_seg, :direccion, :costo, :creado_por, :cliente_nombre, :id_estado, NOW(), :fecha_programada, :distancia_km, :tiempo_estimado, :lat_entrega, :lon_entrega)
+            RETURNING id_entrega";
         $stmtEnt = $conexion->prepare($sqlEnt);
         $stmtEnt->bindValue(':id_venta', $id_venta, PDO::PARAM_INT);
         $stmtEnt->bindValue(':id_cliente', $data['id_cliente'] ?? null, PDO::PARAM_INT);
         $stmtEnt->bindValue(':id_sucursal', $data['id_sucursal'], PDO::PARAM_INT);
-        $stmtEnt->bindValue(':id_repartidor', $data['id_repartidor'] ?? null, PDO::PARAM_INT);
+        $stmtEnt->bindValue(':id_repartidor', $id_repartidor_inicial, PDO::PARAM_INT);
         $stmtEnt->bindValue(':id_vehiculo', $id_vehiculo, PDO::PARAM_INT);
         $stmtEnt->bindValue(':numero_seg', $numero_seguimiento, PDO::PARAM_STR);
         $stmtEnt->bindValue(':direccion', $data['direccion_entrega'], PDO::PARAM_STR);
@@ -211,12 +322,50 @@ try {
         $stmtEnt->bindValue(':cliente_nombre', $cliente_nombre, PDO::PARAM_STR);
         $stmtEnt->bindValue(':id_estado', $id_estado_pendiente, PDO::PARAM_INT);
         $stmtEnt->bindValue(':fecha_programada', $fecha_programada, $fecha_programada ? PDO::PARAM_STR : PDO::PARAM_NULL);
+        $stmtEnt->bindValue(':distancia_km', $km, $km !== null ? PDO::PARAM_STR : PDO::PARAM_NULL);
+        $stmtEnt->bindValue(':tiempo_estimado', $tiempo_estimado, $tiempo_estimado !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
+        $stmtEnt->bindValue(':lat_entrega', $lat_entrega, $lat_entrega !== null ? PDO::PARAM_STR : PDO::PARAM_NULL);
+        $stmtEnt->bindValue(':lon_entrega', $lon_entrega, $lon_entrega !== null ? PDO::PARAM_STR : PDO::PARAM_NULL);
         $stmtEnt->execute();
+        $id_entrega_nueva = $stmtEnt->fetchColumn();
 
-        // NUEVO: marcar el vehículo asignado como EN_USO
+        // Si se agrupó con una salida cercana (PATCH 30/30): la entrega
+        // nueva apunta al id de la primera (la "ancla" del grupo), y si la
+        // ancla todavía no tenía grupo (esta es la primera vez que se le
+        // suma una parada), también se le pone su propio id como grupo —
+        // así "todas las entregas con el mismo id_grupo_entrega van juntas"
+        // funciona sin importar cuál se agregó primero.
+        if ($id_grupo_entrega) {
+            $conexion->prepare("UPDATE entregas SET id_grupo_entrega = :grupo WHERE id_entrega = :id")
+                ->execute([':grupo' => $id_grupo_entrega, ':id' => $id_entrega_nueva]);
+            $conexion->prepare("UPDATE entregas SET id_grupo_entrega = :grupo WHERE id_entrega = :id AND id_grupo_entrega IS NULL")
+                ->execute([':grupo' => $id_grupo_entrega, ':id' => $id_grupo_entrega]);
+        }
+
+        // Marcar el vehículo asignado como EN_USO (si se agrupó, ya estaba
+        // EN_USO por la entrega ancla — este UPDATE es un no-op inofensivo)
         if ($id_vehiculo) {
             $stmtVeh = $conexion->prepare("UPDATE vehiculos SET estado = 'EN_USO' WHERE id_vehiculo = :id");
             $stmtVeh->execute([':id' => $id_vehiculo]);
+        }
+
+        // Notificación al cliente (PATCH 31/31) — le avisa desde ya si
+        // quedó asignado (con quién y cuándo llegaría, aprox.) o si se fue
+        // a la cola de espera.
+        require_once __DIR__ . '/../notificaciones/_notificaciones.php';
+        if ($id_repartidor_inicial) {
+            $etaTxt = $fecha_programada ? (new DateTime($fecha_programada))->format('h:i a') : null;
+            crearNotificacionCliente(
+                $conexion, (int) ($data['id_cliente'] ?? 0), (int) $id_entrega_nueva, 'ASIGNADA',
+                'Repartidor asignado a tu pedido',
+                "Tu pedido {$numero_seguimiento} ya tiene repartidor asignado." . ($etaTxt ? " Llegaría aproximadamente a las {$etaTxt}." : "")
+            );
+        } else {
+            crearNotificacionCliente(
+                $conexion, (int) ($data['id_cliente'] ?? 0), (int) $id_entrega_nueva, 'EN_COLA',
+                'Tu pedido está en cola',
+                "Tu pedido {$numero_seguimiento} quedó en la cola de espera — te avisamos apenas se le asigne un repartidor."
+            );
         }
     }
 

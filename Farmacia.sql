@@ -4582,3 +4582,187 @@ SELECT nd.id_despacho, dv.id_lote, dv.id_producto, dv.cantidad
 FROM nuevo_despacho nd
 CROSS JOIN detalle_venta dv
 WHERE dv.id_venta = (SELECT id_venta FROM entregas WHERE id_entrega = 11);
+
+
+-- =============================================================================
+-- PATCH 26/26 — AUTOMATIZACIÓN DE DELIVERY: selección automática de
+-- repartidor y vehículo (según la distancia real hasta la dirección de
+-- entrega, ya no la elige el cajero a mano), tiempo estimado de llegada
+-- para poder avisar cuando un delivery se está atrasando, y hora de
+-- entrega acordada con el cliente (columna fecha_programada, que ya
+-- existía pero nunca llegaba a llenarse porque el formulario de venta no
+-- tenía ningún campo para capturarla).
+--
+-- Los umbrales usan los mismos 3 tipos de vehículo que ya existen en el
+-- resto del sistema (ver PATCH 6/6 y 7/7 más arriba: "Motocicleta",
+-- "Carro", "Camión" — "Bicicleta" ya se había retirado como categoría
+-- de licencia válida, así que no se usa aquí tampoco).
+--
+-- No hace falta ninguna columna nueva — entregas.distancia_km,
+-- tiempo_estimado_minutos, latitud_entrega, longitud_entrega y
+-- fecha_programada ya existían desde antes. Este patch solo agrega la
+-- configuración que usa la nueva lógica en
+-- backend/delivery/_asignacion_automatica.php.
+-- Ejecutar después del resto del script (aditivo, seguro re-ejecutar).
+-- =============================================================================
+
+INSERT INTO configuracion_sistema (clave, valor, descripcion) VALUES
+    ('delivery_umbral_km_moto', '15',
+        'Hasta cuántos km de distancia (sucursal -> dirección de entrega) se prefiere asignar una Motocicleta'),
+    ('delivery_umbral_km_carro', '40',
+        'Entre el umbral de moto y este, se prefiere un Carro — más que esto, se prefiere un Camión'),
+    ('delivery_velocidad_kmh_motocicleta', '35',
+        'Velocidad promedio (km/h) usada para estimar cuánto tarda una entrega en Motocicleta'),
+    ('delivery_velocidad_kmh_carro', '30',
+        'Velocidad promedio (km/h) usada para estimar cuánto tarda una entrega en Carro'),
+    ('delivery_velocidad_kmh_camion', '25',
+        'Velocidad promedio (km/h) usada para estimar cuánto tarda una entrega en Camión'),
+    ('delivery_velocidad_kmh_default', '25',
+        'Velocidad promedio (km/h) para cualquier otro tipo de vehículo que no sea Motocicleta, Carro o Camión'),
+    ('delivery_buffer_minutos', '10',
+        'Minutos adicionales de margen (alistar el pedido y salir de la sucursal) que se suman al tiempo de viaje calculado por distancia')
+ON CONFLICT (clave) DO NOTHING;
+
+
+-- =============================================================================
+-- PATCH 27/27 — HORARIO LABORAL DE REPARTIDORES: hasta ahora todos los
+-- repartidores "activos" se consideraban disponibles a cualquier hora del
+-- día, sin importar si de verdad estaban trabajando en ese momento. Esto
+-- agrega un turno opcional por repartidor (hora_inicio_turno /
+-- hora_fin_turno) que la selección automática respeta.
+--
+-- Si un repartidor NO tiene turno asignado (los dos campos quedan en
+-- NULL, que es el valor por defecto — no rompe nada de lo que ya existía),
+-- se usa como respaldo el horario general de envíos que ya se configuraba
+-- en Configuración > Envíos (claves delivery_hora_inicio / delivery_hora_fin,
+-- que existían en la pantalla desde antes pero nunca se llegaban a usar en
+-- ningún lado del backend — ahora sí se aplican).
+--
+-- Ejecutar después del resto del script (aditivo, seguro re-ejecutar).
+-- =============================================================================
+
+ALTER TABLE repartidores ADD COLUMN IF NOT EXISTS hora_inicio_turno TIME;
+ALTER TABLE repartidores ADD COLUMN IF NOT EXISTS hora_fin_turno TIME;
+
+INSERT INTO configuracion_sistema (clave, valor, descripcion) VALUES
+    ('delivery_hora_inicio', '08:00',
+        'Hora de inicio del horario general de entregas — se usa como turno por defecto para los repartidores que no tengan uno propio configurado'),
+    ('delivery_hora_fin', '20:00',
+        'Hora de fin del horario general de entregas — se usa como turno por defecto para los repartidores que no tengan uno propio configurado')
+ON CONFLICT (clave) DO NOTHING;
+
+
+-- =============================================================================
+-- PATCH 28/28 — PESO/BULTO DEL PEDIDO COMO FACTOR DE VEHÍCULO: hasta ahora
+-- el único criterio para elegir Motocicleta/Carro/Camión era la distancia.
+-- Un pedido grande a 2 km igual se le asignaba a una moto. Esto agrega un
+-- peso opcional por producto (productos.peso_kg — nadie está obligado a
+-- llenarlo) y, aunque no se llene, ya funciona con la cantidad total de
+-- unidades del pedido como respaldo. El resultado final es el MÁS EXIGENTE
+-- entre lo que pide la distancia y lo que pide la carga — nunca se baja de
+-- categoría de vehículo por distancia si el pedido pesa o abulta demasiado
+-- para eso.
+--
+-- Ejecutar después del resto del script (aditivo, seguro re-ejecutar).
+-- =============================================================================
+
+ALTER TABLE productos ADD COLUMN IF NOT EXISTS peso_kg NUMERIC(10,3);
+
+INSERT INTO configuracion_sistema (clave, valor, descripcion) VALUES
+    ('delivery_peso_umbral_moto_kg', '5',
+        'Hasta cuántos kg de peso total del pedido se sigue considerando una Motocicleta (si se conoce el peso de los productos)'),
+    ('delivery_peso_umbral_carro_kg', '25',
+        'Entre el umbral de moto y este, se sigue considerando un Carro — más que esto, se exige un Camión'),
+    ('delivery_items_umbral_moto', '15',
+        'Hasta cuántas unidades totales en el pedido se sigue considerando una Motocicleta — respaldo para cuando los productos no tienen peso_kg registrado'),
+    ('delivery_items_umbral_carro', '60',
+        'Entre el umbral de moto y este, se sigue considerando un Carro — más que esto, se exige un Camión')
+ON CONFLICT (clave) DO NOTHING;
+
+
+-- =============================================================================
+-- PATCH 29/29 — REPROGRAMACIÓN AUTOMÁTICA DE ENTREGAS FALLIDAS: antes,
+-- cuando una entrega se marcaba FALLIDA quedaba cerrada ahí mismo — alguien
+-- tenía que notar que existía y reprogramarla a mano. Ahora, según el
+-- motivo del fallo, el sistema puede reprogramarla solo para el día
+-- siguiente (ej. "Cliente ausente" o "No contesta el teléfono" — motivos
+-- donde reintentar tiene sentido sin que un humano decida nada). Motivos
+-- donde SÍ hace falta intervención humana (dirección incorrecta, producto
+-- dañado, vehículo averiado, accidente, robo, pedido cancelado) se dejan
+-- en reprogramable_automatico = FALSE a propósito.
+--
+-- numero_intento en entregas cuenta cuántas veces se ha intentado esta
+-- entrega (empieza en 1). Como entregas.id_venta es UNIQUE (una venta solo
+-- puede tener UNA fila de entrega), reprogramar no crea una entrega nueva:
+-- reutiliza la MISMA fila, la regresa a REPROGRAMADA (sin repartidor ni
+-- vehículo, lista para que la agarre la asignación automática de nuevo) y
+-- sube numero_intento. El intento fallido igual queda en historial_entrega,
+-- así que no se pierde el rastro de que ya se intentó antes.
+--
+-- Ejecutar después del resto del script (aditivo, seguro re-ejecutar).
+-- =============================================================================
+
+ALTER TABLE motivo_fallida ADD COLUMN IF NOT EXISTS reprogramable_automatico BOOLEAN DEFAULT FALSE;
+ALTER TABLE entregas ADD COLUMN IF NOT EXISTS numero_intento INT DEFAULT 1;
+
+UPDATE motivo_fallida SET reprogramable_automatico = TRUE
+WHERE nombre IN ('Cliente ausente', 'Cliente no contesta el teléfono');
+
+INSERT INTO configuracion_sistema (clave, valor, descripcion) VALUES
+    ('delivery_max_intentos_reprogramacion', '3',
+        'Máximo de veces que una entrega se reprograma sola por un motivo automático antes de dejarla FALLIDA definitiva y obligar a que alguien la revise a mano')
+ON CONFLICT (clave) DO NOTHING;
+
+
+-- =============================================================================
+-- PATCH 30/30 — AGRUPAR ENTREGAS CERCANAS EN UNA SOLA SALIDA: si un
+-- repartidor ya tiene una entrega ASIGNADA (todavía sin salir) y llega otra
+-- entrega nueva con destino muy cerca del mismo (pocos metros/kilómetros),
+-- se le asigna el MISMO vehículo como una segunda parada de ese mismo
+-- viaje, en vez de exigir un vehículo aparte. id_grupo_entrega enlaza a
+-- todas las entregas de una misma salida (todas comparten el mismo valor —
+-- normalmente el id_entrega de la primera del grupo).
+--
+-- Ejecutar después del resto del script (aditivo, seguro re-ejecutar).
+-- =============================================================================
+
+ALTER TABLE entregas ADD COLUMN IF NOT EXISTS id_grupo_entrega INT;
+
+INSERT INTO configuracion_sistema (clave, valor, descripcion) VALUES
+    ('delivery_radio_agrupacion_km', '1.5',
+        'Si el destino de una entrega nueva está a menos de esta distancia del destino de una entrega que un repartidor ya tiene asignada (y sin salir todavía), se agrupan en la misma salida con el mismo vehículo'),
+    ('delivery_minutos_por_parada_extra', '8',
+        'Minutos adicionales que se suman al tiempo estimado por cada parada extra agregada a una salida ya agrupada (bajarse, entregar, volver al vehículo)')
+ON CONFLICT (clave) DO NOTHING;
+
+
+-- =============================================================================
+-- PATCH 31/31 — CENTRO DE NOTIFICACIONES DEL PORTAL DEL CLIENTE: hasta
+-- ahora, para enterarse de que le asignaron repartidor, de que va en
+-- camino, o de que se atrasó, el cliente tenía que entrar al portal y
+-- fijarse — nada le avisaba solo. Esto agrega una bandeja de
+-- notificaciones propia del cliente (separada de notificaciones_sistema,
+-- que es para el personal interno — ver id_usuario ahí vs. id_cliente
+-- aquí, son públicos distintos).
+--
+-- Es la base "garantizada" que no depende de ningún servicio externo — el
+-- envío real por email/WhatsApp (si se llega a conectar más adelante) se
+-- monta ENCIMA de esto, no lo reemplaza: cada evento sigue generando su
+-- notificación aquí siempre, y adicionalmente intenta mandarla por otros
+-- canales si están configurados.
+--
+-- Ejecutar después del resto del script (aditivo, seguro re-ejecutar).
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS notificaciones_cliente (
+    id_notificacion SERIAL PRIMARY KEY,
+    id_cliente INT NOT NULL REFERENCES clientes(id_cliente) ON DELETE CASCADE,
+    id_entrega INT REFERENCES entregas(id_entrega) ON DELETE CASCADE,
+    tipo VARCHAR(40) NOT NULL,
+    titulo VARCHAR(150) NOT NULL,
+    mensaje TEXT NOT NULL,
+    leida BOOLEAN DEFAULT FALSE,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    fecha_lectura TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_notificaciones_cliente_cliente ON notificaciones_cliente(id_cliente, fecha_creacion DESC);

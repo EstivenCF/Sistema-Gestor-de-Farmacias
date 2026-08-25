@@ -37,7 +37,7 @@ try {
             r.id_repartidor, r.nombre, r.activo, r.estado_laboral,
             r.tipo_identificacion, r.numero_identificacion,
             r.telefono_emergencia, r.fecha_ingreso, r.foto_url,
-            r.id_usuario,
+            r.id_usuario, r.hora_inicio_turno, r.hora_fin_turno,
             u.usuario AS usuario_login,
             (
                 SELECT COUNT(*) FROM entregas e
@@ -80,6 +80,13 @@ try {
         ORDER BY r.activo DESC, r.nombre
     ");
     $repartidores = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Horario general de envíos, usado como respaldo para los repartidores
+    // que no tienen un turno propio configurado (ver PATCH 27/27).
+    $stmtCfgHorario = $conexion->query("SELECT clave, valor FROM configuracion_sistema WHERE clave IN ('delivery_hora_inicio', 'delivery_hora_fin')");
+    $cfgHorario = ['delivery_hora_inicio' => '08:00', 'delivery_hora_fin' => '20:00'];
+    foreach ($stmtCfgHorario->fetchAll(PDO::FETCH_ASSOC) as $c) { $cfgHorario[$c['clave']] = $c['valor']; }
+    $horaActual = date('H:i:s');
 
     if ($repartidores) {
         $ids = implode(',', array_map(fn($r) => (int)$r['id_repartidor'], $repartidores));
@@ -136,10 +143,21 @@ try {
             $r['entregas_filtro'] = $entregasFiltroPorRep[$id] ?? 0;
             $r['tiene_acceso']    = !empty($r['id_usuario']);
 
+            // Turno efectivo: el propio si lo tiene, si no el horario
+            // general de envíos (ver PATCH 27/27) — solo informativo aquí,
+            // el filtro real de la asignación automática vive en
+            // backend/delivery/_asignacion_automatica.php.
+            $horaInicioEfectiva = $r['hora_inicio_turno'] ?? $cfgHorario['delivery_hora_inicio'];
+            $horaFinEfectiva    = $r['hora_fin_turno'] ?? $cfgHorario['delivery_hora_fin'];
+            $fueraDeTurno = !($horaActual >= $horaInicioEfectiva && $horaActual <= $horaFinEfectiva);
+            $r['fuera_de_turno'] = $fueraDeTurno;
+
             if (!$r['activo']) {
                 $r['estado_actual'] = 'INACTIVO';
             } elseif ($r['estado_laboral'] !== 'ACTIVO') {
                 $r['estado_actual'] = $r['estado_laboral'];
+            } elseif ($fueraDeTurno && $r['entregas_activas'] == 0) {
+                $r['estado_actual'] = 'FUERA_DE_TURNO';
             } else {
                 $r['estado_actual'] = $r['entregas_activas'] > 0 ? 'EN_CAMINO' : 'DISPONIBLE';
             }

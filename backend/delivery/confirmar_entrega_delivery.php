@@ -66,7 +66,8 @@ try {
     // podría confirmar entregas ajenas o repetir una ya cerrada.
     $stmt = $conexion->prepare("
         SELECT e.id_vehiculo, e.id_repartidor, e.cedula_receptor_autorizado,
-               e.id_venta, e.id_cliente, e.fecha_asignada, se.nombre AS estado_actual
+               e.id_venta, e.id_cliente, e.fecha_asignada, se.nombre AS estado_actual,
+               e.numero_seguimiento
         FROM entregas e
         JOIN estado_entrega se ON se.id_estado = e.id_estado
         WHERE e.id_entrega = :id
@@ -338,6 +339,84 @@ try {
         $stmt->execute([':id' => $prev['id_vehiculo']]);
     }
 
+    // Reprogramación automática (PATCH 29/29) — mismo criterio que
+    // backend/delivery/actualizar_estado_entrega.php: si el motivo de la
+    // falla es de los que no necesitan que un humano decida nada (ej.
+    // "Cliente ausente", "No contesta el teléfono"), la entrega se
+    // regresa sola a REPROGRAMADA para mañana a la misma hora, sin
+    // repartidor ni vehículo, hasta un tope de intentos.
+    $seReprogramoSola = false;
+    if (!$esExitosa) {
+        $stmt = $conexion->prepare("SELECT reprogramable_automatico FROM motivo_fallida WHERE id_motivo = :id");
+        $stmt->execute([':id' => $id_motivo_fallida]);
+        $esReprogramable = filter_var($stmt->fetchColumn(), FILTER_VALIDATE_BOOLEAN);
+
+        if ($esReprogramable) {
+            $stmt = $conexion->prepare("SELECT numero_intento FROM entregas WHERE id_entrega = :id");
+            $stmt->execute([':id' => $id_entrega]);
+            $intentoActual = (int) $stmt->fetchColumn();
+
+            $stmt = $conexion->query("SELECT valor FROM configuracion_sistema WHERE clave = 'delivery_max_intentos_reprogramacion'");
+            $maxIntentos = (int) ($stmt->fetchColumn() ?: 3);
+
+            if ($intentoActual < $maxIntentos) {
+                $idEstadoReprogramada = $conexion->query("SELECT id_estado FROM estado_entrega WHERE nombre = 'REPROGRAMADA'")->fetchColumn();
+                if ($idEstadoReprogramada) {
+                    $stmt = $conexion->prepare("
+                        UPDATE entregas SET
+                            id_estado = :id_estado,
+                            id_repartidor = NULL,
+                            id_vehiculo = NULL,
+                            fecha_asignada = NULL,
+                            fecha_inicio = NULL,
+                            numero_intento = numero_intento + 1,
+                            fecha_programada = COALESCE(fecha_programada, NOW()) + INTERVAL '1 day'
+                        WHERE id_entrega = :id
+                    ");
+                    $stmt->execute([':id_estado' => $idEstadoReprogramada, ':id' => $id_entrega]);
+                    $seReprogramoSola = true;
+
+                    $stmt = $conexion->prepare("
+                        INSERT INTO historial_entrega (id_entrega, id_estado, fecha, observacion, id_usuario)
+                        VALUES (:id_entrega, :id_estado, NOW(), :obs, :id_usuario)
+                    ");
+                    $stmt->execute([
+                        ':id_entrega' => $id_entrega,
+                        ':id_estado'  => $idEstadoReprogramada,
+                        ':obs'        => "Reprogramada automáticamente para mañana (intento " . ($intentoActual + 1) . " de $maxIntentos) — motivo del fallo: $nombre_motivo_fallida",
+                        ':id_usuario' => $_SESSION['usuario_id'] ?? ($_SESSION['id_usuario'] ?? null),
+                    ]);
+                }
+            }
+        }
+
+        if ($seReprogramoSola) {
+            crearNotificacionCliente(
+                $conexion, (int) $prev['id_cliente'], $id_entrega, 'REPROGRAMADA',
+                'Tu pedido se reprogramó para mañana',
+                "No pudimos completar tu pedido {$prev['numero_seguimiento']} ({$nombre_motivo_fallida}) — lo reprogramamos automáticamente para mañana."
+            );
+        } else {
+            crearNotificacionCliente(
+                $conexion, (int) $prev['id_cliente'], $id_entrega, 'FALLIDA',
+                'No pudimos completar tu pedido',
+                "Tu pedido {$prev['numero_seguimiento']} no se pudo entregar ({$nombre_motivo_fallida}). Nos pondremos en contacto contigo."
+            );
+        }
+    } elseif ($nuevo_estado_nombre !== 'PARCIAL') {
+        crearNotificacionCliente(
+            $conexion, (int) $prev['id_cliente'], $id_entrega, 'ENTREGADA',
+            'Tu pedido fue entregado',
+            "Tu pedido {$prev['numero_seguimiento']} fue marcado como entregado. Confírmalo en el portal para poder calificar la entrega."
+        );
+    } else {
+        crearNotificacionCliente(
+            $conexion, (int) $prev['id_cliente'], $id_entrega, 'PARCIAL',
+            'Tu pedido llegó incompleto',
+            "Tu pedido {$prev['numero_seguimiento']} llegó parcial — el repartidor volverá con el resto. Revisa el detalle en el portal."
+        );
+    }
+
     // Token de calificación (entrega completa o parcial, siempre que haya habido receptor)
     if ($esExitosa) {
         $stmt = $conexion->prepare("SELECT id_calificacion FROM calificaciones_entrega WHERE id_entrega = :id");
@@ -377,12 +456,13 @@ try {
     }
 
     echo json_encode([
-        'success'               => true,
-        'estado_final'          => $nuevo_estado_nombre,
-        'estado_recepcion'      => $estado_recepcion,
-        'es_parcial'            => $es_parcial,
-        'detalle_parcial'       => $detalle_parcial_txt,
-        'auto_asignacion'       => $asignacionAutomatica,
+        'success'                       => true,
+        'estado_final'                  => $seReprogramoSola ? 'REPROGRAMADA' : $nuevo_estado_nombre,
+        'estado_recepcion'              => $estado_recepcion,
+        'es_parcial'                    => $es_parcial,
+        'detalle_parcial'               => $detalle_parcial_txt,
+        'reprogramada_automaticamente'  => $seReprogramoSola,
+        'auto_asignacion'               => $asignacionAutomatica,
     ]);
 
 } catch (Exception $e) {

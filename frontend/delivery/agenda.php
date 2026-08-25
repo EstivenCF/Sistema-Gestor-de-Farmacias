@@ -308,12 +308,51 @@ function renderPanelDerecho() {
   const estado = e.estado_nombre;
 
   if (['PENDIENTE', 'ASIGNADA', 'REPROGRAMADA'].includes(estado)) {
+    // NUEVO — el repartidor no puede salir con el pedido si el cajero
+    // todavía no registró el despacho (Gestión de Entregas > Despachar).
+    // El backend (actualizar_estado_entrega.php) es quien de verdad lo
+    // bloquea; esto solo evita que el repartidor intente y le salga el
+    // error — se le explica de una vez qué falta.
+    if (!e.despachado_ronda_actual) {
+      cont.innerHTML = `
+        <div class="card-d p-3">
+          <h6 class="fw-bold text-success mb-2"><span class="material-symbols-rounded align-middle me-1" style="font-size:1.1rem;">two_wheeler</span>Salida a ruta</h6>
+          <div class="mb-3">Estado actual: ${BADGE[estado] || estado}</div>
+          <div class="alert alert-warning py-2 px-3 mb-0" style="font-size:.82rem;">
+            <span class="material-symbols-rounded align-middle" style="font-size:1rem;">inventory</span>
+            Todavía no puedes salir — falta que el cajero registre el despacho de este pedido en Gestión de Entregas.
+          </div>
+        </div>`;
+      return;
+    }
+
+    // Si el cliente pidió una hora específica, no conviene salir mucho
+    // antes — se calcula la hora de salida recomendada (hora acordada
+    // menos el tiempo de viaje) y se avisa/bloquea si todavía falta rato.
+    // El backend (actualizar_estado_entrega.php) es quien de verdad lo
+    // impide; esto solo evita que el repartidor pierda tiempo intentando.
+    let avisoSalida = '';
+    let muyTemprano = false;
+    if (e.hora_salida_recomendada) {
+      const horaSalida = new Date(e.hora_salida_recomendada.replace(' ', 'T'));
+      const horaAcordadaTxt = e.fecha_programada ? new Date(e.fecha_programada.replace(' ', 'T')).toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' }) : '';
+      muyTemprano = (horaSalida.getTime() - 5 * 60000) > new Date().getTime();
+      if (muyTemprano) {
+        avisoSalida = `
+          <div class="alert alert-warning py-2 px-3 mb-3" style="font-size:.82rem;">
+            <span class="material-symbols-rounded align-middle" style="font-size:1rem;">schedule</span>
+            El cliente pidió la entrega para las <strong>${horaAcordadaTxt}</strong> — todavía es muy temprano para salir.
+            Sal aprox. a las <strong>${horaSalida.toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })}</strong>.
+          </div>`;
+      }
+    }
     cont.innerHTML = `
       <div class="card-d p-3">
         <h6 class="fw-bold text-success mb-2"><span class="material-symbols-rounded align-middle me-1" style="font-size:1.1rem;">two_wheeler</span>Salida a ruta</h6>
         <div class="mb-3">Estado actual: ${BADGE[estado] || estado}</div>
+        ${avisoSalida}
         <p class="text-muted small">Cuando ya tengas el pedido contigo y estés saliendo hacia la dirección del cliente, marca la entrega como en camino.</p>
-        <button class="btn btn-success w-100" onclick="marcarEnCamino(${e.id_entrega})">
+        <button class="btn btn-success w-100" ${muyTemprano ? 'disabled' : ''} onclick="marcarEnCamino(${e.id_entrega})">
           <span class="material-symbols-rounded align-middle" style="font-size:1rem;">two_wheeler</span> Marcar en camino
         </button>
       </div>`;
@@ -520,7 +559,8 @@ function confirmarResultadoEntrega() {
       if (data.success) {
         modalEntrega.hide();
         const disputaMsg = data.estado_recepcion === 'EN_DISPUTA' ? ' Se marcó en disputa por diferencia en el receptor.' : '';
-        Swal.fire({title: `Entrega marcada como ${data.estado_final}`, text: disputaMsg || undefined, icon: data.estado_recepcion === 'EN_DISPUTA' ? 'warning' : 'success', timer: 2200, showConfirmButton: false});
+        const reprogMsg = data.reprogramada_automaticamente ? ' Como el motivo lo permite, el sistema la reprogramó sola para mañana — no hace falta que nadie la reasigne a mano.' : '';
+        Swal.fire({title: `Entrega marcada como ${data.estado_final}`, text: (disputaMsg || reprogMsg) || undefined, icon: data.estado_recepcion === 'EN_DISPUTA' ? 'warning' : 'success', timer: reprogMsg ? 3200 : 2200, showConfirmButton: false});
         cargarAgenda();
       } else Swal.fire('Error', data.message, 'error');
     }).catch(() => Swal.fire('Error', 'Error de conexión.', 'error'));

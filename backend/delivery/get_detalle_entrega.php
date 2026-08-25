@@ -19,6 +19,7 @@
 // que de verdad falta, no el total original del pedido.
 
 require_once __DIR__ . '/../conexion.php';
+require_once __DIR__ . '/_asignacion_automatica.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 
 header('Content-Type: application/json');
@@ -37,8 +38,8 @@ try {
         SELECT
             e.id_entrega, e.numero_seguimiento, e.direccion_entrega, e.barrio_entrega,
             e.ciudad_entrega, e.referencia_entrega, e.latitud_entrega, e.longitud_entrega,
-            e.id_venta, e.costo_entrega, e.distancia_km,
-            e.fecha_pedido, e.fecha_programada, e.fecha_asignada, e.fecha_entrega_real,
+            e.id_venta, e.costo_entrega, e.distancia_km, e.tiempo_estimado_minutos,
+            e.fecha_pedido, e.fecha_programada, e.fecha_asignada, e.fecha_inicio, e.fecha_entrega_real,
             e.nombre_quien_recibe, e.identificacion_quien_recibe,
             e.observaciones, e.comentario_cliente, e.calificacion,
             e.cancelado_por, e.comentario_cancelacion, e.confirmado_por_cliente,
@@ -47,7 +48,14 @@ try {
             c.nombre        AS cliente_nombre,
             c.id_cliente,
             r.nombre        AS repartidor_nombre,
-            r.telefono_emergencia AS repartidor_telefono,
+            " . SQL_CALIFICACION_PROMEDIO_REPARTIDOR . " AS repartidor_calificacion_promedio,
+            COALESCE(
+                (SELECT t.numero FROM repartidor_telefono rt
+                 JOIN telefonos t ON t.id_telefono = rt.id_telefono
+                 WHERE rt.id_repartidor = r.id_repartidor AND t.activo = TRUE
+                 ORDER BY t.id_telefono LIMIT 1),
+                r.telefono_emergencia
+            ) AS repartidor_telefono,
             v.tipo          AS vehiculo_tipo,
             v.placa         AS vehiculo_placa,
             se.nombre       AS estado_nombre,
@@ -61,7 +69,37 @@ try {
              JOIN telefonos t ON t.id_telefono = ct.id_telefono
              WHERE ct.id_cliente = c.id_cliente AND t.activo = TRUE
              ORDER BY t.id_telefono LIMIT 1) AS cliente_telefono,
-            e.ronda_actual
+            CASE
+                WHEN e.fecha_inicio IS NOT NULL AND e.tiempo_estimado_minutos IS NOT NULL THEN
+                    e.fecha_inicio + (e.tiempo_estimado_minutos || ' minutes')::interval
+                WHEN e.fecha_inicio IS NULL AND e.fecha_programada IS NOT NULL THEN
+                    e.fecha_programada
+                WHEN e.fecha_inicio IS NULL AND e.id_repartidor IS NOT NULL AND e.tiempo_estimado_minutos IS NOT NULL THEN
+                    e.fecha_asignada + (e.tiempo_estimado_minutos || ' minutes')::interval
+            END AS hora_estimada_llegada,
+            CASE
+                WHEN e.fecha_inicio IS NULL AND e.id_repartidor IS NOT NULL
+                     AND e.fecha_programada IS NOT NULL AND e.tiempo_estimado_minutos IS NOT NULL THEN
+                    e.fecha_programada - (e.tiempo_estimado_minutos || ' minutes')::interval
+            END AS hora_salida_recomendada,
+            (se.nombre = 'EN_CAMINO' AND e.fecha_inicio IS NOT NULL AND e.tiempo_estimado_minutos IS NOT NULL
+             AND NOW() > e.fecha_inicio + (e.tiempo_estimado_minutos || ' minutes')::interval
+            ) AS entrega_atrasada,
+            (se.nombre = 'ASIGNADA' AND e.fecha_inicio IS NULL AND e.id_repartidor IS NOT NULL
+             AND e.fecha_programada IS NOT NULL AND e.tiempo_estimado_minutos IS NOT NULL
+             AND NOW() > e.fecha_programada - (e.tiempo_estimado_minutos || ' minutes')::interval
+            ) AS salida_atrasada,
+            e.ronda_actual,
+            -- NUEVO — el repartidor ya no puede marcar la salida por su
+            -- cuenta si el cajero todavía no registró el despacho de esta
+            -- ronda (ver actualizar_estado_entrega.php, que es quien de
+            -- verdad lo bloquea). Esto es solo para que agenda.php muestre
+            -- el botón correcto de una vez, en vez de dejarlo intentar y
+            -- que le salga el error.
+            EXISTS (
+                SELECT 1 FROM despacho_entrega de
+                WHERE de.id_entrega = e.id_entrega AND de.id_ronda = e.ronda_actual
+            ) AS despachado_ronda_actual
         FROM entregas e
         JOIN clientes c              ON c.id_cliente   = e.id_cliente
         JOIN estado_entrega se       ON se.id_estado   = e.id_estado

@@ -16,16 +16,37 @@ if (!isset($_SESSION['id_cliente_portal'])) {
 $id_cliente = $_SESSION['id_cliente_portal'];
 
 try {
+    // ACTUALIZACIÓN — hora estimada de llegada y aviso de atraso: mismo
+    // cálculo que backend/delivery/listar_entregas.php (ver ese archivo
+    // para la explicación completa). Se le muestra al cliente para que
+    // sepa cuándo esperar su pedido, y para habilitarle el botón de
+    // "Llamar al repartidor" si ya se pasó esa hora y sigue en camino.
     $stmt = $conexion->prepare("
         SELECT
             e.id_entrega, e.numero_seguimiento, e.direccion_entrega, e.barrio_entrega,
             e.fecha_pedido, e.fecha_programada, e.fecha_asignada, e.fecha_entrega_real,
             e.costo_entrega, e.confirmado_por_cliente,
             e.estado_recepcion, e.comentario_cliente,
+            e.distancia_km, e.tiempo_estimado_minutos,
             se.nombre AS estado_nombre,
             r.nombre AS repartidor_nombre,
+            (SELECT t.numero FROM repartidor_telefono rt
+             JOIN telefonos t ON t.id_telefono = rt.id_telefono
+             WHERE rt.id_repartidor = r.id_repartidor AND t.activo = TRUE
+             ORDER BY t.id_telefono LIMIT 1) AS repartidor_telefono,
             u.nombre AS despachado_por,
-            v.numero_documento
+            v.numero_documento,
+            CASE
+                WHEN e.fecha_inicio IS NOT NULL AND e.tiempo_estimado_minutos IS NOT NULL THEN
+                    e.fecha_inicio + (e.tiempo_estimado_minutos || ' minutes')::interval
+                WHEN e.fecha_inicio IS NULL AND e.fecha_programada IS NOT NULL THEN
+                    e.fecha_programada
+                WHEN e.fecha_inicio IS NULL AND e.id_repartidor IS NOT NULL AND e.tiempo_estimado_minutos IS NOT NULL THEN
+                    e.fecha_asignada + (e.tiempo_estimado_minutos || ' minutes')::interval
+            END AS hora_estimada_llegada,
+            (se.nombre = 'EN_CAMINO' AND e.fecha_inicio IS NOT NULL AND e.tiempo_estimado_minutos IS NOT NULL
+             AND NOW() > e.fecha_inicio + (e.tiempo_estimado_minutos || ' minutes')::interval
+            ) AS entrega_atrasada
         FROM entregas e
         JOIN estado_entrega se ON se.id_estado = e.id_estado
         JOIN ventas v ON v.id_venta = e.id_venta

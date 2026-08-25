@@ -4,6 +4,7 @@
 // parcial, etc.) y libera el vehículo automáticamente cuando corresponde.
 
 require_once __DIR__ . '/../conexion.php';
+require_once __DIR__ . '/../notificaciones/_notificaciones.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 header('Content-Type: application/json');
 
@@ -56,6 +57,61 @@ if ($nuevo_estado === 'FALLIDA' && !$id_motivo_fallida) {
     echo json_encode(['success' => false, 'message' => 'Debes seleccionar el motivo por el cual la entrega no se pudo completar']); exit();
 }
 
+// NUEVO — no dejar salir antes de tiempo cuando el cliente pidió una
+// hora específica. Si la entrega tiene fecha_programada (hora acordada)
+// y todavía falta bastante para la hora recomendada de salida
+// (fecha_programada − tiempo_estimado_minutos, ver
+// backend/delivery/_asignacion_automatica.php), no tiene sentido que el
+// repartidor salga ya — llegaría mucho antes de lo acordado y estaría
+// dando vueltas con el pedido esperando. Se deja un margen de 5 minutos
+// para no bloquear por una diferencia mínima.
+if ($nuevo_estado === 'EN_CAMINO') {
+    $stmtChk = $conexion->prepare("
+        SELECT
+            (fecha_programada IS NOT NULL AND tiempo_estimado_minutos IS NOT NULL
+             AND NOW() < fecha_programada - (tiempo_estimado_minutos || ' minutes')::interval - INTERVAL '5 minutes'
+            ) AS muy_temprano,
+            to_char(fecha_programada - (tiempo_estimado_minutos || ' minutes')::interval, 'HH24:MI') AS hora_salida_txt,
+            to_char(fecha_programada, 'HH24:MI') AS hora_acordada_txt
+        FROM entregas
+        WHERE id_entrega = :id
+    ");
+    $stmtChk->execute([':id' => $id_entrega]);
+    $chk = $stmtChk->fetch(PDO::FETCH_ASSOC);
+
+    if ($chk && filter_var($chk['muy_temprano'], FILTER_VALIDATE_BOOLEAN)) {
+        echo json_encode([
+            'success' => false,
+            'message' => "Todavía es muy temprano para salir — el cliente pidió la entrega para las {$chk['hora_acordada_txt']}. "
+                . "Sal aproximadamente a las {$chk['hora_salida_txt']} para no llegar mucho antes de lo acordado.",
+        ]);
+        exit();
+    }
+
+    // NUEVO — el repartidor no puede salir con el pedido si el cajero
+    // todavía no registró el despacho de esta ronda (Gestión de Entregas >
+    // Despachar, ver backend/delivery/registrar_despacho.php). Antes esto
+    // se dejaba pasar y se generaba un despacho de respaldo asumiendo que
+    // el repartidor salió con todo lo vendido — pero eso permitía que el
+    // repartidor marcara "en camino" sin que nadie de la farmacia hubiera
+    // verificado ni entregado físicamente el medicamento. Ahora se exige
+    // el despacho real primero.
+    $stmtDespReq = $conexion->prepare("
+        SELECT 1 FROM despacho_entrega de
+        JOIN entregas e2 ON e2.id_entrega = de.id_entrega
+        WHERE de.id_entrega = :id AND de.id_ronda = e2.ronda_actual
+        LIMIT 1
+    ");
+    $stmtDespReq->execute([':id' => $id_entrega]);
+    if (!$stmtDespReq->fetchColumn()) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'Todavía no puedes salir — el cajero no ha registrado el despacho de este pedido. Pídele que lo despache en Gestión de Entregas antes de marcar la salida.',
+        ]);
+        exit();
+    }
+}
+
 // Estados que liberan al repartidor y su vehículo (ya no está "en camino")
 $ESTADOS_FINALES = ['ENTREGADA','INTERRUMPIDA','PARCIAL','CANCELADA','FALLIDA'];
 
@@ -75,10 +131,14 @@ try {
         if (!$nombre_motivo_fallida) throw new Exception('El motivo seleccionado no es válido');
     }
 
-    // Obtener vehículo asignado para liberarlo si aplica
-    $stmt = $conexion->prepare("SELECT id_vehiculo FROM entregas WHERE id_entrega = :id");
+    // Obtener vehículo asignado para liberarlo si aplica, y datos del
+    // cliente para las notificaciones del portal (PATCH 31/31).
+    $stmt = $conexion->prepare("SELECT id_vehiculo, id_cliente, numero_seguimiento FROM entregas WHERE id_entrega = :id");
     $stmt->execute([':id' => $id_entrega]);
-    $id_vehiculo = $stmt->fetchColumn();
+    $entregaInfo = $stmt->fetch(PDO::FETCH_ASSOC);
+    $id_vehiculo = $entregaInfo['id_vehiculo'] ?? null;
+    $id_cliente_notif = (int) ($entregaInfo['id_cliente'] ?? 0);
+    $numero_seguimiento_notif = $entregaInfo['numero_seguimiento'] ?? '';
 
     $campos = "id_estado = :id_estado, fecha_modificacion = NOW()";
     $params = [':id_estado' => $id_estado, ':id' => $id_entrega];
@@ -106,74 +166,16 @@ try {
     $stmt = $conexion->prepare("UPDATE entregas SET $campos WHERE id_entrega = :id");
     $stmt->execute($params);
 
-    // "Marcar en camino" (agenda.php) es el camino que usa el repartidor
-    // cuando el cajero NUNCA pasó por "Despachar" (registrar_despacho.php)
-    // — por eso esta entrega no tiene ninguna fila en despacho_entrega.
-    // Sin eso, confirmar_entrega_delivery.php topa cualquier confirmación
-    // contra "lo despachado en esta ronda", que siempre daría 0, y
-    // rechazaría CUALQUIER confirmación (con o sin devolución de por
-    // medio) con "No se reconoció ningún producto válido de esta venta,
-    // o no había nada despachado en esta ronda". Se genera aquí un
-    // despacho de respaldo con el pedido completo, asumiendo que el
-    // repartidor salió con todo lo vendido — así el flujo que ya usan
-    // los repartidores (sin pasar por el cajero) sigue funcionando.
-    //
-    // OJO — múltiples rondas: entregas.ronda_actual es la única fuente de
-    // verdad de en qué ronda va esta entrega (ver PATCH 25/25 en
-    // Farmacia.sql) — la actualizan resolver_disputa.php y
-    // reabrir_entrega_devuelta.php al reabrir para un redespacho, y
-    // registrar_despacho.php cuando el cajero despacha lo pendiente de un
-    // PARCIAL. Aquí solo hace falta revisar si YA existe un despacho para
-    // esa ronda puntual — antes se revisaba con "¿hay ALGÚN despacho_entrega
-    // para esta entrega?", lo que encontraba el de una ronda VIEJA (ya
-    // cerrada) y no generaba uno nuevo para la ronda actual;
-    // confirmar_entrega_delivery.php terminaba insertando otra vez en
-    // conciliacion_entrega con el mismo id_ronda de la ronda vieja y
-    // tronaba con "llave duplicada" (uq_conciliacion_entrega_ronda).
-    if ($nuevo_estado === 'EN_CAMINO') {
-        $stmtRA = $conexion->prepare("SELECT ronda_actual FROM entregas WHERE id_entrega = :id");
-        $stmtRA->execute([':id' => $id_entrega]);
-        $id_ronda_bk = (int) $stmtRA->fetchColumn();
-
-        $stmtChkDesp = $conexion->prepare("
-            SELECT 1 FROM despacho_entrega WHERE id_entrega = :id AND id_ronda = :ronda LIMIT 1
-        ");
-        $stmtChkDesp->execute([':id' => $id_entrega, ':ronda' => $id_ronda_bk]);
-        if (!$stmtChkDesp->fetchColumn()) {
-            $stmtVentaBk = $conexion->prepare("SELECT id_venta FROM entregas WHERE id_entrega = :id");
-            $stmtVentaBk->execute([':id' => $id_entrega]);
-            $id_venta_bk = $stmtVentaBk->fetchColumn();
-
-            $stmtLineasBk = $conexion->prepare("SELECT id_lote, id_producto, cantidad FROM detalle_venta WHERE id_venta = :id_venta");
-            $stmtLineasBk->execute([':id_venta' => $id_venta_bk]);
-            $lineasVentaBk = $stmtLineasBk->fetchAll(PDO::FETCH_ASSOC);
-
-            $id_usuario_bk = $_SESSION['usuario_id'] ?? ($_SESSION['id_usuario'] ?? null);
-            if ($lineasVentaBk && $id_usuario_bk) {
-                $stmtDespBk = $conexion->prepare("
-                    INSERT INTO despacho_entrega (id_entrega, id_ronda, id_usuario_cajero, observaciones)
-                    VALUES (:id_entrega, :id_ronda, :id_usuario, 'Generado automáticamente: el repartidor salió sin pasar por el paso de Despacho del cajero')
-                    RETURNING id_despacho
-                ");
-                $stmtDespBk->execute([':id_entrega' => $id_entrega, ':id_ronda' => $id_ronda_bk, ':id_usuario' => $id_usuario_bk]);
-                $id_despacho_bk = $stmtDespBk->fetchColumn();
-
-                $stmtDetBk = $conexion->prepare("
-                    INSERT INTO detalle_despacho (id_despacho, id_lote, id_producto, cantidad_despachada)
-                    VALUES (:id_despacho, :id_lote, :id_producto, :cantidad)
-                ");
-                foreach ($lineasVentaBk as $lv) {
-                    if ((int) $lv['cantidad'] <= 0) continue;
-                    $stmtDetBk->execute([
-                        ':id_despacho' => $id_despacho_bk,
-                        ':id_lote'     => $lv['id_lote'],
-                        ':id_producto' => $lv['id_producto'],
-                        ':cantidad'    => $lv['cantidad'],
-                    ]);
-                }
-            }
-        }
-    }
+    // Ya NO se genera aquí un "despacho de respaldo": antes, si el
+    // repartidor marcaba EN_CAMINO sin que el cajero hubiera pasado por
+    // "Despachar" (registrar_despacho.php), este archivo le inventaba un
+    // despacho asumiendo que salió con el pedido completo — eso permitía
+    // que un repartidor se reportara "en camino" sin que nadie en la
+    // farmacia hubiera verificado ni entregado físicamente el medicamento.
+    // Ahora ese caso ni siquiera llega hasta aquí: el bloqueo de más
+    // arriba ("Todavía no puedes salir...") rechaza la transición a
+    // EN_CAMINO si no existe ya un despacho_entrega real para
+    // entregas.ronda_actual, así que en este punto siempre existe.
 
     // Historial
     $stmt = $conexion->prepare("
@@ -197,8 +199,101 @@ try {
         $stmt->execute([':id' => $id_vehiculo]);
     }
 
+    // Notificaciones al cliente (PATCH 31/31)
+    if ($nuevo_estado === 'EN_CAMINO') {
+        crearNotificacionCliente(
+            $conexion, $id_cliente_notif, $id_entrega, 'EN_CAMINO',
+            '¡Tu repartidor va en camino!',
+            "El repartidor ya salió con tu pedido {$numero_seguimiento_notif}."
+        );
+    } elseif ($nuevo_estado === 'ENTREGADA') {
+        crearNotificacionCliente(
+            $conexion, $id_cliente_notif, $id_entrega, 'ENTREGADA',
+            'Tu pedido fue entregado',
+            "Tu pedido {$numero_seguimiento_notif} fue marcado como entregado. Confírmalo en el portal para poder calificar la entrega."
+        );
+    } elseif (in_array($nuevo_estado, ['INTERRUMPIDA', 'CANCELADA'])) {
+        crearNotificacionCliente(
+            $conexion, $id_cliente_notif, $id_entrega, $nuevo_estado,
+            $nuevo_estado === 'CANCELADA' ? 'Tu pedido fue cancelado' : 'Tu entrega se interrumpió',
+            "Tu pedido {$numero_seguimiento_notif} " . ($nuevo_estado === 'CANCELADA' ? 'fue cancelado' : 'se interrumpió') . ". Contáctanos si tienes dudas."
+        );
+    }
+
+    // Reprogramación automática (PATCH 29/29): si el motivo de la falla es
+    // de los que NO necesitan que un humano decida nada (ej. "Cliente
+    // ausente", "No contesta el teléfono"), la entrega se regresa sola a
+    // REPROGRAMADA para mañana a la misma hora, sin repartidor ni vehículo
+    // — así entra de nuevo en la asignación automática como cualquier
+    // entrega nueva. Motivos donde SÍ hace falta que alguien decida
+    // (dirección incorrecta, producto dañado, vehículo averiado, etc.) se
+    // quedan en FALLIDA tal cual, a propósito. También hay un tope de
+    // intentos (delivery_max_intentos_reprogramacion) para no reintentar
+    // para siempre una entrega que nunca se puede completar.
+    $seReprogramoSola = false;
+    if ($nuevo_estado === 'FALLIDA') {
+        $stmt = $conexion->prepare("SELECT reprogramable_automatico FROM motivo_fallida WHERE id_motivo = :id");
+        $stmt->execute([':id' => $id_motivo_fallida]);
+        $esReprogramable = filter_var($stmt->fetchColumn(), FILTER_VALIDATE_BOOLEAN);
+
+        if ($esReprogramable) {
+            $stmt = $conexion->prepare("SELECT numero_intento FROM entregas WHERE id_entrega = :id");
+            $stmt->execute([':id' => $id_entrega]);
+            $intentoActual = (int) $stmt->fetchColumn();
+
+            $stmt = $conexion->query("SELECT valor FROM configuracion_sistema WHERE clave = 'delivery_max_intentos_reprogramacion'");
+            $maxIntentos = (int) ($stmt->fetchColumn() ?: 3);
+
+            if ($intentoActual < $maxIntentos) {
+                $idEstadoReprogramada = $conexion->query("SELECT id_estado FROM estado_entrega WHERE nombre = 'REPROGRAMADA'")->fetchColumn();
+                if ($idEstadoReprogramada) {
+                    $stmt = $conexion->prepare("
+                        UPDATE entregas SET
+                            id_estado = :id_estado,
+                            id_repartidor = NULL,
+                            id_vehiculo = NULL,
+                            fecha_asignada = NULL,
+                            fecha_inicio = NULL,
+                            numero_intento = numero_intento + 1,
+                            fecha_programada = COALESCE(fecha_programada, NOW()) + INTERVAL '1 day'
+                        WHERE id_entrega = :id
+                    ");
+                    $stmt->execute([':id_estado' => $idEstadoReprogramada, ':id' => $id_entrega]);
+                    $seReprogramoSola = true;
+
+                    $stmt = $conexion->prepare("
+                        INSERT INTO historial_entrega (id_entrega, id_estado, fecha, observacion, id_usuario)
+                        VALUES (:id_entrega, :id_estado, NOW(), :obs, :id_usuario)
+                    ");
+                    $stmt->execute([
+                        ':id_entrega' => $id_entrega,
+                        ':id_estado'  => $idEstadoReprogramada,
+                        ':obs'        => "Reprogramada automáticamente para mañana (intento " . ($intentoActual + 1) . " de $maxIntentos) — motivo del fallo: $nombre_motivo_fallida",
+                        ':id_usuario' => $_SESSION['usuario_id'] ?? ($_SESSION['id_usuario'] ?? null),
+                    ]);
+                }
+            }
+        }
+
+        // Notificación al cliente — distinta según si se reprogramó sola
+        // o si de verdad se quedó fallida esperando revisión.
+        if ($seReprogramoSola) {
+            crearNotificacionCliente(
+                $conexion, $id_cliente_notif, $id_entrega, 'REPROGRAMADA',
+                'Tu pedido se reprogramó para mañana',
+                "No pudimos completar tu pedido {$numero_seguimiento_notif} ({$nombre_motivo_fallida}) — lo reprogramamos automáticamente para mañana."
+            );
+        } else {
+            crearNotificacionCliente(
+                $conexion, $id_cliente_notif, $id_entrega, 'FALLIDA',
+                'No pudimos completar tu pedido',
+                "Tu pedido {$numero_seguimiento_notif} no se pudo entregar ({$nombre_motivo_fallida}). Nos pondremos en contacto contigo."
+            );
+        }
+    }
+
     $conexion->commit();
-    echo json_encode(['success' => true, 'estado' => $nuevo_estado]);
+    echo json_encode(['success' => true, 'estado' => $seReprogramoSola ? 'REPROGRAMADA' : $nuevo_estado, 'reprogramada_automaticamente' => $seReprogramoSola]);
 
 } catch (Exception $e) {
     $conexion->rollBack();

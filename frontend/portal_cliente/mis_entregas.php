@@ -32,12 +32,33 @@ $nombre_cliente = $_SESSION['nombre_cliente_portal'] ?? 'Cliente';
   .estrellas span{color:#dee2e6;transition:color .1s;}
   .estrellas span.activa{color:#FFC107;}
   .bloque-calif{background:#f8f9fa;border-radius:10px;padding:1rem;margin-bottom:1rem;}
+  .campana-btn{position:relative;background:none;border:none;color:#fff;cursor:pointer;padding:.25rem;}
+  .campana-badge{position:absolute;top:-2px;right:-2px;background:#DC3545;color:#fff;border-radius:50%;font-size:.62rem;min-width:16px;height:16px;display:flex;align-items:center;justify-content:center;padding:0 3px;font-weight:700;}
+  .panel-notif{position:absolute;right:0;top:44px;width:340px;max-width:92vw;background:#fff;border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.18);z-index:2000;max-height:70vh;overflow-y:auto;display:none;}
+  .panel-notif.abierto{display:block;}
+  .notif-item{padding:.75rem 1rem;border-bottom:1px solid #f0f0f0;cursor:pointer;font-size:.82rem;}
+  .notif-item:last-child{border-bottom:none;}
+  .notif-item.no-leida{background:#EEF5FF;}
+  .notif-item .titulo{font-weight:700;color:#222;margin-bottom:.15rem;}
+  .notif-item .fecha{color:#999;font-size:.7rem;margin-top:.25rem;}
+  .notif-header{padding:.65rem 1rem;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center;}
 </style>
 </head>
 <body>
 <nav class="topbar">
   <div class="brand"><span class="material-symbols-rounded">local_shipping</span> Mis Pedidos</div>
-  <div class="d-flex align-items-center gap-3" style="color:#ADE8F4;font-size:.85rem;">
+  <div class="d-flex align-items-center gap-3" style="color:#ADE8F4;font-size:.85rem;position:relative;">
+    <button class="campana-btn" onclick="toggleNotificaciones()" title="Notificaciones">
+      <span class="material-symbols-rounded">notifications</span>
+      <span class="campana-badge" id="campanaBadge" style="display:none;">0</span>
+    </button>
+    <div class="panel-notif" id="panelNotif">
+      <div class="notif-header">
+        <strong style="font-size:.85rem;color:#222;">Notificaciones</strong>
+        <a href="#" style="font-size:.75rem;" onclick="marcarTodasLeidas();return false;">Marcar todas como leídas</a>
+      </div>
+      <div id="listaNotificaciones"><div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div></div></div>
+    </div>
     <span><?=htmlspecialchars($nombre_cliente)?></span>
     <a href="#" onclick="cerrarSesion()" style="color:#fff;text-decoration:none;"><span class="material-symbols-rounded" style="font-size:1rem;">logout</span> Salir</a>
   </div>
@@ -107,7 +128,7 @@ $nombre_cliente = $_SESSION['nombre_cliente_portal'] ?? 'Cliente';
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Volver</button>
-        <button class="btn btn-success" onclick="enviarConfirmarCantidades()">
+        <button class="btn btn-success" id="btnConfirmarCantidades" onclick="enviarConfirmarCantidades()">
           <span class="material-symbols-rounded align-middle" style="font-size:1rem;">check</span> Confirmar
         </button>
       </div>
@@ -177,7 +198,94 @@ document.addEventListener('DOMContentLoaded', () => {
   modalConfirmarCantidades = new bootstrap.Modal('#modalConfirmarCantidades');
   cargar();
   cargarMotivos();
+  cargarNotificaciones();
+  // Sin push real todavía (ver backend/notificaciones), así que se
+  // refresca solo cada 30s mientras el cliente tiene el portal abierto —
+  // suficiente para que se sienta "proactivo" sin tener que recargar.
+  setInterval(cargarNotificaciones, 30000);
+  document.addEventListener('click', (ev) => {
+    const panel = document.getElementById('panelNotif');
+    if (panel.classList.contains('abierto') && !ev.target.closest('.panel-notif') && !ev.target.closest('.campana-btn')) {
+      panel.classList.remove('abierto');
+    }
+  });
 });
+
+// ══════════════ Notificaciones (PATCH 31/31) ══════════════
+
+let notifCache = [];
+
+function toggleNotificaciones() {
+  const panel = document.getElementById('panelNotif');
+  panel.classList.toggle('abierto');
+  if (panel.classList.contains('abierto')) cargarNotificaciones();
+}
+
+function cargarNotificaciones() {
+  fetch('../../backend/portal_cliente/listar_notificaciones.php').then(r => r.json()).then(data => {
+    if (!data.success) return;
+    notifCache = data.notificaciones;
+    const badge = document.getElementById('campanaBadge');
+    if (data.no_leidas > 0) {
+      badge.style.display = 'flex';
+      badge.textContent = data.no_leidas > 9 ? '9+' : data.no_leidas;
+    } else {
+      badge.style.display = 'none';
+    }
+    renderNotificaciones();
+  }).catch(() => {});
+}
+
+const ICONO_NOTIF = {
+  ASIGNADA: 'two_wheeler', EN_COLA: 'hourglass_top', EN_CAMINO: 'local_shipping',
+  ENTREGADA: 'check_circle', PARCIAL: 'inventory_2', ATRASADA: 'schedule',
+  REPROGRAMADA: 'event_repeat', FALLIDA: 'error', CANCELADA: 'cancel', INTERRUMPIDA: 'pause_circle',
+};
+
+function tiempoRelativo(fechaStr) {
+  const diffMs = new Date() - new Date(fechaStr.replace(' ', 'T'));
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'ahora mismo';
+  if (mins < 60) return `hace ${mins} min`;
+  const horas = Math.floor(mins / 60);
+  if (horas < 24) return `hace ${horas} h`;
+  return `hace ${Math.floor(horas / 24)} d`;
+}
+
+function renderNotificaciones() {
+  const cont = document.getElementById('listaNotificaciones');
+  if (!notifCache.length) {
+    cont.innerHTML = '<p class="text-muted text-center small py-4 mb-0">No tienes notificaciones todavía.</p>';
+    return;
+  }
+  cont.innerHTML = notifCache.map(n => `
+    <div class="notif-item ${!n.leida ? 'no-leida' : ''}" onclick="marcarLeida(${n.id_notificacion})">
+      <div class="titulo"><span class="material-symbols-rounded align-middle" style="font-size:1rem;">${ICONO_NOTIF[n.tipo] || 'notifications'}</span> ${escapeHtmlNotif(n.titulo)}</div>
+      <div>${escapeHtmlNotif(n.mensaje)}</div>
+      <div class="fecha">${tiempoRelativo(n.fecha_creacion)}</div>
+    </div>
+  `).join('');
+}
+
+function escapeHtmlNotif(str) {
+  const d = document.createElement('div');
+  d.textContent = str || '';
+  return d.innerHTML;
+}
+
+function marcarLeida(id) {
+  fetch('../../backend/portal_cliente/marcar_notificacion_leida.php', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ id_notificacion: id })
+  }).then(() => cargarNotificaciones());
+}
+
+function marcarTodasLeidas() {
+  fetch('../../backend/portal_cliente/marcar_notificacion_leida.php', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ todas: true })
+  }).then(() => cargarNotificaciones());
+}
 
 function cargarPreguntasCalificacion() {
   return fetch('../../backend/portal_cliente/listar_preguntas_calificacion.php')
@@ -243,6 +351,19 @@ function cargar() {
     cont.innerHTML = data.entregas.map(e => {
       const productos = (e.productos||[]).map(p => `${p.nombre} (${p.cantidad})`).join(', ') || 'Sin detalle';
       const horaAcordada = e.fecha_programada ? new Date(e.fecha_programada).toLocaleString('es-DO') : 'Sin definir todavía';
+      const atrasada = e.entrega_atrasada === true || e.entrega_atrasada === 't' || e.entrega_atrasada === 1;
+      let etaHtml = '';
+      if (e.hora_estimada_llegada) {
+        const horaEta = new Date(e.hora_estimada_llegada.replace(' ', 'T')).toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' });
+        etaHtml = `
+          <div class="alert ${atrasada ? 'alert-danger' : 'alert-light border'} mt-2 mb-0 d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span>
+              <span class="material-symbols-rounded align-middle">schedule</span>
+              <strong>${atrasada ? 'Tu pedido está atrasado' : 'Llegaría aprox. a las'}:</strong> ${horaEta}
+            </span>
+            ${atrasada && e.repartidor_telefono ? `<a class="btn btn-sm btn-danger" href="tel:${e.repartidor_telefono}"><span class="material-symbols-rounded align-middle" style="font-size:1rem;">call</span> Llamar al repartidor</a>` : ''}
+          </div>`;
+      }
       return `
         <div class="card-d p-3 mb-3 pedido-card ${e.pendiente_confirmar_cliente ? 'destacar' : ''}">
           <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
@@ -260,6 +381,7 @@ function cargar() {
             <div class="col-md-6"><strong>Despachado por:</strong> ${e.despachado_por || '—'}</div>
             <div class="col-md-6"><strong>Costo de envío:</strong> RD$ ${parseFloat(e.costo_entrega).toFixed(2)}</div>
           </div>
+          ${etaHtml}
           ${e.puede_cancelar ? `
             <button class="btn btn-sm btn-outline-danger mt-2" onclick="abrirCancelar(${e.id_entrega})">
               <span class="material-symbols-rounded align-middle" style="font-size:1rem;">cancel</span> Cancelar pedido
@@ -339,10 +461,20 @@ function abrirConfirmarCantidades(idEntrega) {
           </div>
         </div>`).join('')
     : '<p class="text-muted small">No se encontró el detalle de productos de este pedido.</p>';
+  // Por si el modal se reabre después de un intento anterior, se asegura
+  // de que el botón esté habilitado otra vez.
+  const btnConfirmar = document.getElementById('btnConfirmarCantidades');
+  if (btnConfirmar) { btnConfirmar.disabled = false; }
   modalConfirmarCantidades.show();
 }
 
 function enviarConfirmarCantidades() {
+  const btnConfirmar = document.getElementById('btnConfirmarCantidades');
+  // Se desactiva el botón apenas se hace clic — evita que un doble clic
+  // (o alguien impaciente con internet lento) mande la confirmación dos
+  // veces y se tope con el bloqueo de "ya confirmaste esta entrega antes".
+  if (btnConfirmar) { if (btnConfirmar.disabled) return; btnConfirmar.disabled = true; }
+
   const id_entrega = parseInt(document.getElementById('confCantIdEntrega').value);
   const productos = Array.from(document.querySelectorAll('#confCantProductos .cant-recibida')).map(input => ({
     id_lote: input.dataset.idLote ? parseInt(input.dataset.idLote) : null,
@@ -366,8 +498,20 @@ function enviarConfirmarCantidades() {
         Swal.fire({title:'¡Gracias por confirmar!', icon:'success', timer:1500, showConfirmButton:false});
       }
       cargar();
-    } else Swal.fire('Error', data.message, 'error');
-  }).catch(() => Swal.fire('Error', 'Error de conexión.', 'error'));
+    } else if (data.message === 'Ya confirmaste esta entrega antes') {
+      // No es un error real (el bloqueo de seguridad hizo su trabajo) —
+      // seguro fue un doble clic. Se cierra el modal en silencio y se
+      // refresca la lista, que ya va a mostrar el estado correcto.
+      modalConfirmarCantidades.hide();
+      cargar();
+    } else {
+      if (btnConfirmar) { btnConfirmar.disabled = false; }
+      Swal.fire('Error', data.message, 'error');
+    }
+  }).catch(() => {
+    if (btnConfirmar) { btnConfirmar.disabled = false; }
+    Swal.fire('Error', 'Error de conexión.', 'error');
+  });
 }
 
 function abrirCalificar(idEntrega) {

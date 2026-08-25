@@ -73,13 +73,21 @@ try {
     // NOTA: ya no se guarda una licencia genérica aquí — cada tipo de
     // vehículo lleva su propia licencia en repartidor_habilidad (ver
     // más abajo), porque cada categoría es una licencia distinta.
+    // Turno laboral (opcional) — si no se indica, la selección automática
+    // usa como respaldo el horario general de envíos configurado en
+    // Configuración > Envíos (ver backend/delivery/_asignacion_automatica.php).
+    $hora_inicio_turno = trim($data['hora_inicio_turno'] ?? '') !== '' ? $data['hora_inicio_turno'] : null;
+    $hora_fin_turno = trim($data['hora_fin_turno'] ?? '') !== '' ? $data['hora_fin_turno'] : null;
+
     $stmt = $conexion->prepare("
         INSERT INTO repartidores (
             nombre, tipo_identificacion, numero_identificacion, direccion,
-            fecha_ingreso, telefono_emergencia, foto_url, observaciones, activo, id_usuario
+            fecha_ingreso, telefono_emergencia, foto_url, observaciones, activo, id_usuario,
+            hora_inicio_turno, hora_fin_turno
         ) VALUES (
             :nombre, :tipo_identificacion, :numero_identificacion, :direccion,
-            :fecha_ingreso, :telefono_emergencia, :foto_url, :observaciones, true, :id_usuario
+            :fecha_ingreso, :telefono_emergencia, :foto_url, :observaciones, true, :id_usuario,
+            :hora_inicio_turno, :hora_fin_turno
         )
         RETURNING id_repartidor
     ");
@@ -93,6 +101,8 @@ try {
         ':foto_url' => $data['foto_url'] ?? null,
         ':observaciones' => $data['observaciones'] ?? null,
         ':id_usuario' => $id_usuario,
+        ':hora_inicio_turno' => $hora_inicio_turno,
+        ':hora_fin_turno' => $hora_fin_turno,
     ]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     $id_repartidor = $row['id_repartidor'];

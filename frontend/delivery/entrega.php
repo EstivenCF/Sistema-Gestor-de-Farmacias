@@ -392,18 +392,48 @@ function verDetalle(id) {
         ? prods.map(p => `<li>${p.producto_nombre || 'Producto'} — ${p.cantidad} uds. ${p.numero_lote ? '(Lote ' + p.numero_lote + ')' : ''}</li>`).join('')
         : '<li class="text-muted">Sin productos registrados</li>';
 
+      const atrasada = e.entrega_atrasada === true || e.entrega_atrasada === 't' || e.entrega_atrasada === 1;
+      const salidaAtrasada = e.salida_atrasada === true || e.salida_atrasada === 't' || e.salida_atrasada === 1;
+      let etaHtml = '';
+      if (e.hora_estimada_llegada) {
+        const horaEta = new Date(e.hora_estimada_llegada.replace(' ', 'T')).toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' });
+        etaHtml = `
+          <div class="alert ${atrasada ? 'alert-danger' : 'alert-info'} py-2 px-3 mb-3 d-flex justify-content-between align-items-center flex-wrap gap-2" style="font-size:.85rem;">
+            <div>
+              <span class="material-symbols-rounded align-middle" style="font-size:1rem;">schedule</span>
+              <strong>${atrasada ? 'Esta entrega está atrasada' : (e.fecha_programada ? 'Hora acordada con el cliente' : 'Hora estimada de llegada')}:</strong> ${horaEta}
+              ${e.distancia_km ? ` (${parseFloat(e.distancia_km).toFixed(1)} km)` : ''}
+            </div>
+            ${atrasada && e.repartidor_telefono ? `<a class="btn btn-sm btn-danger" href="tel:${e.repartidor_telefono}"><span class="material-symbols-rounded align-middle" style="font-size:1rem;">call</span> Llamar al repartidor</a>` : ''}
+          </div>`;
+      }
+      if (e.hora_salida_recomendada) {
+        const horaSalida = new Date(e.hora_salida_recomendada.replace(' ', 'T')).toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' });
+        etaHtml += `
+          <div class="alert ${salidaAtrasada ? 'alert-danger' : 'alert-light border'} py-2 px-3 mb-3 d-flex justify-content-between align-items-center flex-wrap gap-2" style="font-size:.85rem;">
+            <div>
+              <span class="material-symbols-rounded align-middle" style="font-size:1rem;">directions_run</span>
+              <strong>${salidaAtrasada ? 'Ya debió haber salido' : 'Debería salir aprox. a las'}:</strong> ${horaSalida}
+              ${salidaAtrasada ? ' para llegar a la hora acordada con el cliente' : ''}
+            </div>
+            ${salidaAtrasada && e.repartidor_telefono ? `<a class="btn btn-sm btn-danger" href="tel:${e.repartidor_telefono}"><span class="material-symbols-rounded align-middle" style="font-size:1rem;">call</span> Llamar al repartidor</a>` : ''}
+          </div>`;
+      }
+
       document.getElementById('detalleBody').innerHTML = `
         ${extraHtml}
+        ${etaHtml}
         <div class="row g-2" style="font-size:.85rem;">
           <div class="col-6"><strong>Seguimiento:</strong> ${e.numero_seguimiento}</div>
           <div class="col-6"><strong>Estado:</strong> ${ESTADO_LABEL[e.estado_nombre] || e.estado_nombre}</div>
           <div class="col-6"><strong>Cliente:</strong> ${e.cliente_nombre}</div>
-          <div class="col-6"><strong>Repartidor:</strong> ${e.repartidor_nombre || 'Sin asignar'}</div>
+          <div class="col-6"><strong>Repartidor:</strong> ${e.repartidor_nombre || 'Sin asignar'}${e.repartidor_telefono ? ' (' + e.repartidor_telefono + ')' : ''}${e.repartidor_calificacion_promedio ? ' <span class="text-warning">★ ' + parseFloat(e.repartidor_calificacion_promedio).toFixed(1) + '</span>' : ''}</div>
           <div class="col-6"><strong>Vehículo:</strong> ${e.vehiculo_tipo ? e.vehiculo_tipo + (e.vehiculo_placa ? ' ('+e.vehiculo_placa+')' : '') : '—'}</div>
           <div class="col-6"><strong>Costo envío:</strong> RD$ ${parseFloat(e.costo_entrega||0).toFixed(2)}</div>
           <div class="col-12"><strong>Dirección:</strong> ${e.direccion_entrega}${e.barrio_entrega ? ', ' + e.barrio_entrega : ''}${e.ciudad_entrega ? ', ' + e.ciudad_entrega : ''}</div>
           <div class="col-6"><strong>Fecha pedido:</strong> ${e.fecha_pedido ? new Date(e.fecha_pedido).toLocaleString('es-DO') : '—'}</div>
           <div class="col-6"><strong>Fecha asignada:</strong> ${e.fecha_asignada ? new Date(e.fecha_asignada).toLocaleString('es-DO') : '—'}</div>
+          <div class="col-6"><strong>Hora acordada con el cliente:</strong> ${e.fecha_programada ? new Date(e.fecha_programada).toLocaleString('es-DO') : 'Sin definir'}</div>
         </div>
         <hr>
         <strong style="font-size:.85rem;">Productos:</strong>
@@ -457,6 +487,8 @@ function cargar() {
         const puedeActualizar = !['ENTREGADA','CANCELADA','FALLIDA','DEVUELTA'].includes(e.estado_nombre);
         const enCola = e.en_cola === true || e.en_cola === 't' || e.en_cola === 1;
         const confirmadoCliente = e.confirmado_por_cliente === true || e.confirmado_por_cliente === 't' || e.confirmado_por_cliente === 1;
+        const atrasada = e.entrega_atrasada === true || e.entrega_atrasada === 't' || e.entrega_atrasada === 1;
+        const salidaAtrasada = e.salida_atrasada === true || e.salida_atrasada === 't' || e.salida_atrasada === 1;
         return `<tr ${enCola ? 'style="background:#FFF9E6;"' : ''}>
           <td class="fw-semibold text-success">${e.numero_seguimiento}</td>
           <td>${e.numero_documento}</td>
@@ -469,12 +501,15 @@ function cargar() {
             ${e.estado_recepcion === 'EN_DISPUTA' ? `<br><span class="badge bg-danger mt-1" title="${escapeHtml(e.comentario_cliente || '')}">⚠ En disputa</span>` : ''}
             ${e.estado_nombre === 'ENTREGADA' && e.conciliacion_estado && e.conciliacion_estado !== 'PENDIENTE' ? `<br><span class="badge ${e.conciliacion_estado === 'RECHAZADO' ? 'bg-danger' : 'bg-success'} mt-1" title="Conciliación: ${e.conciliacion_estado}">✓ Conciliada</span>` : ''}
             ${e.estado_nombre === 'ENTREGADA' && e.estado_recepcion !== 'EN_DISPUTA' && (!e.conciliacion_estado || e.conciliacion_estado === 'PENDIENTE') && !confirmadoCliente ? `<br><span class="badge bg-warning text-dark mt-1" title="El cliente todavía no ha confirmado que recibió el pedido">⏳ Esperando confirmación del cliente</span>` : ''}
+            ${atrasada ? `<br><span class="badge bg-danger mt-1" title="Ya pasó la hora estimada de llegada y sigue en camino">⏱ Atrasada</span>` : ''}
+            ${salidaAtrasada ? `<br><span class="badge bg-danger mt-1" title="Tenía hora acordada con el cliente y ya debería haber salido">🚨 Debió salir ya</span>` : ''}
           </td>
           <td>${new Date(e.fecha_pedido).toLocaleDateString('es-DO')}</td>
           <td class="text-center">
                 <button class="btn btn-sm btn-outline-secondary me-1" onclick="verDetalle(${e.id_entrega})" title="Ver detalle">
                     <span class="material-symbols-rounded" style="font-size:1rem;">visibility</span>
                 </button>
+                ${(atrasada || salidaAtrasada) && e.repartidor_telefono ? `<a class="btn btn-sm btn-danger me-1" href="tel:${e.repartidor_telefono}" title="${atrasada ? 'Llamar al repartidor — la entrega está atrasada' : 'Llamar al repartidor — debió haber salido ya para llegar a la hora acordada'}"><span class="material-symbols-rounded" style="font-size:1rem;">call</span></a>` : ''}
                 ${puedeActualizar ? `<button class="btn btn-sm btn-outline-warning me-1" onclick='abrirModalAsignar(${e.id_entrega}, "${e.numero_seguimiento}", ${enCola})' title="${enCola ? 'Asignar repartidor' : 'Reasignar a otro repartidor'}"><span class="material-symbols-rounded" style="font-size:1rem;">${enCola ? 'person_add' : 'sync_alt'}</span></button>` : ''}
                 ${puedeActualizar ? `<button class="btn btn-sm btn-outline-primary me-1" onclick="abrirModalEstado(${e.id_entrega})" title="Actualizar estado"><span class="material-symbols-rounded" style="font-size:1rem;">edit</span></button>` : ''}
                 ${['ASIGNADA','PARCIAL'].includes(e.estado_nombre) ? `<button class="btn btn-sm btn-outline-success me-1" onclick="abrirModalDespacho(${e.id_entrega})" title="${e.estado_nombre === 'PARCIAL' ? 'Despachar lo pendiente' : 'Registrar despacho'}"><span class="material-symbols-rounded" style="font-size:1rem;">inventory</span></button>` : ''}
@@ -537,7 +572,12 @@ function guardarEstado() {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ id_entrega, estado, motivo, detalle_parcial, id_motivo_fallida: id_motivo_fallida ? parseInt(id_motivo_fallida) : null, detalle_fallida })
   }).then(r=>r.json()).then(data=>{
-    if (data.success) { modalEstado.hide(); Swal.fire({title:'Actualizado', icon:'success', timer:1500, showConfirmButton:false}); cargar(); }
+    if (data.success) {
+      modalEstado.hide();
+      const reprogMsg = data.reprogramada_automaticamente ? 'El motivo permite reintento, así que el sistema la reprogramó sola para mañana.' : undefined;
+      Swal.fire({title: data.reprogramada_automaticamente ? 'Reprogramada automáticamente' : 'Actualizado', text: reprogMsg, icon:'success', timer: reprogMsg ? 2800 : 1500, showConfirmButton:false});
+      cargar();
+    }
     else Swal.fire('Error', data.message, 'error');
   });
 }
