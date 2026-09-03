@@ -23,6 +23,9 @@ function obtenerUmbralesVencimiento(PDO $conexion): array
         'venc_irv_umbral_minimo' => 15,
         'venc_irv_periodo_dias' => 30,
         'venc_costo_transporte_estimado_unidad' => 0,
+        'venc_velocidad_promedio_kmh' => 35,
+        'venc_umbral_conveniencia_minima' => 50,
+        'venc_max_costo_transporte_pct_valor' => 30,
     ];
 
     try {
@@ -97,6 +100,101 @@ function calcularIRV(PDO $conexion, int $idMedicamento, int $idSucursal, int $di
     }
 
     return round(($unidadesVendidas / $stockActual) * 100, 2);
+}
+
+function obtenerIntervalosAccion(PDO $conexion): array
+{
+    $defecto = [
+        ['min' => 0, 'max' => 5, 'accion' => 'REDISTRIBUCION'],
+        ['min' => 5.01, 'max' => 15, 'accion' => 'PROMOCION'],
+        ['min' => 15.01, 'max' => 100, 'accion' => 'MANTENER'],
+    ];
+
+    try {
+        $stmt = $conexion->prepare("SELECT valor FROM configuracion_sistema WHERE clave = 'venc_intervalos_accion'");
+        $stmt->execute();
+        $valor = $stmt->fetchColumn();
+        $intervalos = $valor ? json_decode($valor, true) : null;
+        if (!is_array($intervalos) || !$intervalos) {
+            return $defecto;
+        }
+
+        $validos = [];
+        foreach ($intervalos as $intervalo) {
+            if (!isset($intervalo['min'], $intervalo['max'], $intervalo['accion'])
+                || !is_numeric($intervalo['min']) || !is_numeric($intervalo['max'])
+                || (float)$intervalo['min'] > (float)$intervalo['max']) {
+                continue;
+            }
+            $validos[] = [
+                'min' => (float)$intervalo['min'],
+                'max' => (float)$intervalo['max'],
+                'accion' => (string)$intervalo['accion'],
+            ];
+        }
+        return $validos ?: $defecto;
+    } catch (PDOException $e) {
+        return $defecto;
+    }
+}
+
+function determinarAccionPorIntervalo(?float $irv, array $intervalos): ?array
+{
+    if ($irv === null || !$intervalos) {
+        return null;
+    }
+
+    $irvAcotado = max(0, min(100, $irv));
+    foreach ($intervalos as $intervalo) {
+        if ($irvAcotado >= (float)$intervalo['min'] && $irvAcotado <= (float)$intervalo['max']) {
+            return $intervalo;
+        }
+    }
+
+    return null;
+}
+
+function calcularDemandaHistorica(PDO $conexion, int $idMedicamento, int $idSucursal, int $dias = 180): float
+{
+    $stmt = $conexion->prepare("SELECT COALESCE(SUM(dv.cantidad), 0)
+        FROM detalle_venta dv
+        JOIN ventas v ON dv.id_venta = v.id_venta
+        JOIN lotes l ON dv.id_lote = l.id_lote
+        WHERE l.id_medicamento = :med
+          AND v.id_sucursal = :suc
+          AND v.fecha >= CURRENT_DATE - (:dias || ' days')::interval");
+    $stmt->execute([':med' => $idMedicamento, ':suc' => $idSucursal, ':dias' => $dias]);
+    return (float)$stmt->fetchColumn();
+}
+
+function obtenerCoordenadasSucursal(PDO $conexion, int $idSucursal): ?array
+{
+    $stmt = $conexion->prepare("SELECT latitud, longitud FROM sucursales WHERE id_sucursal = :suc");
+    $stmt->execute([':suc' => $idSucursal]);
+    $coordenadas = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$coordenadas || $coordenadas['latitud'] === null || $coordenadas['longitud'] === null) {
+        return null;
+    }
+    return [(float)$coordenadas['latitud'], (float)$coordenadas['longitud']];
+}
+
+function calcularDistanciaKm(array $origen, array $destino): float
+{
+    $radioTierraKm = 6371;
+    $lat1 = deg2rad((float)$origen[0]);
+    $lat2 = deg2rad((float)$destino[0]);
+    $deltaLat = deg2rad((float)$destino[0] - (float)$origen[0]);
+    $deltaLon = deg2rad((float)$destino[1] - (float)$origen[1]);
+    $a = sin($deltaLat / 2) ** 2 + cos($lat1) * cos($lat2) * sin($deltaLon / 2) ** 2;
+    return round($radioTierraKm * 2 * asin(min(1, sqrt($a))), 2);
+}
+
+function estimarProbabilidadVenta(?float $irv, int $diasRestantes, int $periodoIrv): float
+{
+    if ($irv === null || $irv <= 0 || $diasRestantes <= 0 || $periodoIrv <= 0) {
+        return 0.0;
+    }
+    return round(min(100, $irv * ($diasRestantes / $periodoIrv)), 2);
 }
 
 /**
@@ -203,6 +301,23 @@ function diagnosticarCausaRaiz(PDO $conexion, array $loteDetalle, int $idSucursa
             : 'Al menos una sucursal cumple el umbral, o no hay datos suficientes para confirmarlo.',
     ];
 
+    $bajaRotacionOrigen = $loteDetalle['irv_origen'] !== null
+        && $loteDetalle['irv_origen'] < (float) $umbrales['venc_irv_umbral_minimo'];
+    $causas['BAJA_ROTACION_SUCURSAL'] = [
+        'detectada' => $bajaRotacionOrigen,
+        'detalle' => $bajaRotacionOrigen
+            ? 'IRV de ' . $loteDetalle['irv_origen'] . '% en la sucursal actual, por debajo del umbral de ' . $umbrales['venc_irv_umbral_minimo'] . '%.'
+            : 'La rotación de esta sucursal cumple el umbral o no hay datos suficientes para calcularla.',
+    ];
+    $sinVentasOrigen = $loteDetalle['irv_origen'] !== null
+        && (float) $loteDetalle['irv_origen'] === 0.0;
+    $causas['SIN_VENTAS_SUCURSAL'] = [
+        'detectada' => $sinVentasOrigen,
+        'detalle' => $sinVentasOrigen
+            ? 'No se registraron unidades vendidas en los últimos ' . $umbrales['venc_irv_periodo_dias'] . ' días en la sucursal actual.'
+            : 'Se registraron ventas del medicamento en el período evaluado.',
+    ];
+
     // 2) Próximo a vencer (riesgo crítico)
     $causas['PROXIMO_VENCIMIENTO'] = [
         'detectada' => $loteDetalle['nivel_riesgo'] === 'CRITICO',
@@ -218,9 +333,12 @@ function diagnosticarCausaRaiz(PDO $conexion, array $loteDetalle, int $idSucursa
         SELECT m2.id_medicamento, m2.nombre
         FROM medicamentos m2
         JOIN medicamentos m1 ON m1.id_categoria = m2.id_categoria
-        WHERE m1.id_medicamento = :med AND m2.id_medicamento != :med
+        WHERE m1.id_medicamento = :med_categoria AND m2.id_medicamento != :med_excluir
     ");
-    $stmt->execute([':med' => $loteDetalle['id_medicamento']]);
+    $stmt->execute([
+        ':med_categoria' => $loteDetalle['id_medicamento'],
+        ':med_excluir' => $loteDetalle['id_medicamento'],
+    ]);
     $competidores = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $mejorIrv = $loteDetalle['irv_origen'] ?? 0;
@@ -253,10 +371,13 @@ function diagnosticarCausaRaiz(PDO $conexion, array $loteDetalle, int $idSucursa
         FROM detalle_venta dv
         JOIN lotes l ON dv.id_lote = l.id_lote
         JOIN medicamentos m ON l.id_medicamento = m.id_medicamento
-        WHERE m.id_categoria = (SELECT id_categoria FROM medicamentos WHERE id_medicamento = :med)
-          AND m.id_medicamento != :med
+                WHERE m.id_categoria = (SELECT id_categoria FROM medicamentos WHERE id_medicamento = :med_categoria)
+                    AND m.id_medicamento != :med_excluir
     ");
-    $stmt->execute([':med' => $loteDetalle['id_medicamento']]);
+        $stmt->execute([
+                ':med_categoria' => $loteDetalle['id_medicamento'],
+                ':med_excluir' => $loteDetalle['id_medicamento'],
+        ]);
     $precioPromedioCategoria = $stmt->fetchColumn();
 
     $precioNoCompetitivo = ($precioPropio && $precioPromedioCategoria && $precioPropio > $precioPromedioCategoria * 1.15);

@@ -40,9 +40,9 @@ try {
             <p class="text-muted mb-0">Gestione el inventario por sucursal, realice transferencias y ajustes</p>
         </div>
         <div>
-            <button type="button" class="btn btn-primary shadow-sm me-2" onclick="abrirModalTransferencia()">
+            <button type="button" class="btn btn-outline-primary shadow-sm me-2" onclick="abrirModalTransferencia()" title="Transferencia manual, sin pasar por el análisis de recomendación (para casos administrativos puntuales). Para el flujo normal, use el botón 'Transferir' de la fila del lote.">
                 <span class="material-symbols-rounded align-middle me-1">swap_horiz</span>
-                Transferir Stock
+                Transferencia manual
             </button>
             <button type="button" class="btn btn-warning shadow-sm" onclick="abrirModalAjuste()">
                 <span class="material-symbols-rounded align-middle me-1">adjust</span>
@@ -587,13 +587,15 @@ function renderizarTabla(stock) {
 }
 
 function abrirModalTransferenciaConLote(idLote, idSucursal) {
-    document.getElementById('transferenciaLote').value = idLote;
-    document.getElementById('transferenciaSucursalOrigen').value = idSucursal;
-    document.getElementById('transferenciaSucursalDestino').value = '';
-    document.getElementById('transferenciaCantidad').value = '';
-    document.getElementById('transferenciaMotivo').value = '';
-    actualizarStockDisponible();
-    modalTransferencia.show();
+    // NUEVO: ya no abre el modal de transferencia simple. Este mismo botón
+    // ahora manda directo al motor de redistribución inteligente (necesidad +
+    // demanda + distancia/combustible + tiempo + logística disponible), en
+    // vez de duplicar una decisión manual que el nuevo proceso ya resuelve
+    // mejor. El modal de transferencia "a ciegas" se conserva más abajo solo
+    // como respaldo manual (botón "Transferir Stock" del encabezado), para
+    // el caso borde de que alguien necesite forzar un movimiento sin pasar
+    // por el análisis (ej. corrección administrativa puntual).
+    window.location.href = `menuprincipal.php?mod=redistribuir_stock_riesgo&id_lote=${idLote}&id_sucursal=${idSucursal}`;
 }
 
 function abrirModalAjusteConLote(idLote, idSucursal) {

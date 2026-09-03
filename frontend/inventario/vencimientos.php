@@ -167,8 +167,8 @@ try {
                         <option value="vencidos">Vencidos</option>
                         <option value="7dias">Próximos 7 días</option>
                         <option value="15dias">Próximos 15 días</option>
-                        <option value="30dias" selected>Próximos 30 días</option>
-                        <option value="todos">Todos (activos)</option>
+                        <option value="30dias">Próximos 30 días</option>
+                        <option value="todos" selected>Todos (activos)</option>
                     </select>
                 </div>
                 <div class="col-md-4">
@@ -226,12 +226,13 @@ try {
                             <th class="text-center">Riesgo</th>
                             <th class="text-end">Valor en Riesgo</th>
                             <th class="text-center">Rotación (IRV)</th>
+                            <th class="text-center">Sugerencia</th>
                             <th class="text-center">Acciones</th>
                         </tr>
                     </thead>
                     <tbody id="tablaVencimientosBody">
                         <tr>
-                            <td colspan="12" class="text-center text-muted py-4">
+                            <td colspan="13" class="text-center text-muted py-4">
                                 <div class="spinner-border text-danger" role="status"></div>
                                 <p class="mt-2">Cargando lotes...</p>
                             </td>
@@ -288,6 +289,25 @@ const RUTAS_API = {
 // Variables globales
 let vencimientosData = [];
 let riesgoMap = {}; // NUEVO - Tarea 5: mapa "id_lote-id_sucursal" -> datos de riesgo/IRV
+let intervalosAccion = []; // NUEVO (mejora final): intervalos configurables de % de venta -> acción sugerida
+
+// NUEVO (mejora final): replica en JS la misma regla de determinarAccionPorIntervalo()
+// del backend (riesgo_vencimiento_lib.php), para pintar una sugerencia rápida
+// por fila sin tener que llamar a generar_recomendacion_estrategica.php por
+// cada lote de la tabla. La decisión completa y explicada sigue viviendo en
+// el backend (detalle_riesgo_lote.php la muestra con todo el detalle).
+function determinarAccionPorIrv(irv, intervalos) {
+    if (irv === null || irv === undefined || !intervalos || !intervalos.length) return null;
+    const irvAcotado = Math.max(0, Math.min(100, irv));
+    return intervalos.find(t => irvAcotado >= t.min && irvAcotado <= t.max) || intervalos[intervalos.length - 1];
+}
+
+const ETIQUETAS_ACCION_CORTAS = {
+    MANTENER: { texto: 'Mantener', clase: 'bg-success', icono: 'check_circle' },
+    PROMOCION: { texto: 'Promoción', clase: 'bg-primary', icono: 'sell' },
+    REDISTRIBUCION: { texto: 'Transferir', clase: 'bg-info', icono: 'swap_horiz' },
+    DEVOLUCION_PROVEEDOR: { texto: 'Devolución', clase: 'bg-warning text-dark', icono: 'assignment_return' },
+};
 let paginaActual = 1;
 let filasPorPagina = 10;
 let timeoutBusqueda;
@@ -377,7 +397,7 @@ function actualizarEstadisticas() {
 
 function cargarVencimientos() {
     const tbody = document.getElementById('tablaVencimientosBody');
-    tbody.innerHTML = `<tr><td colspan="12" class="text-center"><div class="spinner-border text-danger"></div><p>Cargando...</p></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="13" class="text-center"><div class="spinner-border text-danger"></div><p>Cargando...</p></td></tr>`;
     
     const periodo = document.getElementById('filtroPeriodo').value;
     const medicamento = document.getElementById('filtroMedicamento').value;
@@ -406,6 +426,7 @@ function cargarVencimientos() {
 
                 // Construir el mapa de riesgo por "id_lote-id_sucursal"
                 riesgoMap = {};
+                intervalosAccion = dataRiesgo.intervalos_accion || [];
                 if (dataRiesgo.success) {
                     dataRiesgo.lotes.forEach(r => {
                         riesgoMap[`${r.id_lote}-${r.id_sucursal}`] = r;
@@ -415,11 +436,11 @@ function cargarVencimientos() {
                 renderizarTabla(vencimientosData);
                 actualizarPaginacion(data.total);
             } else {
-                tbody.innerHTML = `<tr><td colspan="12" class="text-center text-danger">Error: ${data.message}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="13" class="text-center text-danger">Error: ${data.message}</td></tr>`;
             }
         })
         .catch(() => {
-            tbody.innerHTML = `<tr><td colspan="12" class="text-center text-danger">Error de conexión</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="13" class="text-center text-danger">Error de conexión</td></tr>`;
         });
 }
 
@@ -448,7 +469,7 @@ function actualizarRiesgoKPIs() {
 function renderizarTabla(lotes) {
     const tbody = document.getElementById('tablaVencimientosBody');
     if (!lotes || lotes.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="12" class="text-center text-muted">No hay lotes en este período</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="13" class="text-center text-muted">No hay lotes en este período</td></tr>`;
         return;
     }
     
@@ -459,6 +480,7 @@ function renderizarTabla(lotes) {
     lotes.forEach(l => {
         const fechaVen = new Date(l.fecha_vencimiento);
         const diasRestantes = Math.ceil((fechaVen - hoy) / (1000 * 60 * 60 * 24));
+        const loteDevuelto = l.devuelto === true || l.devuelto === 't' || l.devuelto === 1 || l.devuelto === '1';
         
         let diasClass = '';
         let diasBadge = '';
@@ -526,7 +548,20 @@ function renderizarTabla(lotes) {
             }
         }
 
-        html += `<tr class="${filaClass}">
+        // NUEVO (mejora final): sugerencia rápida por intervalos configurables de % de venta
+        let sugerenciaCelda = '<span class="text-muted small">-</span>';
+        if (riesgo) {
+            const tramo = determinarAccionPorIrv(riesgo.irv, intervalosAccion);
+            if (tramo) {
+                const et = ETIQUETAS_ACCION_CORTAS[tramo.accion] || { texto: tramo.accion, clase: 'bg-secondary', icono: 'help' };
+                sugerenciaCelda = `<span class="badge ${et.clase}"><span class="material-symbols-rounded align-middle" style="font-size:14px;">${et.icono}</span> ${et.texto}</span>`;
+            } else {
+                sugerenciaCelda = '<span class="badge bg-secondary">Sin datos</span>';
+            }
+        }
+
+        const filaVisual = loteDevuelto ? 'table-secondary text-muted' : filaClass;
+        html += `<tr class="${filaVisual}">
             <td class="ps-4"><code>${escapeHtml(l.numero_lote)}</code></td>
             <td><strong>${escapeHtml(l.medicamento_nombre)}</strong><br><small class="text-muted">${escapeHtml(l.presentacion || '')}</small></td>
             <td>${l.concentracion || '-'} ${l.unidad_abrev || ''}</td>
@@ -542,17 +577,16 @@ function renderizarTabla(lotes) {
                 <strong>${diasRestantes < 0 ? 'VENCIDO' : diasRestantes + ' días'}</strong><br>
                 ${diasBadge}
             </td>
-            <td class="text-center">${estadoLoteBadge}</td>
+            <td class="text-center">${loteDevuelto ? '<span class="badge bg-secondary">DEVUELTO</span>' : estadoLoteBadge}</td>
             <td class="text-center">${riesgoCelda}</td>
             <td class="text-end">${valorRiesgoCelda}</td>
             <td class="text-center">${irvCelda}</td>
+            <td class="text-center">${loteDevuelto ? '<span class="badge bg-secondary">Sin acciones</span>' : sugerenciaCelda}</td>
             <td class="text-center">
                 <button class="btn btn-sm btn-light text-info me-1" onclick="verDetalleLote(${l.id_lote})" title="Ver detalles básicos">
                     <span class="material-symbols-rounded">visibility</span>
                 </button>
-                <a href="menuprincipal.php?mod=detalle_riesgo_lote&id_lote=${l.id_lote}&id_sucursal=${l.id_sucursal}" class="btn btn-sm btn-light text-danger" title="Ver riesgo y valor económico">
-                    <span class="material-symbols-rounded">troubleshoot</span>
-                </a>
+                ${loteDevuelto ? '' : `<a href="menuprincipal.php?mod=detalle_riesgo_lote&id_lote=${l.id_lote}&id_sucursal=${l.id_sucursal}" class="btn btn-sm btn-light text-danger" title="Ver riesgo y valor económico"><span class="material-symbols-rounded">troubleshoot</span></a>`}
             </td>
         </tr>`;
     });

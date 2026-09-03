@@ -31,6 +31,17 @@ try {
             d.monto_reembolso,
             d.id_entrega,
             d.confirmado_por_cliente,
+            CASE WHEN COALESCE(d.monto_reembolso, 0) = 0 THEN (
+                SELECT COALESCE(SUM(dd2.cantidad * COALESCE(
+                    dd2.precio_unitario,
+                    l2.costo_unitario,
+                    (SELECT dc2.precio_unitario FROM detalle_compra dc2 WHERE dc2.id_lote = l2.id_lote LIMIT 1),
+                    0
+                )), 0)
+                FROM detalle_devolucion dd2
+                JOIN lotes l2 ON l2.id_lote = dd2.id_lote
+                WHERE dd2.id_devolucion = d.id_devolucion
+            ) ELSE d.monto_reembolso END AS monto_reembolso,
             td.nombre as tipo_nombre,
             ed.nombre as estado_nombre,
             s.nombre as sucursal_nombre,

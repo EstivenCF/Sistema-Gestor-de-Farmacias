@@ -20,7 +20,7 @@ $busqueda = isset($_GET['busqueda']) ? $_GET['busqueda'] : '';
 $offset = ($pagina - 1) * $limite;
 
 try {
-    $where = "WHERE l.estado = 'ACTIVO'";
+    $where = "WHERE l.estado = 'ACTIVO' AND i.cantidad > 0";
     $params = [];
     
     // Filtrar por período de vencimiento
@@ -77,7 +77,15 @@ try {
                    m.id_medicamento, m.nombre as medicamento_nombre, m.concentracion,
                    u.abreviatura as unidad_abrev,
                    p.nombre as presentacion,
-                   s.nombre as sucursal_nombre
+                                     s.nombre as sucursal_nombre,
+                                     EXISTS (
+                                             SELECT 1
+                                             FROM detalle_devolucion dd
+                                             JOIN devoluciones d ON d.id_devolucion = dd.id_devolucion
+                                             JOIN estado_devolucion ed ON ed.id_estado = d.id_estado
+                                             WHERE dd.id_lote = i.id_lote
+                                                 AND ed.nombre = 'COMPLETADA'
+                                     ) AS devuelto
             FROM inventario i
             JOIN lotes l ON i.id_lote = l.id_lote
             JOIN medicamentos m ON l.id_medicamento = m.id_medicamento

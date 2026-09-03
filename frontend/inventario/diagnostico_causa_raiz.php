@@ -18,12 +18,15 @@ $base_url = '/Sistema-Gestor-de-Farmacias';
 
 $id_lote = isset($_GET['id_lote']) ? (int)$_GET['id_lote'] : 0;
 $id_sucursal = isset($_GET['id_sucursal']) ? (int)$_GET['id_sucursal'] : 0;
+$paginaHistorial = max(1, (int)($_GET['historial_pagina'] ?? 1));
+$limiteHistorial = 6;
 
 $umbrales = obtenerUmbralesVencimiento($conexion);
 $lote = null;
 $error = null;
 $diagnostico = [];
 $historialAcciones = [];
+$totalHistorial = 0;
 $idAccionPrevia = null;
 
 if ($id_lote > 0 && $id_sucursal > 0) {
@@ -39,29 +42,27 @@ if ($id_lote > 0 && $id_sucursal > 0) {
             FROM accion_recuperacion
             WHERE id_lote = :id_lote
             ORDER BY fecha_creacion ASC
+            LIMIT :limite OFFSET :offset
         ");
-        $stmt->execute([':id_lote' => $id_lote]);
+        $stmt->bindValue(':id_lote', $id_lote, PDO::PARAM_INT);
+        $stmt->bindValue(':limite', $limiteHistorial, PDO::PARAM_INT);
+        $stmt->bindValue(':offset', ($paginaHistorial - 1) * $limiteHistorial, PDO::PARAM_INT);
+        $stmt->execute();
         $historialAcciones = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // La última acción del historial se encadena como "previa" de la nueva
-        if (!empty($historialAcciones)) {
-            $idAccionPrevia = end($historialAcciones)['id_accion'];
-        }
+        $stmtTotal = $conexion->prepare("SELECT COUNT(*) FROM accion_recuperacion WHERE id_lote = :id_lote");
+        $stmtTotal->execute([':id_lote' => $id_lote]);
+        $totalHistorial = (int)$stmtTotal->fetchColumn();
+
+        $stmtUltimaAccion = $conexion->prepare("SELECT id_accion FROM accion_recuperacion WHERE id_lote = :id_lote ORDER BY fecha_creacion DESC LIMIT 1");
+        $stmtUltimaAccion->execute([':id_lote' => $id_lote]);
+        $idAccionPrevia = $stmtUltimaAccion->fetchColumn() ?: null;
     }
 } else {
     $error = 'Falta indicar el lote y la sucursal (id_lote / id_sucursal).';
 }
 
-$responsables = [];
-try {
-    $stmt = $conexion->query("
-        SELECT u.id_usuario, u.nombre, r.nombre AS rol
-        FROM usuarios u JOIN roles r ON u.id_rol = r.id_rol
-        WHERE u.estado = true AND r.nombre IN ('Administrador', 'Encargado Inventario')
-        ORDER BY u.nombre
-    ");
-    $responsables = $stmt->fetchAll();
-} catch (PDOException $e) {}
+$nombre_usuario_sesion = $_SESSION['nombre'] ?? $_SESSION['usuario'];
 
 $etiquetasTipoAccion = [
     'PROMOCION' => 'Promoción', 'REDISTRIBUCION' => 'Redistribución', 'COMBO' => 'Combo/Paquete',
@@ -184,6 +185,18 @@ $coloresEstado = ['PENDIENTE' => 'secondary', 'EN_EJECUCION' => 'info', 'COMPLET
                                 <?php if ($a['observaciones']): ?><small class="text-muted d-block mt-1"><?php echo htmlspecialchars($a['observaciones']); ?></small><?php endif; ?>
                             </div>
                         <?php endforeach; ?>
+                        <?php $totalPaginasHistorial = max(1, (int)ceil($totalHistorial / $limiteHistorial)); ?>
+                        <?php if ($totalPaginasHistorial > 1): ?>
+                            <nav class="mt-3" aria-label="Paginación del historial">
+                                <ul class="pagination pagination-sm mb-0 justify-content-center">
+                                    <?php for ($pagina = 1; $pagina <= $totalPaginasHistorial; $pagina++): ?>
+                                        <li class="page-item <?php echo $pagina === $paginaHistorial ? 'active' : ''; ?>">
+                                            <a class="page-link" href="menuprincipal.php?mod=diagnostico_causa_raiz&id_lote=<?php echo $id_lote; ?>&id_sucursal=<?php echo $id_sucursal; ?>&historial_pagina=<?php echo $pagina; ?>"><?php echo $pagina; ?></a>
+                                        </li>
+                                    <?php endfor; ?>
+                                </ul>
+                            </nav>
+                        <?php endif; ?>
                     <?php endif; ?>
                 </div>
             </div>
@@ -233,12 +246,7 @@ $coloresEstado = ['PENDIENTE' => 'secondary', 'EN_EJECUCION' => 'info', 'COMPLET
                     </div>
                     <div class="col-lg-3 col-md-6">
                         <label class="form-label fw-bold text-secondary small">RESPONSABLE</label>
-                        <select class="form-select" id="responsable" required>
-                            <option value="">Seleccione...</option>
-                            <?php foreach ($responsables as $r): ?>
-                                <option value="<?php echo $r['id_usuario']; ?>"><?php echo htmlspecialchars($r['nombre']); ?> (<?php echo htmlspecialchars($r['rol']); ?>)</option>
-                            <?php endforeach; ?>
-                        </select>
+                        <input type="text" class="form-control" value="<?php echo htmlspecialchars($nombre_usuario_sesion); ?>" readonly>
                     </div>
                     <div class="col-lg-3 col-md-6">
                         <label class="form-label fw-bold text-secondary small">FECHA LÍMITE DE EJECUCIÓN</label>
@@ -333,7 +341,6 @@ document.getElementById('formContingencia')?.addEventListener('submit', function
         nivel_riesgo_al_generar: loteInfo.nivel_riesgo,
         irv_origen_al_generar: loteInfo.irv_origen,
         causa_raiz: causaDetectada,
-        responsable: document.getElementById('responsable').value || null,
         fecha_limite: document.getElementById('fechaLimite').value || null,
         prioridad: 'CRITICA',
         observaciones: document.getElementById('observaciones').value,

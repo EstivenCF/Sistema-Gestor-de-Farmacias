@@ -4519,6 +4519,91 @@ INSERT INTO configuracion_sistema (clave, valor) VALUES
     ('venc_costo_transporte_estimado_unidad', '0')
 ON CONFLICT (clave) DO NOTHING;
 
+-- Nuevo
+
+-- =============================================================================
+-- Redistribución inteligente de inventario entre sucursales
+-- Extensión aditiva sobre Tarea 5 (tarea5_vencimientos.sql). No modifica ni
+-- elimina nada existente. Correr después de tarea5_vencimientos.sql.
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- 1. Datos de vehículo necesarios para estimar combustible/costo real de un
+-- viaje. vehiculos ya existe (con estado DISPONIBLE/EN_USO/DAÑADO/TALLER/
+-- INACTIVO); solo le falta lo que necesita el motor de recomendación.
+-- -----------------------------------------------------------------------------
+ALTER TABLE vehiculos
+    ADD COLUMN IF NOT EXISTS capacidad_carga INT,
+    ADD COLUMN IF NOT EXISTS rendimiento_km_por_galon NUMERIC(6,2),
+    ADD COLUMN IF NOT EXISTS costo_galon_combustible NUMERIC(8,2);
+
+COMMENT ON COLUMN vehiculos.rendimiento_km_por_galon IS
+    'Kilómetros que recorre este vehículo por galón de combustible. Sin este dato, el motor de redistribución usa un valor por defecto configurable (config: redistribucion_rendimiento_default_km_gal).';
+COMMENT ON COLUMN vehiculos.costo_galon_combustible IS
+    'Costo por galón para ESTE vehículo (puede variar por tipo: gasolina/diésel). Sin este dato, se usa configuracion_sistema.costo_galon_combustible_default.';
+
+-- -----------------------------------------------------------------------------
+-- 2. Personal habilitado para viajes internos entre sucursales. Se reutilizan
+-- repartidores tal cual (estado_laboral ya resuelve disponibilidad,
+-- repartidor_habilidad ya resuelve si sabe manejar el tipo de vehículo) —
+-- ver Análisis, sección H. Solo se agrega un interruptor por si en la
+-- práctica no todos los repartidores deben poder hacer transferencias
+-- entre sucursales (por defecto, todos pueden).
+-- -----------------------------------------------------------------------------
+ALTER TABLE repartidores
+    ADD COLUMN IF NOT EXISTS puede_transferencias_internas BOOLEAN NOT NULL DEFAULT TRUE;
+
+COMMENT ON COLUMN repartidores.puede_transferencias_internas IS
+    'Si este repartidor puede asignarse a viajes de redistribución entre sucursales (no solo entregas a domicilio). Por defecto TRUE: todos pueden, a menos que se desmarque explícitamente.';
+
+-- -----------------------------------------------------------------------------
+-- 3. Registro del viaje de redistribución. No es una "entrega" (no hay
+-- cliente ni venta involucrada) ni cabe dentro de accion_recuperacion
+-- (que es genérica para las 7 estrategias de recuperación, no solo
+-- redistribución). Guarda la foto de la recomendación en el momento en que
+-- se ejecutó, para trazabilidad y para el reporte de vencimientos.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS viaje_redistribucion (
+    id_viaje SERIAL PRIMARY KEY,
+    id_accion INT REFERENCES accion_recuperacion(id_accion),
+    id_lote INT NOT NULL REFERENCES lotes(id_lote),
+    id_sucursal_origen INT NOT NULL REFERENCES sucursales(id_sucursal),
+    id_sucursal_destino INT NOT NULL REFERENCES sucursales(id_sucursal),
+    id_vehiculo INT REFERENCES vehiculos(id_vehiculo),
+    id_repartidor INT REFERENCES repartidores(id_repartidor),
+    cantidad INT NOT NULL CHECK (cantidad > 0),
+    distancia_km NUMERIC(8,2),
+    tiempo_estimado_minutos INT,
+    combustible_estimado_gal NUMERIC(8,2),
+    costo_estimado NUMERIC(10,2),
+    score_recomendacion NUMERIC(5,2),
+    semaforo VARCHAR(20) CHECK (semaforo IN ('OPTIMA', 'VIABLE', 'NO_OPTIMA', 'NO_RECOMENDADA')),
+    explicacion TEXT,
+    estado VARCHAR(20) NOT NULL DEFAULT 'PLANIFICADO'
+        CHECK (estado IN ('PLANIFICADO', 'EN_TRANSITO', 'ENTREGADO', 'CANCELADO')),
+    id_usuario INT REFERENCES usuarios(id_usuario),
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    fecha_entrega TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_viaje_redistribucion_accion ON viaje_redistribucion(id_accion);
+CREATE INDEX IF NOT EXISTS idx_viaje_redistribucion_vehiculo ON viaje_redistribucion(id_vehiculo, estado);
+
+-- -----------------------------------------------------------------------------
+-- 4. Configuración del motor de recomendación. Se reutiliza
+-- configuracion_sistema.costo_por_km (ya existe, la usa
+-- calcular_costo_envio.php) en vez de crear una clave nueva para lo mismo.
+-- -----------------------------------------------------------------------------
+INSERT INTO configuracion_sistema (clave, valor, descripcion) VALUES
+    ('redistribucion_velocidad_promedio_kmh', '35', 'Velocidad promedio estimada (km/h) para calcular tiempo de viaje entre sucursales'),
+    ('redistribucion_rendimiento_default_km_gal', '30', 'Rendimiento de combustible (km por galón) a usar cuando el vehículo no tiene el dato propio cargado'),
+    ('redistribucion_costo_galon_default', '280', 'Costo por galón de combustible (RD$) a usar cuando el vehículo no tiene su propio costo cargado'),
+    ('redistribucion_peso_necesidad', '30', 'Peso (%) del componente Necesidad/déficit en el score de recomendación'),
+    ('redistribucion_peso_demanda', '25', 'Peso (%) del componente Demanda ajustada en el score de recomendación'),
+    ('redistribucion_peso_urgencia', '20', 'Peso (%) del componente Urgencia del lote en el score de recomendación'),
+    ('redistribucion_peso_distancia', '15', 'Peso (%) del componente Distancia/costo logístico en el score de recomendación'),
+    ('redistribucion_peso_tiempo', '10', 'Peso (%) del componente Tiempo de entrega vs plazo en el score de recomendación')
+ON CONFLICT (clave) DO NOTHING;
 
 -- =============================================================================
 -- PATCH 25/25 — RONDA_ACTUAL: fuente única de verdad para el número de

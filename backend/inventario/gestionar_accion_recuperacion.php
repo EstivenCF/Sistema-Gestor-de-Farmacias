@@ -23,6 +23,17 @@ if (!isset($_SESSION['usuario'])) {
     exit();
 }
 
+// CORRECCIÓN: login.php guarda $_SESSION['usuario_id'], no 'id_usuario'.
+// Antes esto quedaba en null siempre y el "responsable" real dependía por
+// completo de lo que mandara el frontend (inseguro: cualquiera podía
+// asignar la acción a otro usuario). Ahora el responsable SIEMPRE es el
+// usuario autenticado — no se acepta 'responsable' del cliente.
+$id_usuario = $_SESSION['usuario_id'] ?? ($_SESSION['id_usuario'] ?? null);
+if (!$id_usuario) {
+    echo json_encode(['success' => false, 'message' => 'No se pudo determinar el usuario autenticado.']);
+    exit();
+}
+
 require_once __DIR__ . '/../conexion.php';
 
 $data = json_decode(file_get_contents('php://input'), true);
@@ -41,7 +52,6 @@ foreach ($camposObligatorios as $campo) {
 
 $marcarCompletada = isset($data['marcar_completada']) && $data['marcar_completada'] === true;
 $esDevolucionProveedor = $data['tipo_accion'] === 'DEVOLUCION_PROVEEDOR';
-$id_usuario = $_SESSION['id_usuario'] ?? null;
 
 try {
     $conexion->beginTransaction();
@@ -107,11 +117,18 @@ try {
             throw new Exception('No se pudo generar la solicitud de devolución.');
         }
 
-        $stmt = $conexion->prepare("INSERT INTO detalle_devolucion (id_devolucion, id_lote, cantidad) VALUES (:id_devolucion, :id_lote, :cantidad)");
+        $stmt = $conexion->prepare("INSERT INTO detalle_devolucion (id_devolucion, id_lote, cantidad, precio_unitario)
+                                    SELECT :id_devolucion, :id_lote, :cantidad, COALESCE(
+                                        l.costo_unitario,
+                                        (SELECT dc.precio_unitario FROM detalle_compra dc WHERE dc.id_lote = l.id_lote LIMIT 1),
+                                        0
+                                    )
+                                    FROM lotes l WHERE l.id_lote = :id_lote_precio");
         $stmt->execute([
             ':id_devolucion' => $id_devolucion,
             ':id_lote' => $data['id_lote'],
             ':cantidad' => $data['cantidad_afectada'],
+            ':id_lote_precio' => $data['id_lote'],
         ]);
 
         // La acción no puede marcarse "completada" al vuelo: queda a la
@@ -150,7 +167,7 @@ try {
         ':nivel_riesgo_al_generar' => $data['nivel_riesgo_al_generar'] ?? null,
         ':irv_origen_al_generar' => $data['irv_origen_al_generar'] ?? null,
         ':causa_raiz' => $data['causa_raiz'] ?? null,
-        ':responsable' => $data['responsable'] ?? null,
+        ':responsable' => $id_usuario, // Ya no se acepta del cliente: siempre el usuario en sesión (punto 1 del análisis)
         ':creado_por' => $id_usuario,
         ':fecha_limite' => $data['fecha_limite'] ?? null,
         ':observaciones' => $data['observaciones'] ?? null,

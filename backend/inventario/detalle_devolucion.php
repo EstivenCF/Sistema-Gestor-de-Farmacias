@@ -29,6 +29,17 @@ try {
             d.observaciones_validacion,
             d.confirmado_por_cliente, d.fecha_confirmacion_cliente, d.nota_cliente,
             d.id_entrega,
+            CASE WHEN COALESCE(d.monto_reembolso, 0) = 0 THEN (
+                SELECT COALESCE(SUM(dd2.cantidad * COALESCE(
+                    dd2.precio_unitario,
+                    l2.costo_unitario,
+                    (SELECT dc2.precio_unitario FROM detalle_compra dc2 WHERE dc2.id_lote = l2.id_lote LIMIT 1),
+                    0
+                )), 0)
+                FROM detalle_devolucion dd2
+                JOIN lotes l2 ON l2.id_lote = dd2.id_lote
+                WHERE dd2.id_devolucion = d.id_devolucion
+            ) ELSE d.monto_reembolso END AS monto_reembolso,
             td.id_tipo,
             td.nombre as tipo_nombre,
             ed.id_estado,
@@ -65,7 +76,12 @@ try {
         SELECT 
             dd.id_detalle,
             dd.cantidad,
-            dd.precio_unitario,
+            COALESCE(
+                dd.precio_unitario,
+                l.costo_unitario,
+                (SELECT dc.precio_unitario FROM detalle_compra dc WHERE dc.id_lote = l.id_lote LIMIT 1),
+                0
+            ) AS precio_unitario,
             l.numero_lote,
             m.nombre_completo as medicamento_nombre,
             pr.nombre as presentacion

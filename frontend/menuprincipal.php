@@ -54,7 +54,7 @@ $menu_por_rol = [
         'dashboard' => true,
         'ventas' => ['registrar_venta', 'historial_ventas', 'pagos'],
         'inventario' => ['medicamentos', 'categorias', 'presentaciones', 'laboratorios', 'principios_activos', 'lotes', 'stock', 'movimientos_inventario', 'vencimientos', 'alertas_stock', 'devoluciones', 'recall',
-            'detalle_riesgo_lote', 'generar_accion_recuperacion', 'redistribuir_stock_riesgo', 'diagnostico_causa_raiz'], // NUEVO: proceso estratégico de vencimientos (Tarea 5)
+            'detalle_riesgo_lote', 'generar_accion_recuperacion', 'redistribuir_stock_riesgo', 'diagnostico_causa_raiz', 'viajes_redistribucion'], // NUEVO: proceso estratégico de vencimientos (Tarea 5)
         'compras' => ['registrar_compra', 'historial_compras', 'proveedores', 'recepcion'],
         'clientes' => ['clientes'],
         'delivery' => ['repartidores', 'entrega', 'vehiculos', 'agendas_repartidores', 'calificaciones_clientes', 'devoluciones_delivery'],
@@ -83,7 +83,7 @@ $menu_por_rol = [
     'Encargado Inventario' => [
         'dashboard' => true,
         'inventario' => ['medicamentos', 'categorias', 'presentaciones', 'laboratorios', 'principios_activos', 'lotes', 'stock', 'movimientos_inventario', 'vencimientos', 'alertas_stock', 'devoluciones',
-            'detalle_riesgo_lote', 'generar_accion_recuperacion', 'redistribuir_stock_riesgo', 'diagnostico_causa_raiz'], // NUEVO: proceso estratégico de vencimientos (Tarea 5)
+            'detalle_riesgo_lote', 'generar_accion_recuperacion', 'redistribuir_stock_riesgo', 'diagnostico_causa_raiz', 'viajes_redistribucion'], // NUEVO: proceso estratégico de vencimientos (Tarea 5)
         'reportes' => ['reporte_inventario', 'reporte_vencimientos'],
         'administracion' => ['ofertas'], // NUEVO: acceso puntual, solo para cerrar el flujo de Promoción (Tarea 5); NO se le da el resto de administracion
     ],
@@ -591,6 +591,9 @@ $foto_perfil = ($userData && !empty($userData['imagen_url']))
                                 <?php endif; ?>
                                 <?php if (tieneAccesoModulo($rol_usuario, 'recall')): ?>
                                     <li><a href="menuprincipal.php?mod=recall" class="nav-link dropdown-link"><span class="material-symbols-rounded">report</span> Retiros (Recall)</a></li>
+                                <?php endif; ?>
+                                <?php if (tieneAccesoModulo($rol_usuario, 'viajes_redistribucion')): ?>
+                                    <li><a href="menuprincipal.php?mod=viajes_redistribucion" class="nav-link dropdown-link"><span class="material-symbols-rounded">local_shipping</span> Viajes de redistribución</a></li>
                                 <?php endif; ?>
                             </ul>
                         </li>

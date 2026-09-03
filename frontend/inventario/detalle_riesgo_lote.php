@@ -13,34 +13,66 @@ date_default_timezone_set('America/Santo_Domingo');
 $base_path = dirname(__DIR__, 2);
 require_once $base_path . '/backend/queries/index.php';
 require_once $base_path . '/backend/inventario/riesgo_vencimiento_lib.php';
+require_once $base_path . '/backend/inventario/redistribucion_inteligente_lib.php';
 
 $base_url = '/Sistema-Gestor-de-Farmacias';
 
 $id_lote = isset($_GET['id_lote']) ? (int)$_GET['id_lote'] : 0;
 $id_sucursal = isset($_GET['id_sucursal']) ? (int)$_GET['id_sucursal'] : 0;
+$paginaAcciones = max(1, (int)($_GET['acciones_pagina'] ?? 1));
+$limiteAcciones = 10;
 
 $umbrales = obtenerUmbralesVencimiento($conexion);
 $lote = null;
 $error = null;
+$loteDevuelto = false;
 
 if ($id_lote > 0 && $id_sucursal > 0) {
     $lote = evaluarLoteDetalle($conexion, $id_lote, $id_sucursal, $umbrales);
     if (!$lote) {
         $error = 'No se encontró stock de ese lote en esa sucursal.';
+    } else {
+        $stmtDevuelto = $conexion->prepare("SELECT EXISTS (
+            SELECT 1
+            FROM detalle_devolucion dd
+            JOIN devoluciones d ON d.id_devolucion = dd.id_devolucion
+            JOIN estado_devolucion ed ON ed.id_estado = d.id_estado
+            WHERE dd.id_lote = :lote AND ed.nombre = 'COMPLETADA'
+        )");
+        $stmtDevuelto->execute([':lote' => $id_lote]);
+        $loteDevuelto = (bool)$stmtDevuelto->fetchColumn();
     }
+}
+
+// NUEVO (mejora final): decisión estratégica única que integra intervalos
+// configurables de % de venta + puntuación ponderada de sucursales + tiempo
+// restante de vencimiento. Reutiliza el mismo $lote ya calculado arriba.
+$recomendacion = null;
+if (!$error && !$loteDevuelto) {
+    $recomendacion = generarRecomendacionEstrategica($conexion, $lote, $id_sucursal, $umbrales);
 }
 
 // NUEVO: acciones ya registradas sobre este lote en esta sucursal.
 $accionesLote = [];
+$totalAcciones = 0;
 if (!$error) {
     $stmt = $conexion->prepare("
         SELECT id_accion, tipo_accion, estado, cantidad_afectada, valor_en_riesgo, valor_recuperado_estimado, fecha_creacion, fecha_ejecucion
         FROM accion_recuperacion
         WHERE id_lote = :lote AND id_sucursal_origen = :suc
         ORDER BY fecha_creacion DESC
+        LIMIT :limite OFFSET :offset
     ");
-    $stmt->execute([':lote' => $id_lote, ':suc' => $id_sucursal]);
+    $stmt->bindValue(':lote', $id_lote, PDO::PARAM_INT);
+    $stmt->bindValue(':suc', $id_sucursal, PDO::PARAM_INT);
+    $stmt->bindValue(':limite', $limiteAcciones, PDO::PARAM_INT);
+    $stmt->bindValue(':offset', ($paginaAcciones - 1) * $limiteAcciones, PDO::PARAM_INT);
+    $stmt->execute();
     $accionesLote = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $stmtTotal = $conexion->prepare("SELECT COUNT(*) FROM accion_recuperacion WHERE id_lote = :lote AND id_sucursal_origen = :suc");
+    $stmtTotal->execute([':lote' => $id_lote, ':suc' => $id_sucursal]);
+    $totalAcciones = (int)$stmtTotal->fetchColumn();
 } else {
     $error = 'Falta indicar el lote y la sucursal (id_lote / id_sucursal).';
 }
@@ -59,6 +91,10 @@ if (!$error) {
             <span class="material-symbols-rounded align-middle me-2">inventory</span>
             Detalle de lote y valor económico en riesgo
         </h2>
+        <a href="menuprincipal.php?mod=viajes_redistribucion" class="btn btn-sm btn-outline-info mt-2">
+            <span class="material-symbols-rounded align-middle" style="font-size:16px;">local_shipping</span>
+            Ver viajes de redistribución activos
+        </a>
     </div>
 
     <?php if ($error): ?>
@@ -70,6 +106,12 @@ if (!$error) {
             <span class="material-symbols-rounded align-middle me-1">arrow_back</span> Volver a Vencimientos
         </a>
     <?php else: ?>
+        <?php if ($loteDevuelto): ?>
+            <div class="alert alert-secondary">
+                <span class="material-symbols-rounded align-middle me-1">assignment_return</span>
+                Este lote ya fue devuelto al proveedor. No se pueden registrar nuevas acciones sobre él.
+            </div>
+        <?php endif; ?>
 
         <?php
         $coloresRiesgo = ['CRITICO' => 'danger', 'MODERADO' => 'warning', 'BAJO' => 'success'];
@@ -191,6 +233,118 @@ if (!$error) {
             </div>
         </div>
 
+        <!-- NUEVO (mejora final): decisión estratégica única -->
+        <?php if ($recomendacion): ?>
+        <?php
+            $coloresAccion = ['MANTENER' => 'success', 'PROMOCION' => 'primary', 'REDISTRIBUCION' => 'info', 'DEVOLUCION_PROVEEDOR' => 'warning', 'SIN_DATOS_SUFICIENTES' => 'secondary'];
+            $colorAccion = $coloresAccion[$recomendacion['accion_recomendada']] ?? 'secondary';
+        ?>
+        <div class="card border-0 shadow-sm mt-4 border-start border-<?php echo $colorAccion; ?> border-4">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                    <h6 class="mb-0">
+                        <span class="material-symbols-rounded align-middle me-1">insights</span>
+                        Recomendación estratégica del sistema
+                    </h6>
+                    <span class="badge bg-<?php echo $colorAccion; ?> fs-6 px-3 py-2">
+                        <?php echo htmlspecialchars($recomendacion['etiqueta']); ?>
+                    </span>
+                </div>
+
+                <?php if (!empty($recomendacion['motivos'])): ?>
+                    <ul class="small text-muted mb-2 ps-3">
+                        <?php foreach ($recomendacion['motivos'] as $motivo): ?>
+                            <li><?php echo htmlspecialchars($motivo); ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                <?php endif; ?>
+
+                <?php if (!empty($recomendacion['advertencias'])): ?>
+                    <?php foreach ($recomendacion['advertencias'] as $adv): ?>
+                        <div class="alert alert-warning small py-2 mb-2">
+                            <span class="material-symbols-rounded align-middle me-1" style="font-size:16px;">warning</span>
+                            <?php echo htmlspecialchars($adv); ?>
+                        </div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+
+                <div class="d-flex gap-2 mt-3 flex-wrap">
+                    <?php if ($recomendacion['accion_recomendada'] === 'REDISTRIBUCION' && $recomendacion['sucursal_recomendada']): ?>
+                        <a href="menuprincipal.php?mod=generar_accion_recuperacion&id_lote=<?php echo $id_lote; ?>&id_sucursal=<?php echo $id_sucursal; ?>&accion_recomendada=REDISTRIBUCION" class="btn btn-info text-white">
+                            <span class="material-symbols-rounded align-middle me-1" style="font-size:18px;">swap_horiz</span>
+                            Transferir a <?php echo htmlspecialchars($recomendacion['sucursal_recomendada']['sucursal_nombre']); ?>
+                        </a>
+                    <?php elseif (in_array($recomendacion['accion_recomendada'], ['PROMOCION', 'DEVOLUCION_PROVEEDOR'], true)): ?>
+                        <a href="menuprincipal.php?mod=generar_accion_recuperacion&id_lote=<?php echo $id_lote; ?>&id_sucursal=<?php echo $id_sucursal; ?>&accion_recomendada=<?php echo $recomendacion['accion_recomendada']; ?>" class="btn btn-<?php echo $colorAccion; ?> text-white">
+                            <span class="material-symbols-rounded align-middle me-1" style="font-size:18px;">bolt</span>
+                            Generar acción de <?php echo $recomendacion['accion_recomendada'] === 'PROMOCION' ? 'promoción' : 'devolución al proveedor'; ?>
+                        </a>
+                    <?php endif; ?>
+
+                    <?php if (!empty($recomendacion['ranking_sucursales'])): ?>
+                        <button type="button" class="btn btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#detalleRanking">
+                            <span class="material-symbols-rounded align-middle me-1" style="font-size:18px;">table_rows</span>
+                            Ver puntuación de todas las sucursales
+                        </button>
+                    <?php endif; ?>
+                </div>
+
+                <?php if (!empty($recomendacion['ranking_sucursales'])): ?>
+                <div class="collapse mt-3" id="detalleRanking">
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Sucursal</th>
+                                    <th class="text-center">Conveniencia</th>
+                                    <th>Criterios que más pesaron</th>
+                                    <th class="text-center">IRV</th>
+                                    <th class="text-center">Inventario</th>
+                                    <th class="text-center">Demanda</th>
+                                    <th class="text-center">Distancia</th>
+                                    <th class="text-center">Flete est.</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($recomendacion['ranking_sucursales'] as $c): ?>
+                                    <?php
+                                    $etiquetasCriterio = etiquetasCriterioTransferencia();
+                                    $contrib = $c['contribuciones_por_criterio'] ?? [];
+                                    arsort($contrib);
+                                    $topCriterios = [];
+                                    foreach (array_slice($contrib, 0, 2, true) as $claveCriterio => $aporte) {
+                                        $pesoC = (float)(($c['pesos_aplicados'][$claveCriterio] ?? 0));
+                                        $prefC = ($c['preferencias_aplicadas'][$claveCriterio] ?? 'mayor') === 'menor' ? 'menos' : 'más';
+                                        $topCriterios[] = ($etiquetasCriterio[$claveCriterio] ?? $claveCriterio) . " {$pesoC}% ({$prefC})";
+                                    }
+                                    ?>
+                                    <tr class="<?php echo (!$c['viable_economicamente']) ? 'table-light text-muted' : ''; ?>">
+                                        <td>
+                                            <?php echo htmlspecialchars($c['sucursal_nombre']); ?>
+                                            <?php if (!empty($c['perfil_personalizado'])): ?>
+                                                <br><small class="text-info">Perfil propio</small>
+                                            <?php else: ?>
+                                                <br><small class="text-muted">Pesos por defecto</small>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="text-center"><strong><?php echo $c['puntuacion']; ?>%</strong></td>
+                                        <td class="small"><?php echo htmlspecialchars(implode(' · ', $topCriterios)); ?></td>
+                                        <td class="text-center"><?php echo $c['irv'] === null ? '-' : $c['irv'] . '%'; ?></td>
+                                        <td class="text-center"><?php echo number_format((float)($c['stock_actual'] ?? 0)); ?> u.</td>
+                                        <td class="text-center"><?php echo number_format($c['demanda_historica']); ?> u.</td>
+                                        <td class="text-center"><?php echo $c['distancia_km'] === null ? '-' : $c['distancia_km'] . ' km'; ?></td>
+                                        <td class="text-center"><?php echo $c['costo_transporte_estimado'] === null ? '-' : 'RD$ ' . number_format($c['costo_transporte_estimado'], 2); ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <!-- NUEVO: acciones registradas sobre este lote -->
         <div class="card border-0 shadow-sm mt-4">
             <div class="card-body">
@@ -223,6 +377,18 @@ if (!$error) {
                             <?php endforeach; ?>
                         </tbody>
                     </table>
+                    <?php $totalPaginasAcciones = max(1, (int)ceil($totalAcciones / $limiteAcciones)); ?>
+                    <?php if ($totalPaginasAcciones > 1): ?>
+                        <nav class="mt-3" aria-label="Paginación de acciones">
+                            <ul class="pagination pagination-sm mb-0 justify-content-center">
+                                <?php for ($pagina = 1; $pagina <= $totalPaginasAcciones; $pagina++): ?>
+                                    <li class="page-item <?php echo $pagina === $paginaAcciones ? 'active' : ''; ?>">
+                                        <a class="page-link" href="menuprincipal.php?mod=detalle_riesgo_lote&id_lote=<?php echo $id_lote; ?>&id_sucursal=<?php echo $id_sucursal; ?>&acciones_pagina=<?php echo $pagina; ?>"><?php echo $pagina; ?></a>
+                                    </li>
+                                <?php endfor; ?>
+                            </ul>
+                        </nav>
+                    <?php endif; ?>
                 <?php endif; ?>
             </div>
         </div>
@@ -255,10 +421,12 @@ if (!$error) {
         </div>
 
         <div class="d-flex gap-2 mt-4">
-            <a href="menuprincipal.php?mod=generar_accion_recuperacion&id_lote=<?php echo $id_lote; ?>&id_sucursal=<?php echo $id_sucursal; ?>" class="btn btn-primary">
-                <span class="material-symbols-rounded align-middle me-1">bolt</span>
-                Generar acción de recuperación
-            </a>
+            <?php if (!$loteDevuelto): ?>
+                <a href="menuprincipal.php?mod=generar_accion_recuperacion&id_lote=<?php echo $id_lote; ?>&id_sucursal=<?php echo $id_sucursal; ?>" class="btn btn-primary">
+                    <span class="material-symbols-rounded align-middle me-1">bolt</span>
+                    Generar acción de recuperación
+                </a>
+            <?php endif; ?>
             <a href="menuprincipal.php?mod=vencimientos" class="btn btn-outline-secondary">
                 <span class="material-symbols-rounded align-middle me-1">arrow_back</span>
                 Volver al monitoreo

@@ -12,7 +12,11 @@ if (!isset($_SESSION['usuario'])) {
 require_once __DIR__ . '/../conexion.php';
 require_once __DIR__ . '/riesgo_vencimiento_lib.php';
 
-$id_usuario_sesion = $_SESSION['id_usuario'] ?? $_SESSION['usuario_id'] ?? 1;
+$id_usuario_sesion = $_SESSION['usuario_id'] ?? ($_SESSION['id_usuario'] ?? null);
+if (!$id_usuario_sesion) {
+    echo json_encode(['success' => false, 'message' => 'No se pudo determinar el usuario autenticado']);
+    exit();
+}
 
 $data = json_decode(file_get_contents('php://input'), true);
 
@@ -28,6 +32,16 @@ $motivo = trim($data['motivo'] ?? 'Transferencia entre sucursales');
 $id_accion = isset($data['id_accion']) ? (int)$data['id_accion'] : null;
 $validar_rotacion = isset($data['validar_rotacion']) && $data['validar_rotacion'] === true;
 $forzar = isset($data['forzar']) && $data['forzar'] === true;
+
+// NUEVO (Redistribución inteligente). También opcional: si el wizard de
+// #05 pasó por el motor de recomendación y el usuario eligió un vehículo,
+// esto llega poblado y se registra el viaje en viaje_redistribucion. Si
+// falta (ej. transferencia manual desde Control de Stock, o redistribución
+// sin vehículo asignado todavía), no se registra nada — el traslado de
+// inventario en sí no depende de esto en absoluto.
+$id_vehiculo = isset($data['id_vehiculo']) ? (int)$data['id_vehiculo'] : null;
+$id_repartidor = isset($data['id_repartidor']) ? (int)$data['id_repartidor'] : null;
+$datos_viaje = $data['datos_viaje'] ?? null; // {distancia_km, tiempo_estimado_minutos, combustible_estimado_gal, costo_estimado, score, semaforo, explicaciones}
 
 if (!$id_lote || !$id_sucursal_origen || !$id_sucursal_destino || $cantidad <= 0) {
     echo json_encode(['success' => false, 'message' => 'Datos inválidos']);
@@ -134,12 +148,59 @@ try {
             ':id_accion' => $id_accion
         ]);
     }
-    
+
+    // NUEVO (Redistribución inteligente): si se eligió vehículo/repartidor
+    // en el Paso 3 del wizard, se registra el viaje y se marca el vehículo
+    // EN_USO (mismo patrón que ya usa el módulo Delivery al asignar una
+    // entrega). Totalmente opcional — si no llega id_vehiculo, este bloque
+    // no hace nada y el resto del comportamiento es idéntico al de siempre.
+    $id_viaje = null;
+    if ($id_vehiculo && $id_repartidor) {
+        $dv = is_array($datos_viaje) ? $datos_viaje : [];
+        $stmt = $conexion->prepare("
+            INSERT INTO viaje_redistribucion (
+                id_accion, id_lote, id_sucursal_origen, id_sucursal_destino,
+                id_vehiculo, id_repartidor, cantidad,
+                distancia_km, tiempo_estimado_minutos, combustible_estimado_gal,
+                costo_estimado, score_recomendacion, semaforo, explicacion,
+                estado, id_usuario
+            ) VALUES (
+                :id_accion, :id_lote, :origen, :destino,
+                :vehiculo, :repartidor, :cantidad,
+                :dist, :tiempo, :combustible,
+                :costo, :score, :semaforo, :explicacion,
+                'EN_TRANSITO', :usuario
+            ) RETURNING id_viaje
+        ");
+        $stmt->execute([
+            ':id_accion' => $id_accion,
+            ':id_lote' => $id_lote,
+            ':origen' => $id_sucursal_origen,
+            ':destino' => $id_sucursal_destino,
+            ':vehiculo' => $id_vehiculo,
+            ':repartidor' => $id_repartidor,
+            ':cantidad' => $cantidad,
+            ':dist' => $dv['distancia_km'] ?? null,
+            ':tiempo' => $dv['tiempo_estimado_minutos'] ?? null,
+            ':combustible' => $dv['combustible_estimado_gal'] ?? null,
+            ':costo' => $dv['costo_estimado'] ?? null,
+            ':score' => $dv['score'] ?? null,
+            ':semaforo' => $dv['semaforo'] ?? null,
+            ':explicacion' => isset($dv['explicaciones']) ? json_encode($dv['explicaciones'], JSON_UNESCAPED_UNICODE) : null,
+            ':usuario' => $id_usuario_sesion,
+        ]);
+        $id_viaje = $stmt->fetchColumn();
+
+        $stmt = $conexion->prepare("UPDATE vehiculos SET estado = 'EN_USO' WHERE id_vehiculo = :id");
+        $stmt->execute([':id' => $id_vehiculo]);
+    }
+
     $conexion->commit();
     echo json_encode([
         'success' => true,
         'message' => "$cantidad unidades transferidas correctamente",
-        'id_movimiento' => (int)$id_movimiento_salida
+        'id_movimiento' => (int)$id_movimiento_salida,
+        'id_viaje' => $id_viaje ? (int)$id_viaje : null,
     ]);
     
 } catch(PDOException $e) {

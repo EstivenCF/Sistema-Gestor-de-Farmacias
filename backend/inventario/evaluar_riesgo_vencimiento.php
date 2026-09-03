@@ -22,6 +22,11 @@ require_once __DIR__ . '/riesgo_vencimiento_lib.php';
 
 try {
     $umbrales = obtenerUmbralesVencimiento($conexion);
+    // NUEVO (mejora final): se exponen los intervalos configurables de %
+    // de venta junto con los lotes, para que la Pantalla #02 pueda mostrar
+    // una sugerencia de acción por fila sin tener que llamar a otro
+    // endpoint por cada lote.
+    $intervalosAccion = obtenerIntervalosAccion($conexion);
 
     $filtros = [
         'id_sucursal' => isset($_GET['sucursal']) ? (int)$_GET['sucursal'] : null,
@@ -46,6 +51,7 @@ try {
         'totales_por_riesgo' => $totales,
         'valor_total_en_riesgo' => round($valorTotalEnRiesgo, 2),
         'umbrales' => $umbrales,
+        'intervalos_accion' => $intervalosAccion,
     ]);
 
 } catch (PDOException $e) {

@@ -46,6 +46,16 @@ try {
                   AND se.nombre IN ('PENDIENTE','ASIGNADA','EN_CAMINO')
             ) AS entregas_activas,
             (
+                -- NUEVO: un viaje de redistribución entre sucursales (Tarea 5)
+                -- ocupa al repartidor tanto como una entrega normal, aunque no
+                -- exista fila en 'entregas' (no hay cliente/venta de por medio).
+                -- Sin esto, un repartidor que está literalmente manejando un
+                -- camión con inventario entre sucursales aparecía disponible.
+                SELECT COUNT(*) FROM viaje_redistribucion vr
+                WHERE vr.id_repartidor = r.id_repartidor
+                  AND vr.estado IN ('PLANIFICADO','EN_TRANSITO')
+            ) AS viajes_redistribucion_activos,
+            (
                 -- Promedio general del repartidor: combina calificaciones
                 -- viejas (columna fija puntuacion_general) con las nuevas
                 -- (preguntas configurables de categoria General por
@@ -158,6 +168,8 @@ try {
                 $r['estado_actual'] = $r['estado_laboral'];
             } elseif ($fueraDeTurno && $r['entregas_activas'] == 0) {
                 $r['estado_actual'] = 'FUERA_DE_TURNO';
+            } elseif ($r['viajes_redistribucion_activos'] > 0) {
+                $r['estado_actual'] = 'EN_TRANSFERENCIA'; // viaje interno entre sucursales, no una entrega a cliente
             } else {
                 $r['estado_actual'] = $r['entregas_activas'] > 0 ? 'EN_CAMINO' : 'DISPONIBLE';
             }

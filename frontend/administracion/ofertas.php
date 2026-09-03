@@ -128,7 +128,7 @@ $base_url = '/sistema-gestor-de-farmacias';
 
 <!-- Modal para agregar/editar -->
 <div class="modal fade" id="modalOferta" tabindex="-1" data-bs-backdrop="false">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white"><h5 class="modal-title">Oferta</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">

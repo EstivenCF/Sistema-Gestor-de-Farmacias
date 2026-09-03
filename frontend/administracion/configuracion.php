@@ -53,6 +53,24 @@ function getConfig($clave, $default = '') {
     global $configuraciones;
     return isset($configuraciones[$clave]) ? $configuraciones[$clave]['valor'] : $default;
 }
+
+// NUEVO (mejora final del proceso estratégico de vencimientos): se reutilizan
+// las mismas funciones que ya usa el proceso (riesgo_vencimiento_lib.php /
+// redistribucion_inteligente_lib.php) para precargar los intervalos y pesos
+// actuales en la pestaña "Vencimientos" de esta misma pantalla, en vez de
+// duplicar los valores por defecto aquí.
+require_once __DIR__ . '/../../backend/inventario/riesgo_vencimiento_lib.php';
+require_once __DIR__ . '/../../backend/inventario/redistribucion_inteligente_lib.php';
+$venc_intervalos_actuales = obtenerIntervalosAccion($conexion);
+$venc_pesos_actuales = obtenerPesosTransferencia($conexion);
+$venc_pesos_por_sucursal = obtenerMapaCriteriosPorSucursal($conexion);
+$venc_sucursales_criterios = [];
+try {
+    $venc_sucursales_criterios = $conexion->query("SELECT id_sucursal, nombre FROM sucursales WHERE estado = true ORDER BY nombre")->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    $venc_sucursales_criterios = [];
+}
+$venc_preferencias_default = preferenciasCriterioPorDefecto();
 ?>
 
 <!-- ESTILOS ESPECÍFICOS DEL MÓDULO (sin afectar el sidebar) -->
@@ -447,6 +465,9 @@ function getConfig($clave, $default = '') {
         <button class="config-tab" data-tab="inventory">
             <i class="fas fa-boxes me-2"></i>Inventario
         </button>
+        <button class="config-tab" data-tab="vencimientos">
+            <i class="fas fa-hourglass-half me-2"></i>Vencimientos
+        </button>
         <button class="config-tab" data-tab="taxes">
             <i class="fas fa-percent me-2"></i>Impuestos
         </button>
@@ -706,6 +727,165 @@ function getConfig($clave, $default = '') {
             </div>
         </div>
         
+        <!-- Pestaña: Vencimientos (proceso estratégico de Gestión de Vencimientos) -->
+        <div id="tab-vencimientos" class="tab-content">
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="config-card">
+                        <div class="config-card-header">
+                            <h5><i class="fas fa-hourglass-half"></i> Umbrales de riesgo y rotación</h5>
+                        </div>
+                        <div class="config-card-body">
+                            <div class="config-group">
+                                <label>Días para riesgo CRÍTICO</label>
+                                <input type="number" name="venc_umbral_dias_critico" class="form-control"
+                                       value="<?php echo htmlspecialchars(getConfig('venc_umbral_dias_critico', '15')); ?>" min="1">
+                                <small class="form-text">Un lote con menos de estos días para vencer se clasifica como riesgo crítico.</small>
+                            </div>
+                            <div class="config-group">
+                                <label>Días para riesgo MODERADO</label>
+                                <input type="number" name="venc_umbral_dias_moderado" class="form-control"
+                                       value="<?php echo htmlspecialchars(getConfig('venc_umbral_dias_moderado', '30')); ?>" min="1">
+                                <small class="form-text">Debe ser mayor al umbral crítico. Entre este valor y el crítico, el lote es riesgo moderado.</small>
+                            </div>
+                            <div class="config-group">
+                                <label>% de venta (IRV) mínimo aceptable</label>
+                                <input type="number" name="venc_irv_umbral_minimo" class="form-control"
+                                       value="<?php echo htmlspecialchars(getConfig('venc_irv_umbral_minimo', '15')); ?>" min="0" max="100" step="0.01">
+                                <small class="form-text">Por debajo de este % se considera "baja rotación" en las pantallas de monitoreo.</small>
+                            </div>
+                            <div class="config-group">
+                                <label>Período para calcular el % de venta (días)</label>
+                                <input type="number" name="venc_irv_periodo_dias" class="form-control"
+                                       value="<?php echo htmlspecialchars(getConfig('venc_irv_periodo_dias', '30')); ?>" min="1">
+                                <small class="form-text">Ventana de ventas usada para calcular el IRV (% de venta) de cada medicamento por sucursal.</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="config-card">
+                        <div class="config-card-header">
+                            <h5><i class="fas fa-route"></i> Redistribución entre sucursales</h5>
+                        </div>
+                        <div class="config-card-body">
+                            <div class="config-group">
+                                <label>Costo de transporte estimado (RD$ por unidad, por km)</label>
+                                <input type="number" name="venc_costo_transporte_estimado_unidad" class="form-control"
+                                       value="<?php echo htmlspecialchars(getConfig('venc_costo_transporte_estimado_unidad', '5')); ?>" min="0" step="0.01">
+                                <small class="form-text">Se multiplica por la distancia real entre sucursales y la cantidad a transferir para estimar el flete.</small>
+                            </div>
+                            <div class="config-group">
+                                <label>Velocidad promedio de transporte (km/h)</label>
+                                <input type="number" name="venc_velocidad_promedio_kmh" class="form-control"
+                                       value="<?php echo htmlspecialchars(getConfig('venc_velocidad_promedio_kmh', '35')); ?>" min="1">
+                                <small class="form-text">Usada para estimar el tiempo de tránsito entre sucursales a partir de la distancia.</small>
+                            </div>
+                            <div class="config-group">
+                                <label>Puntuación mínima de conveniencia para recomendar transferencia (%)</label>
+                                <input type="number" name="venc_umbral_conveniencia_minima" class="form-control"
+                                       value="<?php echo htmlspecialchars(getConfig('venc_umbral_conveniencia_minima', '50')); ?>" min="0" max="100">
+                                <small class="form-text">Si ninguna sucursal alcanza esta puntuación ponderada, el sistema recomienda otra acción (promoción o devolución) en su lugar.</small>
+                            </div>
+                            <div class="config-group">
+                                <label>Tope de costo de transporte vs. valor en riesgo (%)</label>
+                                <input type="number" name="venc_max_costo_transporte_pct_valor" class="form-control"
+                                       value="<?php echo htmlspecialchars(getConfig('venc_max_costo_transporte_pct_valor', '30')); ?>" min="0" max="100">
+                                <small class="form-text">Si el flete estimado supera este % del valor en riesgo del lote, la transferencia se descarta por no ser económicamente viable.</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-7">
+                    <div class="config-card">
+                        <div class="config-card-header">
+                            <h5><i class="fas fa-percentage"></i> Intervalos de acción por % de venta</h5>
+                        </div>
+                        <div class="config-card-body">
+                            <p class="text-muted small mb-3">
+                                Define qué acción se sugiere automáticamente según el % de venta (IRV) del lote.
+                                Los intervalos deben cubrir de 0% a 100% sin huecos ni traslapes.
+                            </p>
+                            <div id="tablaIntervalos"></div>
+                            <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="agregarFilaIntervalo()">
+                                <i class="fas fa-plus me-1"></i>Agregar intervalo
+                            </button>
+                            <div id="avisoIntervalos" class="small mt-2"></div>
+                            <input type="hidden" name="venc_intervalos_accion" id="inputIntervalosAccion">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-5">
+                    <div class="config-card">
+                        <div class="config-card-header">
+                            <h5><i class="fas fa-balance-scale"></i> Pesos por defecto de la redistribución</h5>
+                        </div>
+                        <div class="config-card-body">
+                            <p class="text-muted small mb-3">
+                                Pesos por defecto. Se usan solo si la sucursal destino todavía no tiene un perfil propio.
+                                Cada sucursal puede ponderar distinto más abajo (IRV, inventario, distancia, etc.).
+                            </p>
+                            <div id="listaPesos"></div>
+                            <div class="d-flex justify-content-between align-items-center mt-2">
+                                <strong>Suma actual:</strong>
+                                <strong id="sumaPesos">0%</strong>
+                            </div>
+                            <div id="avisoPesos" class="small mt-2"></div>
+                            <input type="hidden" name="venc_pesos_transferencia" id="inputPesosTransferencia">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mt-3">
+                <div class="col-12">
+                    <div class="config-card">
+                        <div class="config-card-header">
+                            <h5><i class="fas fa-store"></i> Ponderación de criterios por sucursal</h5>
+                        </div>
+                        <div class="config-card-body">
+                            <p class="text-muted small mb-3">
+                                No todas las sucursales valoran igual. Ejemplo: en Principal el IRV puede pesar más;
+                                en Hatuey puede importar más el inventario y que el IRV no sea alto.
+                                El peso es cuánto cuenta el criterio; “prefiere más/menos” indica si un valor alto suma o resta en esa sucursal.
+                            </p>
+                            <?php if (empty($venc_sucursales_criterios)): ?>
+                                <div class="alert alert-warning mb-0">No hay sucursales activas para configurar perfiles.</div>
+                            <?php else: ?>
+                                <div class="row g-2 align-items-end mb-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-bold mb-1">Sucursal</label>
+                                        <select id="selectSucursalCriterios" class="form-select" onchange="cambiarSucursalCriterios(this.value)">
+                                            <?php foreach ($venc_sucursales_criterios as $suc): ?>
+                                                <option value="<?php echo (int)$suc['id_sucursal']; ?>">
+                                                    <?php echo htmlspecialchars($suc['nombre']); ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="copiarPesosDefaultASucursal()">
+                                            Copiar pesos por defecto a esta sucursal
+                                        </button>
+                                    </div>
+                                </div>
+                                <div id="listaPesosSucursal"></div>
+                                <div class="d-flex justify-content-between align-items-center mt-2">
+                                    <strong>Suma de esta sucursal:</strong>
+                                    <strong id="sumaPesosSucursal">0%</strong>
+                                </div>
+                                <div id="avisoPesosSucursal" class="small mt-2"></div>
+                            <?php endif; ?>
+                            <input type="hidden" name="venc_pesos_por_sucursal" id="inputPesosPorSucursal">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Pestaña: Impuestos -->
         <div id="tab-taxes" class="tab-content">
             <div class="row">
@@ -1139,6 +1319,265 @@ function getConfig($clave, $default = '') {
     </div>
   </div>
 </div>
+
+
+<!-- NUEVO (mejora final): editor de intervalos de acción y pesos de puntuación
+     del proceso estratégico de vencimientos. Reutiliza el mismo <form> y el
+     mismo guardado genérico (foreach $_POST -> configuracion_sistema) que ya
+     usa el resto de esta pantalla: solo construye 2 campos ocultos con JSON
+     antes de enviar, no se creó ningún endpoint nuevo para esto. -->
+<script>
+const ETIQUETAS_ACCION_VENC = {
+    MANTENER: 'Mantener en la sucursal / venta normal',
+    PROMOCION: 'Aplicar promoción',
+    REDISTRIBUCION: 'Evaluar transferencia a otra sucursal',
+    DEVOLUCION_PROVEEDOR: 'Evaluar devolución al proveedor',
+};
+
+const ETIQUETAS_PESO_VENC = {
+    rotacion_destino: 'Rotación de venta (IRV) en destino',
+    demanda_historica: 'Demanda histórica en destino',
+    cantidad_disponible_destino: 'Poco stock ya disponible en destino',
+    tiempo_restante_vencimiento: 'Margen de tiempo antes del vencimiento',
+    distancia: 'Cercanía entre sucursales',
+    costo_transporte: 'Costo estimado de transporte',
+    probabilidad_venta_antes_vencer: 'Probabilidad de vender antes de vencer',
+};
+
+let intervalosVencActuales = <?php echo json_encode(array_map(fn($i) => ['min' => (float)$i['min'], 'max' => (float)$i['max'], 'accion' => $i['accion']], $venc_intervalos_actuales)); ?>;
+let pesosVencActuales = <?php echo json_encode($venc_pesos_actuales); ?>;
+const PREFERENCIAS_CRITERIO_DEFAULT = <?php echo json_encode($venc_preferencias_default); ?>;
+const SUCURSALES_CRITERIOS = <?php echo json_encode($venc_sucursales_criterios); ?>;
+let criteriosPorSucursal = <?php echo json_encode($venc_pesos_por_sucursal ?: new stdClass()); ?>;
+let sucursalCriteriosActiva = SUCURSALES_CRITERIOS.length ? String(SUCURSALES_CRITERIOS[0].id_sucursal) : null;
+
+function perfilCriteriosSucursal(idSuc) {
+    const key = String(idSuc);
+    if (!criteriosPorSucursal[key]) {
+        criteriosPorSucursal[key] = {
+            pesos: { ...pesosVencActuales },
+            preferencias: { ...PREFERENCIAS_CRITERIO_DEFAULT },
+        };
+    }
+    if (!criteriosPorSucursal[key].pesos) {
+        criteriosPorSucursal[key].pesos = { ...pesosVencActuales };
+    }
+    if (!criteriosPorSucursal[key].preferencias) {
+        criteriosPorSucursal[key].preferencias = { ...PREFERENCIAS_CRITERIO_DEFAULT };
+    }
+    return criteriosPorSucursal[key];
+}
+
+function renderListaPesosSucursal() {
+    const cont = document.getElementById('listaPesosSucursal');
+    if (!cont || !sucursalCriteriosActiva) return;
+    const perfil = perfilCriteriosSucursal(sucursalCriteriosActiva);
+    cont.innerHTML = `
+        <div class="row g-2 small fw-bold text-muted mb-1 d-none d-md-flex">
+            <div class="col-md-5">Criterio</div>
+            <div class="col-md-3">Peso</div>
+            <div class="col-md-4">Esta sucursal prefiere</div>
+        </div>` + Object.keys(ETIQUETAS_PESO_VENC).map(clave => `
+        <div class="row g-2 align-items-center mb-2">
+            <div class="col-md-5"><small>${ETIQUETAS_PESO_VENC[clave]}</small></div>
+            <div class="col-md-3">
+                <div class="input-group input-group-sm">
+                    <input type="number" class="form-control" min="0" max="100" step="1"
+                           value="${perfil.pesos[clave] ?? 0}"
+                           oninput="perfilCriteriosSucursal(sucursalCriteriosActiva).pesos['${clave}'] = parseFloat(this.value) || 0; validarPesosSucursalUI();">
+                    <span class="input-group-text">%</span>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <select class="form-select form-select-sm"
+                        onchange="perfilCriteriosSucursal(sucursalCriteriosActiva).preferencias['${clave}'] = this.value;">
+                    <option value="mayor" ${(perfil.preferencias[clave] || PREFERENCIAS_CRITERIO_DEFAULT[clave]) === 'mayor' ? 'selected' : ''}>Más es mejor</option>
+                    <option value="menor" ${(perfil.preferencias[clave] || PREFERENCIAS_CRITERIO_DEFAULT[clave]) === 'menor' ? 'selected' : ''}>Menos es mejor</option>
+                </select>
+            </div>
+        </div>`).join('');
+    validarPesosSucursalUI();
+}
+
+function cambiarSucursalCriterios(idSuc) {
+    sucursalCriteriosActiva = String(idSuc);
+    renderListaPesosSucursal();
+}
+
+function copiarPesosDefaultASucursal() {
+    if (!sucursalCriteriosActiva) return;
+    criteriosPorSucursal[sucursalCriteriosActiva] = {
+        pesos: { ...pesosVencActuales },
+        preferencias: { ...PREFERENCIAS_CRITERIO_DEFAULT },
+    };
+    renderListaPesosSucursal();
+}
+
+function validarPesosSucursalUI() {
+    const aviso = document.getElementById('avisoPesosSucursal');
+    const sumaEl = document.getElementById('sumaPesosSucursal');
+    if (!aviso || !sumaEl || !sucursalCriteriosActiva) return true;
+    const perfil = perfilCriteriosSucursal(sucursalCriteriosActiva);
+    const suma = Object.values(perfil.pesos).reduce((acc, v) => acc + (parseFloat(v) || 0), 0);
+    sumaEl.textContent = `${suma}%`;
+    const valido = Math.abs(suma - 100) <= 0.5;
+    aviso.innerHTML = valido
+        ? `<div class="alert alert-success py-2 mb-0">Los pesos de esta sucursal suman 100%.</div>`
+        : `<div class="alert alert-warning py-2 mb-0">Los pesos de esta sucursal deben sumar 100% (suman ${suma}%).</div>`;
+    return valido;
+}
+
+function validarTodosPesosSucursal() {
+    if (!SUCURSALES_CRITERIOS.length) return true;
+    for (const suc of SUCURSALES_CRITERIOS) {
+        const perfil = perfilCriteriosSucursal(suc.id_sucursal);
+        const suma = Object.values(perfil.pesos).reduce((acc, v) => acc + (parseFloat(v) || 0), 0);
+        if (Math.abs(suma - 100) > 0.5) {
+            sucursalCriteriosActiva = String(suc.id_sucursal);
+            const sel = document.getElementById('selectSucursalCriterios');
+            if (sel) sel.value = sucursalCriteriosActiva;
+            renderListaPesosSucursal();
+            return false;
+        }
+    }
+    return true;
+}
+
+function renderTablaIntervalos() {
+    const cont = document.getElementById('tablaIntervalos');
+    cont.innerHTML = intervalosVencActuales.map((iv, idx) => `
+        <div class="row g-2 align-items-center mb-2">
+            <div class="col-3">
+                <input type="number" class="form-control form-control-sm" min="0" max="100" step="0.01"
+                       value="${iv.min}" onchange="intervalosVencActuales[${idx}].min = parseFloat(this.value) || 0; validarIntervalosUI();">
+            </div>
+            <div class="col-1 text-center text-muted small">a</div>
+            <div class="col-3">
+                <input type="number" class="form-control form-control-sm" min="0" max="100" step="0.01"
+                       value="${iv.max}" onchange="intervalosVencActuales[${idx}].max = parseFloat(this.value) || 0; validarIntervalosUI();">
+            </div>
+            <div class="col-4">
+                <select class="form-select form-select-sm" onchange="intervalosVencActuales[${idx}].accion = this.value; validarIntervalosUI();">
+                    ${Object.keys(ETIQUETAS_ACCION_VENC).map(a => `<option value="${a}" ${a === iv.accion ? 'selected' : ''}>${ETIQUETAS_ACCION_VENC[a]}</option>`).join('')}
+                </select>
+            </div>
+            <div class="col-1 text-end">
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="eliminarFilaIntervalo(${idx})" title="Eliminar">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>`).join('');
+    validarIntervalosUI();
+}
+
+function agregarFilaIntervalo() {
+    intervalosVencActuales.push({ min: 0, max: 0, accion: 'PROMOCION' });
+    renderTablaIntervalos();
+}
+
+function eliminarFilaIntervalo(idx) {
+    intervalosVencActuales.splice(idx, 1);
+    renderTablaIntervalos();
+}
+
+function validarIntervalosUI() {
+    const aviso = document.getElementById('avisoIntervalos');
+    const errores = [];
+
+    if (intervalosVencActuales.length === 0) {
+        errores.push('Debe configurar al menos un intervalo.');
+    }
+
+    const ordenados = [...intervalosVencActuales].sort((a, b) => a.min - b.min);
+    ordenados.forEach(iv => {
+        if (iv.min >= iv.max) errores.push(`El intervalo ${iv.min}%-${iv.max}% tiene el mínimo mayor o igual al máximo.`);
+    });
+    if (ordenados.length && Math.abs(ordenados[0].min - 0) > 0.02) {
+        errores.push('Los intervalos deben cubrir desde 0%.');
+    }
+    for (let i = 0; i < ordenados.length - 1; i++) {
+        const finActual = ordenados[i].max;
+        const inicioSig = ordenados[i + 1].min;
+        if (inicioSig - finActual > 0.02) errores.push(`Hay un hueco entre ${finActual}% y ${inicioSig}%.`);
+        else if (finActual - inicioSig > 0.02) errores.push(`Los intervalos alrededor de ${inicioSig}% se traslapan.`);
+    }
+    if (ordenados.length && Math.abs(ordenados[ordenados.length - 1].max - 100) > 0.02) {
+        errores.push('Los intervalos deben cubrir hasta 100%.');
+    }
+
+    if (errores.length) {
+        aviso.innerHTML = `<div class="alert alert-warning py-2 mb-0">${errores.join('<br>')}</div>`;
+    } else {
+        aviso.innerHTML = `<div class="alert alert-success py-2 mb-0">Los intervalos cubren correctamente de 0% a 100%.</div>`;
+    }
+    return errores.length === 0;
+}
+
+function renderListaPesos() {
+    const cont = document.getElementById('listaPesos');
+    cont.innerHTML = Object.keys(ETIQUETAS_PESO_VENC).map(clave => `
+        <div class="row g-2 align-items-center mb-2">
+            <div class="col-8"><small>${ETIQUETAS_PESO_VENC[clave]}</small></div>
+            <div class="col-4">
+                <div class="input-group input-group-sm">
+                    <input type="number" class="form-control" min="0" max="100" step="1"
+                           value="${pesosVencActuales[clave] ?? 0}"
+                           oninput="pesosVencActuales['${clave}'] = parseFloat(this.value) || 0; validarPesosUI();">
+                    <span class="input-group-text">%</span>
+                </div>
+            </div>
+        </div>`).join('');
+    validarPesosUI();
+}
+
+function validarPesosUI() {
+    const suma = Object.values(pesosVencActuales).reduce((acc, v) => acc + (parseFloat(v) || 0), 0);
+    document.getElementById('sumaPesos').textContent = `${suma}%`;
+    const aviso = document.getElementById('avisoPesos');
+    const valido = Math.abs(suma - 100) <= 0.5;
+    aviso.innerHTML = valido
+        ? `<div class="alert alert-success py-2 mb-0">Los pesos suman 100%.</div>`
+        : `<div class="alert alert-warning py-2 mb-0">Los pesos deben sumar 100% (suman ${suma}%).</div>`;
+    return valido;
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    renderTablaIntervalos();
+    renderListaPesos();
+    if (sucursalCriteriosActiva) {
+        SUCURSALES_CRITERIOS.forEach(s => perfilCriteriosSucursal(s.id_sucursal));
+        renderListaPesosSucursal();
+    }
+});
+
+// Antes de enviar el formulario general de Configuración, se validan y
+// serializan los 2 campos JSON de este bloque. Si algo no cuadra, se detiene
+// el envío (no se guarda una configuración incoherente) y se cambia a esta
+// pestaña para que el usuario vea el detalle.
+document.getElementById('configForm')?.addEventListener('submit', function(e) {
+    const intervalosOk = validarIntervalosUI();
+    const pesosOk = validarPesosUI();
+    const pesosSucursalOk = validarTodosPesosSucursal();
+
+    if (!intervalosOk || !pesosOk || !pesosSucursalOk) {
+        e.preventDefault();
+        document.querySelectorAll('.config-tab').forEach(t => t.classList.remove('active'));
+        document.querySelector('.config-tab[data-tab="vencimientos"]').classList.add('active');
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        document.getElementById('tab-vencimientos').classList.add('active');
+        Swal.fire ? Swal.fire('Revisa la pestaña Vencimientos', 'Los intervalos o los pesos (globales o por sucursal) no son coherentes todavía.', 'warning')
+                  : alert('Los intervalos o los pesos de la pestaña Vencimientos no son coherentes todavía.');
+        return;
+    }
+
+    document.getElementById('inputIntervalosAccion').value = JSON.stringify(intervalosVencActuales);
+    document.getElementById('inputPesosTransferencia').value = JSON.stringify(pesosVencActuales);
+    const inputPorSuc = document.getElementById('inputPesosPorSucursal');
+    if (inputPorSuc) {
+        inputPorSuc.value = JSON.stringify(criteriosPorSucursal);
+    }
+});
+</script>
 
 <script>
 const BASE_URL = '<?php echo $base_url; ?>';

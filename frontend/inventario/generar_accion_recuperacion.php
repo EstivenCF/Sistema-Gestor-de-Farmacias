@@ -18,6 +18,13 @@ $base_url = '/Sistema-Gestor-de-Farmacias';
 
 $id_lote = isset($_GET['id_lote']) ? (int)$_GET['id_lote'] : 0;
 $id_sucursal = isset($_GET['id_sucursal']) ? (int)$_GET['id_sucursal'] : 0;
+// NUEVO (mejora final): si se llega desde la recomendación estratégica de
+// detalle_riesgo_lote.php, se preselecciona el tipo de acción sugerido; el
+// usuario sigue pudiendo elegir manualmente cualquiera de los 3.
+$accionesPermitidas = ['PROMOCION', 'REDISTRIBUCION', 'DEVOLUCION_PROVEEDOR'];
+$accion_recomendada = (isset($_GET['accion_recomendada']) && in_array($_GET['accion_recomendada'], $accionesPermitidas, true))
+    ? $_GET['accion_recomendada']
+    : null;
 
 $umbrales = obtenerUmbralesVencimiento($conexion);
 $lote = null;
@@ -32,25 +39,10 @@ if ($id_lote > 0 && $id_sucursal > 0) {
     $error = 'Falta indicar el lote y la sucursal (id_lote / id_sucursal).';
 }
 
-// Sucursales para el campo "Sucursal aplicable"
-$sucursales = [];
-try {
-    $stmt = $conexion->query("SELECT id_sucursal, nombre FROM sucursales WHERE estado = true ORDER BY nombre");
-    $sucursales = $stmt->fetchAll();
-} catch (PDOException $e) {}
-
-// Usuarios responsables (Administrador / Encargado Inventario)
-$responsables = [];
-try {
-    $stmt = $conexion->query("
-        SELECT u.id_usuario, u.nombre, r.nombre AS rol
-        FROM usuarios u
-        JOIN roles r ON u.id_rol = r.id_rol
-        WHERE u.estado = true AND r.nombre IN ('Administrador', 'Encargado Inventario')
-        ORDER BY u.nombre
-    ");
-    $responsables = $stmt->fetchAll();
-} catch (PDOException $e) {}
+$nombre_usuario_sesion = $_SESSION['nombre'] ?? $_SESSION['usuario'];
+$bajaRotacionOrigen = !$error
+    && $lote['irv_origen'] !== null
+    && $lote['irv_origen'] < (float) $umbrales['venc_irv_umbral_minimo'];
 ?>
 
 <div class="container-fluid">
@@ -91,6 +83,7 @@ try {
                 <div class="row g-3 mt-1">
                     <div class="col-md-4">
                         <div class="tile-accion" data-tipo="PROMOCION" onclick="seleccionarTipo('PROMOCION')">
+                            <?php if ($accion_recomendada === 'PROMOCION'): ?><span class="badge bg-success position-absolute top-0 end-0 m-2">Recomendado</span><?php endif; ?>
                             <div class="tile-icon bg-primary bg-opacity-10 text-primary"><span class="material-symbols-rounded">sell</span></div>
                             <div class="fw-semibold mb-1">Promoción</div>
                             <small class="text-muted">Aplicar descuento comercial para acelerar la rotación en punto de venta.</small>
@@ -98,6 +91,7 @@ try {
                     </div>
                     <div class="col-md-4">
                         <div class="tile-accion" data-tipo="REDISTRIBUCION" onclick="seleccionarTipo('REDISTRIBUCION')">
+                            <?php if ($accion_recomendada === 'REDISTRIBUCION'): ?><span class="badge bg-success position-absolute top-0 end-0 m-2">Recomendado</span><?php endif; ?>
                             <div class="tile-icon bg-info bg-opacity-10 text-info"><span class="material-symbols-rounded">swap_horiz</span></div>
                             <div class="fw-semibold mb-1">Redistribución</div>
                             <small class="text-muted">Transferir el lote a una sucursal con mayor probabilidad de rotación.</small>
@@ -105,17 +99,22 @@ try {
                     </div>
                     <div class="col-md-4">
                         <div class="tile-accion" data-tipo="DEVOLUCION_PROVEEDOR" onclick="seleccionarTipo('DEVOLUCION_PROVEEDOR')">
+                            <?php if ($accion_recomendada === 'DEVOLUCION_PROVEEDOR'): ?><span class="badge bg-success position-absolute top-0 end-0 m-2">Recomendado</span><?php endif; ?>
                             <div class="tile-icon bg-secondary bg-opacity-10 text-secondary"><span class="material-symbols-rounded">assignment_return</span></div>
                             <div class="fw-semibold mb-1">Devolución</div>
                             <small class="text-muted">Gestionar la devolución del lote directamente con el proveedor.</small>
                         </div>
                     </div>
                 </div>
-                <?php if ($lote['sin_demanda_en_red']): ?>
+                <?php if ($lote['sin_demanda_en_red'] || $bajaRotacionOrigen): ?>
                     <div class="alert alert-warning mt-3 mb-0 small">
                         <span class="material-symbols-rounded align-middle me-1" style="font-size:18px;">warning</span>
-                        Ninguna sucursal (incluida esta) cumple el umbral mínimo de rotación para este medicamento.
-                        La opción "Redistribución" probablemente no resuelva el problema —
+                        <?php if ($lote['sin_demanda_en_red']): ?>
+                            Ninguna sucursal (incluida esta) cumple el umbral mínimo de rotación para este medicamento.
+                            La opción "Redistribución" probablemente no resuelva el problema —
+                        <?php else: ?>
+                            Esta sucursal tiene baja rotación para este medicamento. Consulte el diagnóstico antes de elegir una acción —
+                        <?php endif; ?>
                         <a href="menuprincipal.php?mod=diagnostico_causa_raiz&id_lote=<?php echo $id_lote; ?>&id_sucursal=<?php echo $id_sucursal; ?>">ver diagnóstico de causa raíz</a>.
                     </div>
                 <?php elseif ($lote['sin_datos_en_red']): ?>
@@ -144,7 +143,7 @@ try {
                         </div>
                         <div class="col-md-6">
                             <label class="form-label small fw-bold">MOTIVO DE LA DEVOLUCIÓN</label>
-                            <select class="form-select" id="selectMotivoDevolucion" required>
+                            <select class="form-select" id="selectMotivoDevolucion" disabled>
                                 <option value="">Seleccione...</option>
                             </select>
                             <small class="text-muted">Solo se listan los motivos pactados con ese proveedor.</small>
@@ -167,12 +166,7 @@ try {
                     </div>
                     <div class="col-lg-4 col-md-6">
                         <label class="form-label fw-bold text-secondary small">RESPONSABLE</label>
-                        <select class="form-select" id="responsable" required>
-                            <option value="">Seleccione...</option>
-                            <?php foreach ($responsables as $r): ?>
-                                <option value="<?php echo $r['id_usuario']; ?>"><?php echo htmlspecialchars($r['nombre']); ?> (<?php echo htmlspecialchars($r['rol']); ?>)</option>
-                            <?php endforeach; ?>
-                        </select>
+                        <input type="text" class="form-control" value="<?php echo htmlspecialchars($nombre_usuario_sesion); ?>" readonly>
                     </div>
                     <div class="col-lg-4 col-md-6">
                         <label class="form-label fw-bold text-secondary small">FECHA LÍMITE DE EJECUCIÓN</label>
@@ -180,11 +174,8 @@ try {
                     </div>
                     <div class="col-lg-4 col-md-6">
                         <label class="form-label fw-bold text-secondary small">SUCURSAL APLICABLE</label>
-                        <select class="form-select" id="sucursalAplicable">
-                            <?php foreach ($sucursales as $s): ?>
-                                <option value="<?php echo $s['id_sucursal']; ?>" <?php echo $s['id_sucursal'] == $id_sucursal ? 'selected' : ''; ?>><?php echo htmlspecialchars($s['nombre']); ?></option>
-                            <?php endforeach; ?>
-                        </select>
+                        <input type="text" class="form-control" value="<?php echo htmlspecialchars($lote['sucursal_nombre']); ?>" readonly>
+                        <small class="text-muted">Sucursal donde está disponible el producto.</small>
                     </div>
                     <div class="col-lg-4 col-md-6">
                         <label class="form-label fw-bold text-secondary small">PRIORIDAD DE EJECUCIÓN</label>
@@ -217,6 +208,7 @@ try {
 
 <style>
 .tile-accion {
+    position: relative;
     border: 1.5px solid #dee2e6;
     border-radius: 14px;
     padding: 16px;
@@ -253,7 +245,11 @@ function seleccionarTipo(tipo) {
     document.querySelector(`.tile-accion[data-tipo="${tipo}"]`).classList.add('selected');
 
     const panel = document.getElementById('panelDevolucion');
-    if (tipo === 'DEVOLUCION_PROVEEDOR') {
+    const selectMotivo = document.getElementById('selectMotivoDevolucion');
+    const esDevolucion = tipo === 'DEVOLUCION_PROVEEDOR';
+    selectMotivo.required = esDevolucion;
+    selectMotivo.disabled = !esDevolucion;
+    if (esDevolucion) {
         panel.style.display = 'block';
         if (!datosDevolucion.cargado) cargarProveedorDevolucion();
     } else {
@@ -313,7 +309,7 @@ function actualizarMotivosDevolucion() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    seleccionarTipo('PROMOCION');
+    seleccionarTipo(<?php echo json_encode($accion_recomendada ?? 'PROMOCION'); ?>);
 
     // Fecha límite por defecto: hoy + 5 días
     const fecha = new Date();
@@ -373,13 +369,12 @@ document.getElementById('formAccionRecuperacion')?.addEventListener('submit', fu
     const payload = {
         id_lote: idLote,
         id_sucursal_origen: idSucursal,
-        id_sucursal_destino: tipoAccionSeleccionado === 'REDISTRIBUCION' ? null : null, // se define en la Pantalla #05
+        id_sucursal_destino: null,
         tipo_accion: tipoAccionSeleccionado,
         cantidad_afectada: cantidadAfectada,
         valor_en_riesgo: valorEnRiesgoParcial,
         nivel_riesgo_al_generar: loteInfo.nivel_riesgo,
         irv_origen_al_generar: loteInfo.irv_origen,
-        responsable: document.getElementById('responsable').value || null,
         fecha_limite: document.getElementById('fechaLimite').value || null,
         prioridad: document.getElementById('prioridad').value,
         observaciones: document.getElementById('observaciones').value || null,

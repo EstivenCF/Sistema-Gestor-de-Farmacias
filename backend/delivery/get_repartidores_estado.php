@@ -23,7 +23,17 @@ try {
                 JOIN entregas e2 ON e2.id_entrega = ade2.id_entrega
                 WHERE ade2.id_agenda = ad.id_agenda AND ade2.estado = 'EN_CAMINO'
                 LIMIT 1
-            ) AS entrega_actual
+            ) AS entrega_actual,
+            (
+                -- NUEVO: viaje de redistribución interna activo (Tarea 5). No
+                -- pasa por agenda_delivery (no es una entrega a cliente), así
+                -- que sin esto el repartidor se veía DISPONIBLE aunque
+                -- estuviera manejando un camión entre sucursales ahora mismo.
+                SELECT vr.id_viaje FROM viaje_redistribucion vr
+                WHERE vr.id_repartidor = r.id_repartidor
+                  AND vr.estado IN ('PLANIFICADO','EN_TRANSITO')
+                LIMIT 1
+            ) AS viaje_redistribucion_activo
         FROM repartidores r
         LEFT JOIN vehiculos v      ON v.id_repartidor = r.id_repartidor AND v.activo = true
         LEFT JOIN agenda_delivery ad ON ad.id_repartidor = r.id_repartidor AND ad.fecha = CURRENT_DATE
@@ -34,7 +44,9 @@ try {
 
     // Determinar estado dinámico de cada repartidor
     foreach ($repartidores as &$r) {
-        if (!$r['id_agenda']) {
+        if ($r['viaje_redistribucion_activo']) {
+            $r['estado_actual'] = 'EN_TRANSFERENCIA';
+        } elseif (!$r['id_agenda']) {
             $r['estado_actual'] = 'FUERA_TURNO';
         } elseif ($r['entregas_activas'] > 0 && $r['entrega_actual']) {
             $r['estado_actual'] = 'EN_CAMINO';
@@ -50,6 +62,7 @@ try {
         'disponibles'  => count(array_filter($repartidores, fn($r) => $r['estado_actual'] === 'DISPONIBLE')),
         'en_camino'    => count(array_filter($repartidores, fn($r) => $r['estado_actual'] === 'EN_CAMINO')),
         'en_descanso'  => count(array_filter($repartidores, fn($r) => $r['estado_actual'] === 'EN_DESCANSO')),
+        'en_transferencia' => count(array_filter($repartidores, fn($r) => $r['estado_actual'] === 'EN_TRANSFERENCIA')),
     ];
 
     echo json_encode(['success' => true, 'repartidores' => $repartidores, 'stats' => $stats]);
